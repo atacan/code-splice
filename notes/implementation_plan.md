@@ -1,6 +1,6 @@
 # CodeSplice Technical Implementation Plan
 
-**Status:** Revised after third technical review; Phase 0 specification work required before production implementation
+**Status:** Revised after fourth technical review; no-go for Phase 1 until every Phase 0 blocker and evidence item passes
 **Implementation language:** Rust
 **Working binary name:** `codesplice`
 **Initial release target:** `v0.1.0`
@@ -128,6 +128,7 @@ single-target recoverable transactions
 multi-target recoverable transactions
 workspace mutation locking
 transaction inspection and recovery
+workspace lock diagnosis and explicit repair
 exact payload digest reporting
 ```
 
@@ -141,6 +142,8 @@ insert
 swap
 extract
 ```
+
+Because protocol v1 is closed, exposing these operations on the wire requires protocol v2 (or a later major protocol), even if the executable release remains named `v0.2.0`.
 
 ## `v0.3.0` — Structural selection
 
@@ -212,9 +215,13 @@ For `v0.1.0`:
 * Read those permission bits from the actual original object after it has been moved to the transaction backup and validated.
 * Apply those current permission bits to the candidate before installation.
 * Do not silently restore permission bits captured during an earlier preview or planning snapshot.
-* Do not promise preservation of ownership, ACLs, extended attributes, timestamps, alternate data streams, resource forks, platform flags, or hard-link relationships.
+* Do not promise preservation of ownership, ACLs, extended attributes, timestamps, alternate data streams, resource forks, platform flags, Windows read-only attributes, or hard-link relationships.
+* Inspect link count and supported security metadata before planning a destructive replacement. This inspection is charged to the planning-resource budget and its result is revalidated before the first target mutation.
+* A target with multiple hard links, a nontrivial ACL, security-relevant extended attributes, a macOS resource fork, a Windows alternate data stream, ownership that the installed candidate will not preserve, platform flags, or a Windows read-only attribute is rejected by default with `METADATA_LOSS_REQUIRES_OPT_IN`.
+* A trusted caller may proceed only with the explicit execution option `--allow-metadata-loss`. The report must then emit the applicable stable warnings (`HARD_LINK_RELATIONSHIP_BROKEN`, `ACL_NOT_PRESERVED`, `SECURITY_XATTR_NOT_PRESERVED`, `RESOURCE_FORK_NOT_PRESERVED`, `ALTERNATE_STREAM_NOT_PRESERVED`, `OWNERSHIP_NOT_PRESERVED`, `FILE_FLAGS_NOT_PRESERVED`, or `WINDOWS_READ_ONLY_NOT_PRESERVED`) and structured before/after metadata classes without exposing sensitive ACL principals by default.
+* The flag is not request-controlled, is excluded from content planning, and never suppresses metadata revalidation. An uninspectable metadata class fails closed on platforms where Phase 0 classifies that inspection as required.
 * Reject multiple requested paths that identify the same existing physical file.
-* Document platform-specific behavior.
+* Freeze Unix ACL/xattr/flag detection, macOS resource-fork behavior, Windows inherited-ACL and read-only-attribute behavior, and every unsupported case in `docs/metadata.md` and `docs/platform-support.md` before Phase 1.
 
 ## 4.3 Immutable initial snapshot
 
@@ -288,6 +295,8 @@ It also validates:
 Documentation must state:
 
 > CodeSplice protects against cooperating CodeSplice processes and detects ordinary external modifications. Absolute protection against hostile filesystem races may require platform-specific APIs beyond portable standard-library operations.
+
+After all candidates reach `Prepared` and immediately before the first target mutation, commit must revalidate **every input record from the immutable snapshot**, not only files that are themselves targets. This includes unchanged copy sources, move sources, existing destinations, absent destinations, parent identities, required metadata, and workspace identity. Existing files are reopened through the secure parent handle and fully rehashed unless a Phase 0 platform proof defines a retained secure handle plus change-detection primitive with equivalent or stronger guarantees. Any mismatch aborts before mutation with a registered conflict.
 
 ---
 
@@ -373,7 +382,8 @@ PlannedFileId
 WorkspaceIdentityToken
 FilePlanningMetadata
 LineIndex
-LineRecord
+CompactLineOffsets
+PackedLineTerminatorKinds
 ResolvedOperation
 EditPlan
 PlannedOutput
@@ -467,7 +477,7 @@ pub struct SnapshotAcquisition {
 
 `CommitContext` contains filesystem-layer information that the pure planner does not need, such as securely resolved parent identities and platform handles or tokens.
 
-On supported platforms, mutation primitives must be relative to securely opened workspace or parent-directory handles whenever the operating system exposes the required semantics. A path-based fallback is permitted only for an operation whose documented platform primitive cannot be made handle-relative, and only after immediate parent and target identity revalidation. Such fallback must be named in `docs/platform-support.md`; it may not silently weaken the guarantee.
+On supported platforms, mutation primitives must be relative to securely opened workspace or parent-directory handles whenever the operating system exposes the required semantics. A path-based fallback is permitted only for a non-rename operation whose documented platform primitive cannot be made handle-relative, and only after immediate parent and target identity revalidation. Such fallback must be named in `docs/platform-support.md`; it may not silently weaken the guarantee. Target-to-backup, candidate-to-target, and backup-to-target restoration never use this exception.
 
 ## 6.4 `codesplice-protocol` ownership
 
@@ -481,6 +491,10 @@ ResponseEnvelopeDto
 ErrorDto
 WarningDto
 CapabilitiesDto
+RecoveryRequestDto
+RecoveryResponseDto
+DoctorRequestDto
+DoctorResponseDto
 DTO-to-domain conversion
 domain-to-response conversion
 protocol compatibility validation
@@ -498,6 +512,8 @@ workspace-root establishment
 command orchestration
 preview-versus-commit execution
 expected-plan handling
+trusted metadata-loss option handling
+doctor orchestration
 human-readable output
 JSON output
 exit codes
@@ -604,8 +620,8 @@ Both `.codesplice.lock` and `.codesplice`, including every platform-equivalent s
 Bootstrap and acquisition are normative:
 
 1. Securely open the already-existing workspace root and capture its physical identity.
-2. Relative to that root handle, open `.codesplice.lock` as a regular file with read/write access, close-on-exec, and no-follow/no-reparse semantics. If absent, attempt exclusive creation. Unix creation mode is `0600`; Windows uses a non-inheritable handle and the root directory’s normal ACL inheritance.
-3. Reject a symlink, junction, unsupported reparse point, directory, special file, multiply linked file where link count is available, or a lock name whose `PathEquivalenceKey` is not the reserved key.
+2. Relative to that root handle, open `.codesplice.lock` as a regular file with read/write access, close-on-exec, and no-follow/no-reparse semantics. If absent, attempt exclusive creation. Unix creation requests mode `0600` and immediately applies/verifies exact `0600` through the retained handle so an unusually restrictive umask cannot leave an unusable persistent lock; Windows uses a non-inheritable handle and the root directory’s normal ACL inheritance.
+3. Reject a symlink, junction, unsupported reparse point, directory, special file, multiply linked file where link count is available, or a lock name whose `PathEquivalenceKey` is not the reserved key. On Unix, an existing lock must have link count `1`, be owned by the effective user ID, and have exactly owner read/write permission (`0600`) with no group, other, set-ID, or sticky bits. On Windows, Phase 0 must freeze the owner and DACL validation that prevents a less-privileged principal from replacing or writing the lock.
 4. Acquire a non-blocking exclusive OS file lock on that opened handle. Contention returns `TRANSACTION_BUSY`; v1 does not steal locks or infer staleness from PID or time.
 5. While holding the lock, revalidate the workspace-root identity and that the reserved directory entry still identifies the opened lock object.
 6. If the file is empty because this invocation created it or a prior creator crashed before initialization, write the versioned lock-identity record while holding the lock. Otherwise validate the complete checksummed record.
@@ -637,6 +653,15 @@ Equivalent reviewed crate calls are acceptable only when they preserve every lis
 
 The lock file persists after release. Normal cleanup never removes it. Preview, inspect, capabilities, protocol-version, `recover --list`, and `recover --status` do not create or acquire it. Concurrent first creators may both open the resulting file, but only the process that acquires the OS lock may initialize or validate it; all control-directory creation remains serialized.
 
+The operator repair surface is:
+
+```text
+codesplice doctor --status [--json]
+codesplice doctor --repair-lock --acknowledge-workspace-rebind [--json]
+```
+
+`doctor --status` is read-only. Lock repair is deliberately narrower than normal commit: it securely opens and locks the existing regular lock object when possible, validates the current root and control-directory identities, and performs a locked scan of every transaction entry. It refuses repair with `TRANSACTION_RECOVERY_REQUIRED` if any valid unfinished, committed-but-not-cleaned, corrupt, partially published, or unclassifiable transaction/control entry exists. It also refuses insecure lock ownership, mode, link count, type, or replacement races; those require manual operator remediation documented per platform. Only when the transaction directory is absent or proven empty may it use the Phase 0-frozen crash-safe replacement protocol to bind a new checksummed lock record to the current root. The replacement protocol must retain exclusive serialization throughout publication, use bounded root-relative names and no-replace operations, sync the file and root directory in Durable mode, and have model-based crash cases for every step. Neither normal commit nor recovery silently invokes repair.
+
 ## 7.6 Authoritative path equivalence
 
 Every accepted operation, parent, target, reserved path, manifest path, and sort key has a filesystem-layer `PathEquivalenceKey`, whether or not the final entry exists. The key is an opaque, length-delimited sequence of:
@@ -648,9 +673,9 @@ for each component:
   platform component-comparison key
 ```
 
-The platform component key is frozen as follows:
+The platform component key is frozen as follows for a filesystem that has passed the runtime support gate in Section 7.7:
 
-* Linux: exact UTF-8 bytes. The supported Linux policy is case-sensitive and performs no Unicode normalization.
+* Linux: use exact UTF-8 bytes only after a runtime probe proves that the containing filesystem performs case-sensitive, exact-byte component lookup without Unicode normalization. Do not infer these semantics from the Linux kernel or CPU architecture.
 * macOS: query the mounted volume’s case-sensitivity behavior; use the platform filesystem comparison form, including its canonical Unicode decomposition behavior, and apply case folding only on a case-insensitive volume. If the behavior cannot be queried or represented, reject with `PATH_EQUIVALENCE_UNSUPPORTED`.
 * Windows: reject Win32 device names, alternate-data-stream syntax, trailing dot/space spellings, and unsupported reparse behavior; normalize accepted UTF-8 to NFC and use the directory’s queried case-sensitivity setting, applying Windows ordinal invariant case mapping when insensitive.
 
@@ -667,6 +692,21 @@ Use `PathEquivalenceKey` to:
 
 The core retains the normalized user-visible path spelling for diagnostics. No two distinct retained spellings may share one authoritative equivalence key in a valid batch, except repeated references to the same logical operation path with one identical mandatory precondition.
 
+## 7.7 OS-plus-filesystem support gate
+
+An operating-system architecture alone never establishes support. Phase 0 must publish a matrix keyed by OS version family, filesystem type/version where observable, local versus network/overlay/mounted-volume status, case behavior, normalization behavior, physical-identity stability, hard-link reporting, ACL/xattr/flag inspection, handle-relative open/rename support, no-replace semantics, and file/directory synchronization semantics.
+
+Before planning a commit, and before creating the mutation lock on a previously unprobed workspace, read-only runtime probes must classify the workspace root, control directory location, every source/target parent volume, and every rename pair. Probes must establish or conservatively reject:
+
+* Exact component equivalence behavior for existing and absent names.
+* Stable file and directory identity for the duration required by commit and fresh-process recovery.
+* Handle-relative, no-follow resolution and no-replace rename for target-to-backup, candidate-to-target, and backup-to-target.
+* Same-filesystem rename between each target parent and its transaction-private staging directory.
+* Durable file sync and parent-directory sync when Durable mode is requested.
+* Network, FUSE, overlay, virtualized, bind-mounted, removable, and nested-mounted volume behavior.
+
+Failure or ambiguity returns `FILESYSTEM_SEMANTICS_UNSUPPORTED` before transaction creation or target mutation. Phase 0 feasibility spikes must exercise at least Linux ext4, XFS, Btrfs, and overlay/network rejection paths; macOS APFS in case-sensitive and case-insensitive configurations plus network rejection; and Windows NTFS plus reparse/network rejection. The published matrix may support fewer filesystems when a spike fails, but it may not silently generalize from one filesystem to an OS family.
+
 ---
 
 # 8. Protocol and capability model
@@ -679,9 +719,9 @@ Initial protocol version:
 protocol_version = 1
 ```
 
-Protocol version and supported capabilities are separate.
+Protocol version and supported capabilities are separate. Protocol v1 is nevertheless a permanently closed wire vocabulary: every enum value, operation tag, error code, warning code, and object field accepted by v1 is frozen before Phase 1. Additions require protocol v2 even when the semantic feature is optional or capability-gated. Capability reporting may describe which frozen v1 features this executable implements; it does not make the v1 schema open-ended.
 
-A protocol-v1 implementation is not assumed to support every capability that might later be represented within protocol v1.
+The operations deferred to `v0.2.0` therefore require a protocol-v2 schema/envelope unless Phase 0 chooses an explicitly open, registry-governed string extension point and updates every v1 compatibility fixture before v1 is frozen. The default and preferred decision is protocol v2.
 
 ## 8.2 `v0.1.0` capabilities
 
@@ -752,6 +792,7 @@ pub struct ExecutionOptions {
     pub durability: Durability,
     pub output: OutputMode,
     pub expected_plan: ExpectedPlanPolicy,
+    pub metadata_loss: MetadataLossPolicy,
 }
 ```
 
@@ -770,6 +811,11 @@ pub enum ExpectedPlanPolicy {
     Require(Digest),
     AcceptCurrentPlan,
 }
+
+pub enum MetadataLossPolicy {
+    Reject,
+    AllowWithWarnings,
+}
 ```
 
 The same `BatchSpecification` must be reusable for preview and commit.
@@ -783,6 +829,8 @@ docs/schema/v1/request.schema.json
 docs/schema/v1/response.schema.json
 docs/schema/v1/recovery-request.schema.json
 docs/schema/v1/recovery-response.schema.json
+docs/schema/v1/doctor-request.schema.json
+docs/schema/v1/doctor-response.schema.json
 docs/schema/v1/common.schema.json
 ```
 
@@ -802,9 +850,11 @@ Uppercase hexadecimal, missing prefixes, whitespace, and other algorithms are in
 codesplice apply --request <file-or-> (--preview | --commit) [execution options]
 ```
 
-Direct `move` and `copy` commands are convenience constructors for exactly one protocol-v1 operation and use the same DTO conversion, planner, report, expected-plan policy, and transaction implementation. They are not independent protocols. `inspect`, `capabilities`, `protocol-version`, and `recover` have dedicated closed response schemas. Phase 0 examples must cover every command, every selector and anchor variant, existing and absent targets, preview, commit, no-op, recovery states, each stable error category, and each warning shape.
+Direct `move` and `copy` commands are convenience constructors for exactly one protocol-v1 operation and use the same DTO conversion, planner, report, expected-plan policy, and transaction implementation. They are not independent protocols. `inspect`, `capabilities`, `protocol-version`, `doctor`, and `recover` have dedicated closed request/response schemas where applicable.
 
-Execution options—including preview/commit, durability, output form, diff policy, and expected-plan policy—are excluded from `BatchSpecification` and from `plan_sha256`. Any option that changes resulting bytes is therefore prohibited as an execution option.
+Phase 0 must freeze an executable CLI grammar, not merely examples. It defines every positional argument, required and mutually exclusive option, stdin/stdout behavior, `--json` placement, default, and interaction for `apply`, `inspect`, direct `move`/`copy`, `recover`, and `doctor`; the exact JSON request and response shape for each command; error JSON placement; no-op response fields (`transaction_id: null`, `transaction_state: "not_created"`, `files_changed: []`); and recovery selection/confirmation semantics. Golden examples must cover every command, selector and anchor variant, existing and absent targets, preview, commit, no-op, every recovery state, each stable error category, and each warning shape. Missing CLI or schema semantics are a Phase 0 blocker and may not be deferred to Phase 2 documentation.
+
+Execution options—including preview/commit, durability, output form, diff policy, expected-plan policy, and trusted metadata-loss policy—are excluded from `BatchSpecification` and from `plan_sha256`. Any option that changes resulting content bytes is therefore prohibited as an execution option; metadata-loss permission may change only whether an otherwise byte-identical commit is allowed and which frozen warnings are emitted.
 
 ## 8.6 Stable errors, warnings, and exits
 
@@ -821,7 +871,9 @@ Protocol v1 freezes these process exit categories:
 8  internal failure
 ```
 
-Every error includes stable `code`, `category`, `retryable`, `message`, and `context`. Request-validation errors additionally include an RFC 6901 JSON pointer and, when applicable, a zero-based `operation_index`. Filesystem errors include only normalized workspace-relative paths by default; absolute workspace paths, raw physical identities, OS usernames, and adjacent unrelated names are redacted unless a trusted `--diagnostic-paths` option is used. Warnings have stable identifiers and structured context. Adding a new error code within an existing category is backward compatible; changing a code’s meaning, exit category, or context field type requires a protocol-major change.
+Every error includes stable `code`, `category`, `retryable`, `message`, and `context`. Request-validation errors additionally include an RFC 6901 JSON pointer and, when applicable, a zero-based `operation_index`. Filesystem errors include only normalized workspace-relative paths by default; absolute workspace paths, raw physical identities, OS usernames, and adjacent unrelated names are redacted unless a trusted `--diagnostic-paths` option is used. Warnings have stable identifiers and structured context. Because v1 uses closed schemas, adding an error or warning identifier, changing an identifier’s meaning or exit category, or changing a context field requires protocol v2. There is no "backward-compatible new v1 error code" exception.
+
+Every human-readable renderer uses one centralized terminal-safe escaping contract for all untrusted or filesystem-derived strings, including paths, error messages/context, warnings, request values, transaction IDs/metadata, recovery observations, and diff labels/content. C0/C1 controls, ESC, bidi controls, and noncharacters receive visible escaped forms; tabs/newlines are allowed only where the renderer itself inserts or explicitly structures them. JSON mode relies on canonical JSON escaping and never interpolates pre-rendered terminal text.
 
 Phase 0 must add exhaustive error and warning registry tables to `docs/protocol.md`, assigning every code to one exit category and defining every context field. No production code may emit an unregistered identifier. The registry must at least cover all codes named in this plan, parser/schema failures, selector/anchor/conflict variants, snapshot and path failures, lock/control failures, transaction/recovery classifications, diff truncation, platform limitations, and internal failure. Golden CLI tests bind each registered error to its exit code and stdout/stderr behavior.
 
@@ -1046,7 +1098,7 @@ output_segment =
 
 Segment tag `1` is an original surviving slice; tag `2` is an insertion sourced by the named operation. Segments are encoded in final byte-emission order. Empty outputs have an empty segment list.
 
-The following are excluded from `plan_v1`: execution options (`preview`, `commit`, durability, output/diff mode, expected-plan policy), warnings, human messages, executable version, timestamps, temporary or transaction paths, transaction ID, permission metadata, and preview truncation. No nested digest may reuse the plan domain: payload and file digests are ordinary SHA-256 of content bytes, while new-file IDs use the explicit `CODESPLICE-NEW-ID\0` domain above.
+The following are excluded from `plan_v1`: execution options (`preview`, `commit`, durability, output/diff mode, expected-plan policy, metadata-loss policy), warnings, human messages, executable version, timestamps, temporary or transaction paths, transaction ID, permission/security metadata, and preview truncation. No nested digest may reuse the plan domain: payload and file digests are ordinary SHA-256 of content bytes, while new-file IDs use the explicit `CODESPLICE-NEW-ID\0` domain above.
 
 Phase 0 golden vectors must include at least absent and existing destinations, every enum variant, a no-op, multiple same-offset insertions, non-UTF-8 payload bytes, and maximum-width numeric examples. Each vector includes the semantic input, annotated complete hexadecimal byte dump, byte length, and expected lowercase `sha256:` digest. Golden vectors use synthetic identity kind `0x0000`, never live inodes or Windows file indexes.
 
@@ -1062,6 +1114,12 @@ Initial defaults:
 maximum JSON request size:
   16 MiB
 
+maximum JSON nesting depth:
+  64
+
+maximum serialized JSON response size:
+  64 MiB
+
 maximum operations per batch:
   10,000
 
@@ -1071,6 +1129,21 @@ maximum distinct operation paths:
 maximum UTF-8 relative-path length:
   4,096 bytes
 
+maximum encoded PathEquivalenceKey length:
+  64 KiB
+
+maximum canonical physical-identity token length:
+  512 bytes
+
+maximum metadata entries inspected per input file:
+  4,096
+
+maximum metadata bytes inspected per input file:
+  1 MiB
+
+maximum total metadata-inspection bytes:
+  32 MiB
+
 maximum transaction targets:
   5,000
 
@@ -1078,7 +1151,25 @@ maximum manifest size:
   64 MiB
 
 maximum state-file size:
-  1 MiB
+  16 MiB
+
+maximum state records per transaction:
+  50,000
+
+maximum cumulative state-record bytes per transaction:
+  512 MiB
+
+maximum transaction-directory entries scanned:
+  100,000
+
+maximum transaction directories in the control directory:
+  10,000
+
+maximum total recovery bytes read in one command:
+  1 GiB
+
+maximum total control-directory bytes:
+  8 GiB
 
 maximum human-readable diff:
   8 MiB
@@ -1091,11 +1182,46 @@ maximum individual snapshot file:
 
 maximum total in-memory snapshot bytes:
   2 GiB
+
+maximum resulting bytes per changed file:
+  1 GiB
+
+maximum total planned-output bytes:
+  4 GiB
+
+maximum total candidate bytes:
+  4 GiB
+
+maximum segments per output:
+  100,000
+
+maximum total output segments:
+  1,000,000
+
+maximum line records per file:
+  10,000,000
+
+maximum total line records:
+  20,000,000
+
+maximum line-index memory:
+  256 MiB
+
+maximum total planning memory:
+  3 GiB
+
+maximum projected transaction disk use:
+  8 GiB
 ```
 
 Requirements:
 
 * Limits apply before uncontrolled allocation.
+* Every parsed count, file length, line count, segment count, output length, candidate length, backup length, record length, response length, memory charge, and disk-use sum uses checked arithmetic in its canonical unsigned width and checked conversion to `usize`. Overflow is `RESOURCE_LIMIT_EXCEEDED`, never wraparound or saturation.
+* Planning charges source snapshot bytes, compact line indexes, equivalence/identity tokens, bounded metadata names/values, segment vectors, response estimates, planned candidates, backups, manifest/state worst-case overhead, and recovery/control scans to separate counters and to the applicable aggregate budget. Metadata enumeration that exceeds its count/byte bound fails closed rather than assuming no security metadata.
+* The planner computes each resulting length from segments before transaction creation, rejects per-file or aggregate output amplification, and computes projected transaction disk use as candidates + retained backups + worst-case bounded control records. A 1 GiB source copied to 10,000 outputs must be rejected during pure planning without creating `.codesplice.lock`, `.codesplice`, or transaction artifacts.
+* Candidate preparation independently accounts actual bytes written and aborts safely if observations exceed the already accepted plan; it may never use the candidate budget to authorize a larger plan.
+* Line indexes use a compact offset representation with terminator kind packed or stored separately. A heap-sized `LineRecord` object per line is forbidden. Every index allocation is charged before allocation to the per-file line count, total line count, line-index byte budget, and total planning-memory budget.
 * Limit violations use structured errors.
 * Request-provided data cannot increase the limits.
 * Trusted CLI configuration may lower limits.
@@ -1107,7 +1233,7 @@ Requirements:
 
 Diff generation is reporting-only and may be disabled with `--no-diff`; disabling or truncating a diff cannot affect planning, hashing, or commit. A file is treated as binary when either side contains NUL or is not valid UTF-8. Binary reports contain lengths, SHA-256 digests, and bounded changed-span samples encoded as standard padded base64; they never place arbitrary bytes directly in JSON or terminal output.
 
-Text diffs tokenize LF, CRLF, and lone CR as indivisible terminators using the same line index as selectors. JSON escaping is the only string escaping in JSON mode. Human mode visibly escapes control characters other than recognized line terminators.
+Text diffs tokenize LF, CRLF, and lone CR as indivisible terminators using the same line index as selectors. JSON escaping is the only string escaping in JSON mode. Human mode visibly escapes every terminal control originating from paths, errors, warnings, transaction metadata, request strings, and diff content. Recognized line terminators may structure diff lines only after all non-terminator controls are escaped. ANSI/ECMA-48 escape characters are never emitted from untrusted text.
 
 The implementation must enforce all of these budgets while computing, not only while rendering:
 
@@ -1136,11 +1262,13 @@ Create:
 ```text
 docs/specification.md
 docs/protocol.md
+docs/cli.md
 docs/metadata.md
 docs/security.md
 docs/resource-limits.md
 docs/transaction-model.md
 docs/platform-support.md
+docs/protocol-v1-compatibility.md
 docs/schema/v1/request.schema.json
 docs/schema/v1/response.schema.json
 docs/schema/v1/recovery-request.schema.json
@@ -1158,6 +1286,9 @@ docs/adr/0009-permission-preservation.md
 docs/adr/0010-workspace-lock-bootstrap.md
 docs/adr/0011-path-equivalence-keys.md
 docs/adr/0012-transaction-state-and-durability.md
+docs/adr/0013-candidate-ownership.md
+docs/adr/0014-protocol-evolution.md
+docs/performance-baseline.json
 ```
 
 ## 0.1 Line semantics
@@ -1331,7 +1462,7 @@ Operation paths:
 
 ## 0.7 Physical identity
 
-Physical identity support is a release requirement on:
+Physical identity support is a release requirement on every claimed OS-plus-filesystem matrix row for:
 
 ```text
 Linux x86_64
@@ -1339,7 +1470,7 @@ macOS ARM64
 Windows x86_64
 ```
 
-It is not an optional capability on those targets.
+It is not an optional capability on a supported matrix row. A release may reject an unproven filesystem on those operating systems, but may not silently downgrade identity validation.
 
 Reject distinct requested paths identifying the same existing physical file.
 
@@ -1396,9 +1527,10 @@ For an existing target:
 
 1. Move the actual target to backup with no-replace semantics.
 2. Validate the moved object’s identity and digest.
-3. Read its current ordinary permission bits.
-4. Apply those current bits to the candidate.
-5. Install the candidate.
+3. Reinspect its current link/security metadata and enforce the frozen metadata-loss policy.
+4. Read its current ordinary permission bits.
+5. Apply those current bits and the frozen final metadata policy to the candidate.
+6. Install the candidate.
 
 Do not restore earlier snapshot permissions over a newer external permission change.
 
@@ -1444,19 +1576,20 @@ Each existing physical file is acquired from one open handle:
 3. Reject the file before allocation if its declared length exceeds the per-file or remaining batch limit.
 4. Read to EOF in bounded chunks while hashing, rejecting more bytes than the limit or more bytes than the captured length permits.
 5. From the same handle, capture identity, type, length, and change indicators again.
-6. Treat different before/after metadata, short/long reads relative to final length, or a changed digest precondition as an unstable attempt.
+6. Treat different before/after metadata or short/long reads relative to the final length as an unstable attempt. Retry only when before/after observations demonstrate instability.
 7. Re-resolve the parent entry without following and verify it still identifies the opened object and the same parent identity.
-8. Close only after all captured commit-context tokens are finalized.
+8. After a stable read, compare SHA-256 with the explicit digest precondition. A mismatch is the deterministic conflict `DIGEST_PRECONDITION_FAILED` and is returned immediately without consuming another snapshot retry.
+9. Close only after all captured commit-context tokens are finalized.
 
 Retry the complete open/read/validate sequence at most two additional times, for three attempts total. A third unstable result returns `SNAPSHOT_UNSTABLE` with the normalized path, attempt count, and which indicators changed. Never combine chunks from separate attempts. This detects ordinary concurrent in-place writes; the security documentation must state that platforms lacking a generation counter cannot prove absence of a hostile write that restores all observed metadata.
 
 ## 0.13 Lock and secure-handle contract
 
-Freeze and test the exact Section 7.5 bootstrap. All `.codesplice`, transaction-directory, candidate, backup, target, rollback, and cleanup operations use handle-relative APIs where supported. Every path-based exception must identify its OS primitive, pre/post identity validation, and residual race in `docs/platform-support.md`. `WORKSPACE_LOCK_INVALID`, `TRANSACTION_BUSY`, and `PATH_EQUIVALENCE_UNSUPPORTED` are protocol-v1 stable errors.
+Freeze and test the exact Section 7.5 bootstrap. All `.codesplice`, transaction-directory, candidate, backup, target, rollback, and cleanup operations use handle-relative APIs where supported. Every path-based exception for a non-rename operation must identify its OS primitive, pre/post identity validation, and residual race in `docs/platform-support.md`. Target-to-backup, candidate-to-target, and backup-to-target restoration have no path-based or replace-capable exception: absence of the secure handle-relative no-replace primitive rejects commit support for that filesystem before target mutation. `WORKSPACE_LOCK_INVALID`, `TRANSACTION_BUSY`, and `PATH_EQUIVALENCE_UNSUPPORTED` are protocol-v1 stable errors.
 
 ## 0.14 Transaction records, states, and durability
 
-The immutable manifest is published before any candidate creation. The mutable logical state is represented by a sequence of complete atomic records. Every record contains transaction ID, manifest SHA-256, `sequence`, state tag and payload, and the prior published state record’s stored checksum (`none` for sequence `0`). The checksum is SHA-256 over every record byte from magic through payload, excluding only the final checksum field.
+The immutable manifest is published before any candidate creation. The mutable logical state is represented by a hash-chained sequence of atomic **delta events with bounded periodic full snapshots**, not by rewriting a full per-target vector for every candidate or target transition. Every record contains transaction ID, manifest SHA-256, `sequence`, record kind (`snapshot` or `delta`), state tag and payload, and the prior published state record’s stored checksum (`none` for sequence `0`). The checksum is SHA-256 over every record byte from magic through payload, excluding only the final checksum field.
 
 ```text
 manifest magic: CODESPLICE-MANIFEST\0
@@ -1466,27 +1599,31 @@ first state sequence: 0
 next sequence: exactly previous + 1, without wrap
 ```
 
-`manifest SHA-256` means the manifest record’s stored checksum under the same rule. `sequence`, target indices, state tags, optional tags, identity encodings, lengths, and list counts receive fixed big-endian widths and numeric discriminants in the Phase 0 byte grammar in `docs/transaction-model.md`; the grammar must include an annotated golden byte dump for every state tag before Phase 1.
+`manifest SHA-256` means the manifest record’s stored checksum under the same rule. `sequence`, target indices, record kinds, event/state tags, optional tags, identity encodings, lengths, and list counts receive fixed big-endian widths and numeric discriminants in the Phase 0 byte grammar in `docs/transaction-model.md`; the grammar must include an annotated golden byte dump for every snapshot and delta kind before Phase 1.
+
+Sequence `0` is one full `Preparing` snapshot. It authorizes every candidate slot before creation as `authorized_missing` and binds its 128-bit ownership nonce, derived basename, expected transaction-private parent identity, digest, and length. Subsequent candidate creation and commit progress use one-target delta events. A full snapshot is published after at most 512 deltas and at each phase boundary (`Prepared`, `Committed`, `RolledBack`, and cleanup entry); recovery may start from the newest valid snapshot whose preceding chain has been validated, then fold later deltas. Record count, individual bytes, cumulative bytes, scan entries, and total control-directory use are limited by Section 10 and a worst-case state/control projection must pass before transaction creation.
 
 State tags and payloads are:
 
 ```text
 Preparing
-  per-target candidate status: missing | created(candidate physical identity)
+  initial snapshot: per-target authorized_missing(ownership nonce and derived name)
+  deltas: candidate_created(target index, candidate physical identity)
 Prepared
-  every candidate identity present and verified
+  full snapshot: every candidate identity present and content verified
 Committing
-  per-target stage: original | backed_up(backup identity) | installed(final identity)
+  deltas: commit_started | backed_up(target index, backup identity) |
+          installed(target index, final identity)
 Committed
-  every final target verified; this persisted record is the logical commit point
+  full snapshot: every final target verified; this persisted record is the logical commit point
 RollingBack
-  per-target rollback stage and observed identities
+  deltas: rollback_started and per-target rollback stage/observed identities
 RolledBack
-  every existing original restored and every originally absent target absent
+  full snapshot: every existing original restored and every originally absent target absent
 CleaningCommitted
-  cleanup progress; only all-new recovery is legal
+  entry snapshot plus cleanup deltas; only all-new recovery is legal
 CleaningRolledBack
-  cleanup progress; only all-old recovery is legal
+  entry snapshot plus cleanup deltas; only all-old recovery is legal
 ```
 
 Legal transitions are:
@@ -1502,7 +1639,7 @@ RolledBack -> CleaningRolledBack
 CleaningRolledBack -> CleaningRolledBack | remove transaction directory
 ```
 
-No transition may regress a target stage or sequence. Rollback from `Committing` is allowed only after filesystem classification proves all installed candidates can be removed and all backups still identify the recorded originals. `Committed` is the irrevocable logical commit point: rollback is rejected thereafter, and recovery may only verify/complete cleanup. State that names an unknown target, invalid index, impossible stage, candidate identity absent from `Prepared`, or a manifest digest/transaction ID mismatch returns `TRANSACTION_RECORD_CORRUPT`. Filesystem observations never silently repair a corrupt record; valid lag after a crash is handled by the recovery matrix.
+No event may regress a target stage or sequence, apply twice where not idempotent in the logical fold, or exceed the bounded snapshot interval. Rollback from `Committing` is allowed only after filesystem classification proves all installed candidates can be removed and all backups still identify the recorded originals. `Committed` is the irrevocable logical commit point: rollback is rejected thereafter, and recovery may only verify/complete cleanup. State that names an unknown target, invalid index, impossible stage, candidate identity absent from `Prepared`, an invalid snapshot fold, or a manifest digest/transaction ID mismatch returns `TRANSACTION_RECORD_CORRUPT`. Filesystem observations never silently repair a corrupt record; valid lag after a crash is handled by the recovery matrix.
 
 Record publication protocol:
 
@@ -1513,7 +1650,7 @@ Record publication protocol:
 5. Apply the selected directory-sync requirement.
 6. Never overwrite a published record. On recovery, ignore only a validly bounded `.tmp` name owned by that manifest; never infer state from it.
 
-The current state is the highest valid contiguous sequence whose hash chain begins at `0`. A gap, duplicate sequence, checksum failure in a published record, or forked prior hash is corruption. This append-and-publish protocol is the v1 state-file replacement model; no in-place state write or separate checksum file is allowed.
+The current state is the fold through the highest valid contiguous sequence whose hash chain begins at `0`. A gap, duplicate sequence, checksum failure in a published record, forked prior hash, delta that cannot apply to the preceding logical state, or overdue snapshot is corruption. This append-and-publish protocol is the v1 state-file replacement model; no in-place state write or separate checksum file is allowed.
 
 Durability guarantees are:
 
@@ -1522,16 +1659,22 @@ Durability guarantees are:
 | Record/candidate data write | `write_all`, flush runtime buffers, close before dependent rename | `write_all`, flush, `sync_all` file before dependent rename |
 | Publish manifest/state | atomic no-replace rename; no directory sync required | sync temp file, rename, then sync transaction directory |
 | Create control/transaction directory | ordinary secure create | secure create, then sync its parent directory at every new level |
-| Candidate ready | close and verify before `Prepared` | apply permissions, `sync_all`, close/verify, then publish and sync `Prepared` |
-| Target-to-backup rename | publish next state after rename | rename, sync target parent directory, then publish and sync next state |
-| Candidate-to-target rename | verify then publish next state | pre-sync candidate data/metadata, rename, sync target parent, verify, then publish/sync state |
+| Exclusively create candidate | capture identity and retain the handle; publish no existence state yet | create and capture identity; publish no existence state yet |
+| Candidate ready | flush and verify through the retained handle, publish the identity delta, then close before `Prepared` | apply restrictive permissions, write/verify, `sync_all` candidate file, sync candidate parent directory, publish the `candidate_created` identity delta, then close/reopen-verify before publishing/syncing `Prepared` |
+| Target-to-backup rename | publish next state after rename | rename, sync both target parent and transaction directory, then publish and sync next state |
+| Candidate-to-target rename | verify then publish next state | pre-sync candidate data/metadata, rename, sync both transaction directory and target parent, verify, then publish/sync state |
+| Backup-to-target restoration | verify then publish rollback progress | rename no-replace, sync both transaction directory and target parent, verify, then publish/sync rollback state |
 | Cleanup unlink/transaction removal | best effort with state retained until completion | sync affected parent after each cleanup batch and after transaction removal |
 
 `Normal` guarantees recoverability after process termination provided the operating system and filesystem preserve acknowledged cached writes and renames; it makes no power-loss or kernel-crash persistence guarantee. `Durable` orders file and directory synchronization to survive a system crash or power loss under the documented filesystem’s `fsync`/equivalent contract. Unsupported directory sync or rename semantics fail before mutation with `UNSUPPORTED_DURABILITY_PRIMITIVE`. Neither mode makes multi-target visibility atomic.
 
 ## 0.15 Candidate identity and recovery comparison
 
-After exclusive candidate creation, capture its canonical physical identity from the retained open handle. Persist that identity in the next `Preparing` state record before closing the handle; `Prepared` is forbidden until every candidate identity is recorded. Reopen/revalidate the directory entry against that identity immediately before installation. Recovery uses the recorded identity, never digest and length alone.
+Candidates and backups are created only inside the transaction-private directory, not adjacent to user targets. Before the manifest is published, the implementation captures that directory’s physical identity, verifies it is a newly and exclusively created real directory, and proves through Section 7.7 probes that it is on the same supported filesystem as every target parent. On Unix the directory must be owned by the effective user and have exact mode `0700` with no special bits; on Windows it must have the Phase 0-frozen owner-only/service-required DACL, reject inheritance that grants another writable principal, and reject every reparse tag. Transactions spanning a nested mount or any target for which staging-to-target and target-to-staging no-replace rename cannot be proven fail before manifest publication.
+
+The manifest assigns each target a cryptographically random 128-bit candidate-ownership nonce and binds it to the one candidate basename derived from the complete transaction ID and encoded target `PathEquivalenceKey`; no normalized path spelling is a hash input. Sequence `0` durably authorizes that exact nonce/name/slot tuple as absent before candidate creation. After exclusive candidate creation, capture its canonical physical identity from the retained open handle but publish no existence state yet. Prepare and verify the file through that handle. In Durable mode, `sync_all` the candidate file and then sync the transaction directory; only afterward may the `candidate_created` delta publish the identity. Persist the identity before closing the last retained secure handle; `Prepared` is forbidden until every candidate identity is recorded and revalidated. Reopen/revalidate the directory entry against that identity immediately before installation. Recovery normally uses the recorded identity, never digest and length alone.
+
+The exact crash after exclusive creation but before `candidate_created` publication is classified as `owned_unpublished_candidate`, not as a normal candidate. That classification is valid only when all of these hold: the last folded state is `authorized_missing`; the transaction-directory identity, ownership, mode/DACL, and no-reparse properties match the manifest; the entry has the exact authorized basename bound to the recorded ownership nonce in that directory; it is a regular, single-link object; and no containing-directory or state corruption exists. Its content, length, and digest are irrelevant to ownership. Fresh-process completion is forbidden because no recorded physical identity authorizes installation, but rollback may unlink this transaction-owned untrusted entry with handle-relative identity-before/after checks. If any ownership condition is missing, recovery returns explicit conflict and mutates nothing. This rule is part of the documented ordinary-race/cooperating-process threat model and does not claim protection from a hostile principal able to write inside the owner-only transaction directory.
 
 For every target, classification compares:
 
@@ -1541,6 +1684,7 @@ target path vs recorded candidate/final identity and planned digest
 backup path vs recorded original identity and digest
 candidate path vs recorded candidate identity and planned digest
 each containing parent vs recorded parent identity and PathEquivalenceKey
+an unpublished candidate only vs the complete `owned_unpublished_candidate` ownership predicate
 ```
 
 Identical bytes with a different physical identity classify as `identity_mismatch`, except that a successfully installed candidate’s identity becomes the recorded final identity in the post-install state. A crash after rename but before that state update is recognized only when the target has the previously recorded candidate identity. Secure handles may be retained across installation when the platform permits; recovery must still work from persisted identities alone in a fresh process.
@@ -1554,15 +1698,20 @@ The minimum recovery-action matrix is normative:
 | present | recorded candidate identity | recorded original | missing | complete records/verifies install; rollback removes target then restores original |
 | absent | absent | not applicable | recorded candidate | complete installs; rollback removes candidate |
 | absent | recorded candidate identity | not applicable | missing | complete records/verifies install; rollback removes target |
+| either | unchanged original state | missing/not applicable | owned unpublished candidate | complete is forbidden; rollback deletes only that transaction-owned untrusted entry |
 | either | any different identity/digest/type | any unexpected entry | any different identity/digest/type | explicit conflict; mutate nothing |
 
 After `Committed`, rows that already name the recorded candidate/final object may only advance cleanup; a missing or mismatching final target is an explicit external-modification conflict, never grounds for rollback. Recovery applies this matrix to all targets before the first recovery mutation, then revalidates the affected row immediately before each handle-relative operation.
 
 ## 0.16 New-file permission policy
 
-On Unix, every candidate is created exclusively at mode `0600`, and the implementation immediately verifies/reapplies `0600`. Before worker threads start, the CLI captures and restores the process umask. A new target’s final ordinary mode is exactly `0666 & captured_umask`; apply it to the candidate immediately before installation. The candidate is never broader than `0600` during preparation and never broader than its final mode after that chmod. Existing targets continue to receive the current mode read from the validated backup. Protocol v1 has no requested-mode field or CLI mode override.
+On Unix, every candidate is created exclusively at mode `0600`, and the implementation immediately verifies/reapplies `0600`. Before worker threads start, the single-threaded CLI captures the process umask using the Phase 0-frozen race-free bootstrap procedure, immediately restores it, and never changes it after worker creation. A new target’s final ordinary mode is exactly `0666 & ((!captured_umask) & 0o777)`; the complement is explicitly masked to the platform’s ordinary permission-bit width before the `0666` intersection. Apply that mode to the candidate immediately before installation. The candidate is never broader than `0600` during preparation and never broader than its final mode after that chmod. Existing targets continue to receive the current mode read from the validated backup. Protocol v1 has no requested-mode field or CLI mode override.
 
-On Windows, candidates use non-inheritable handles and the target parent’s normal inherited ACL policy. Read-only attribute behavior is documented separately and no POSIX-mode equivalence is promised. Candidate creation must not deliberately grant access beyond the final inherited policy. Platform tests record the effective ACL/attribute behavior.
+Phase 0 and platform tests include golden values for captured umasks `000`, `002`, `022`, `027`, `077`, and `777`, producing new-file modes `0666`, `0664`, `0644`, `0640`, `0600`, and `0000` respectively. The `0777` case must prove that a zero-mode candidate remains installable through the already-open handle and is reported accurately.
+
+On Unix filesystems with default ACLs, transaction-private creation does not by itself reproduce target-parent inheritance. For a new target, immediately before installation the implementation must derive, apply, and verify the effective target-parent default ACL combined with the final ordinary mode according to the Phase 0-frozen platform rule. If required ACL inheritance cannot be inspected or reproduced, fail before mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`; do not silently install a file with the transaction directory’s ACL. The candidate remains protected by the owner-only transaction directory while final metadata is applied.
+
+On Windows, candidates use non-inheritable handles and restrictive ACLs while inside the transaction-private directory. Because rename from that directory does not reliably recreate target-parent inheritance, immediately before installation the implementation must compute and apply the same frozen effective inherited ACL/owner class that a newly created file in the validated target parent would receive, then verify it through the retained handle. If that cannot be represented or verified without granting unintended access, fail before target mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`. For an existing target, any security-semantic difference remains subject to the default metadata-loss rejection and explicit opt-in in Section 4.2. The Windows read-only attribute is never silently copied or discarded: Phase 0 freezes its default error, opt-in warning, and final attribute state. No POSIX-mode equivalence is promised. Platform tests record effective ACL/attribute behavior before staging, before rename, and after installation.
 
 ## 0.17 Deterministic crash failpoints
 
@@ -1572,7 +1721,7 @@ Scenario tests launch CodeSplice as a child process with one failpoint selected 
 
 ## 0.18 Required fixtures
 
-Create at least 60 normative fixtures, including:
+Create at least 80 normative fixtures, including:
 
 1. LF.
 2. CRLF.
@@ -1638,6 +1787,22 @@ Create at least 60 normative fixtures, including:
 62. Durable-mode system-crash model.
 63. Committed transaction with partial cleanup.
 64. Candidate hash-truncation collision detected before publication.
+65. Crash immediately after candidate creation and before candidate-identity publication, classified as `owned_unpublished_candidate`.
+66. Durable power loss after candidate file sync but before candidate-parent-directory sync.
+67. Source-only copy input changes after `Prepared` and before the first target mutation.
+68. Unfinished older transaction blocks a new commit.
+69. Corrupt or partially cleaned older transaction blocks a new commit.
+70. A 1 GiB source copied 10,000 times is rejected during planning with no filesystem artifact.
+71. A high-line-count file exhausts each line-count/index-memory budget without uncontrolled allocation.
+72. Candidate installation encounters an externally created target and no-replace fails without overwrite.
+73. Rollback restoration encounters an externally created target and no-replace fails without overwrite.
+74. A previous protocol-v1 validating client accepts every frozen v1 response; proposed new v1 enum/error/operation values fail the compatibility gate and require v2.
+75. Workspace lock repair with no transaction entries.
+76. Workspace lock repair refused for unfinished, corrupt, and cleanup-only transactions according to the frozen matrix.
+77. Existing ACL, security xattr, macOS resource fork, Windows alternate stream, file flag, multiple hard link, ownership mismatch, and Windows read-only metadata produce the frozen default error and opt-in warning behavior.
+78. JSON nesting, response-size, identity-token, `PathEquivalenceKey`, metadata-inspection, transaction-count, state-record-count, recovery-byte, and control-directory budgets.
+79. No-op commit on a workspace without a lock or control directory creates neither.
+80. Runtime filesystem probes reject unsupported case, normalization, identity, network/overlay, cross-mount rename, no-replace, and directory-sync semantics.
 
 ## Phase 0 checkpoint
 
@@ -1646,23 +1811,29 @@ Pass only when:
 * Crate ownership is cycle-free.
 * Workspace-root behavior is frozen.
 * `.codesplice` behavior is frozen.
-* `.codesplice.lock` bootstrap, identity binding, persistence, and lifetime are frozen.
-* Path equivalence for existing and absent entries is frozen on all release platforms.
+* `.codesplice.lock` bootstrap, Unix owner/mode validation, Windows owner/DACL validation, identity binding, persistence, lifetime, and crash-safe `doctor --repair-lock` procedure are frozen.
+* The OS-plus-filesystem support matrix, runtime probes, and rejection behavior are frozen; path equivalence for existing and absent entries is proven on every supported matrix row.
 * Plan-hash encoding is frozen.
 * Golden plan vectors include annotated byte dumps.
 * Edit composition and every line-anchor offset are frozen.
 * Single-target and multi-target commits share one transaction model.
-* The complete transaction state machine and both durability protocols are frozen.
-* Candidate and final identities are present in recovery comparisons.
+* The delta-plus-periodic-snapshot transaction grammar, record/control bounds, complete state machine, and both durability protocols are frozen.
+* Transaction-private staging, candidate pre-creation authorization/nonce rules, the `owned_unpublished_candidate` crash window, and candidate/final identity comparisons are frozen.
 * Preview wording does not promise stable access time.
+* Successful no-op commit semantics are frozen as intentionally mutation-free, including lock/control bootstrap.
 * Permission concurrency behavior is frozen.
-* New-file permissions are frozen.
-* Backup no-replace behavior is specified.
+* New-file permissions and all required umask golden values are frozen.
+* Handle-relative no-replace target-to-backup, candidate-to-target, and backup-to-target restoration are required and proven feasible for every supported matrix row.
 * Manifest target records are fully specified.
 * Orphan handling is frozen.
-* Protocol-v1 schemas validate all normative examples and reject duplicate/unknown keys.
+* Protocol-v1 schemas and the complete CLI grammar validate all normative examples, reject duplicate/unknown keys, freeze every v1 enum/error/warning, and pass previous-v1-client compatibility tests.
+* Output-amplification, line-index, metadata-inspection, planning-memory, disk, JSON, response, identity/key, state/recovery, and control-directory limits are frozen with checked-arithmetic rules.
+* Source-only inputs are included in the final pre-mutation revalidation boundary.
+* Metadata detection, default rejection, explicit opt-in, and Unix/macOS/Windows warning/error behavior are frozen.
+* All human output contexts escape terminal controls.
 * Exit categories, error context, arbitrary-byte diff behavior, and failpoint mechanics are frozen.
-* At least 60 fixtures exist.
+* Phase 8 reference hardware/filesystem profiles, workloads, corpus durations/seeds, absolute workload ceilings, and 15% time/10% peak-memory regression budgets are frozen with no `TBD` values.
+* At least 80 fixtures exist.
 * No production editing engine exists.
 
 ### Phase 0 evidence
@@ -1670,8 +1841,9 @@ Pass only when:
 Phase 0 does not require or permit production filesystem editing or transaction behavior. Its evidence is divided into:
 
 1. **Normative examples and state-transition tables:** required for every item below and checked for internal consistency.
-2. **Optional non-production executable specification tests:** pure models, schema-validation tests, golden encoders, and in-memory/test-double state machines are allowed under `codesplice-test-support` or documentation tooling. They may not be linked into the production CLI/crates as an editing or transaction engine and may not mutate real workspace targets.
-3. **Production behavioral demonstrations:** explicitly deferred to the phase named below and not part of the Phase 0 pass/fail decision.
+2. **Required non-production executable specification tests:** pure models, schema-validation/compatibility tests, golden encoders, resource-accounting models, and in-memory/test-double state machines live under documentation tooling or a Phase 0-only test-support package. They may not be linked into production crates as an editing or transaction engine and may not mutate real workspace targets.
+3. **Required platform feasibility spikes:** minimal disposable programs may operate only inside test-owned temporary directories to prove identity, no-replace rename, directory sync, case/normalization, metadata inspection, and lock-repair primitives for each proposed support-matrix row. They are evidence, not production editing code.
+4. **Production behavioral demonstrations:** explicitly deferred to the phase named below and not part of the Phase 0 pass/fail decision.
 
 Present normative examples for:
 
@@ -1681,6 +1853,19 @@ Present normative examples for:
 4. A workspace-root replacement conflict.
 5. A transaction directory created before candidate generation.
 6. A target backup collision rejected through no-replace rename.
+
+Phase 0 must additionally check in executable or model-based evidence for these blocking cases:
+
+1. Crash immediately after candidate creation but before candidate-identity publication; recovery folds to `owned_unpublished_candidate`, refuses completion, and permits only identity-checked rollback deletion.
+2. Power loss after candidate file sync but before candidate-parent-directory sync; no durably published state may promise candidate existence.
+3. A source-only copy input changes after `Prepared`; final input revalidation aborts before the first target mutation.
+4. An unfinished, corrupt, or partially cleaned older transaction exists when a new commit starts; the locked stale-transaction gate returns `TRANSACTION_RECOVERY_REQUIRED`, except for the frozen safe cleanup-only path.
+5. A 1 GiB source is copied 10,000 times; checked planning rejects output amplification before any lock/control/transaction write.
+6. A high-line-count file reaches the per-file, aggregate, index-byte, or total planning-memory limit without an uncharged allocation or panic.
+7. Candidate installation and backup-to-target rollback restoration each encounter an externally created destination; handle-relative no-replace fails without overwrite.
+8. Every response validates against the frozen previous protocol-v1 schema; attempting to add a v1 enum, operation, warning, or error demonstrates a compatibility failure and requires v2.
+9. Lock repair succeeds only in the no-outstanding-transaction model and is refused for unfinished, corrupt, or not-fully-cleaned transaction states.
+10. ACL, security-xattr, flag, multiple-hard-link, ownership, macOS resource-fork, Windows alternate-stream, inherited-ACL, and read-only cases produce exactly the frozen default error or opt-in warning.
 
 Production evidence is deferred as follows:
 
@@ -1783,7 +1968,7 @@ Implement the frozen protocol-v1 schemas and the one-operation `move`/`copy` con
 * Every source and destination path has an explicit precondition.
 * Source preconditions and existing-destination preconditions must be SHA-256.
 * Absent-destination preconditions must be `must_not_exist`.
-* Resource limits are validated before large allocation.
+* Request bytes, JSON nesting depth, path/key/identity lengths, counts, response estimates, and all other applicable resource limits are validated before large allocation with checked arithmetic.
 * Direct `move` and `copy` parse into a one-operation `BatchSpecification` and have no separate semantics.
 
 ## Expected-plan CLI policy
@@ -1803,15 +1988,19 @@ Add:
 
 ```text
 EXPECTED_PLAN_MISMATCH
+PLAN_CHANGED_DURING_COMMIT
+DIGEST_PRECONDITION_FAILED
 INVALID_WORKSPACE_ROOT
 WORKSPACE_IDENTITY_CHANGED
 RESERVED_CONTROL_PATH
 CONTROL_DIRECTORY_INVALID
 TRANSACTION_BUSY
+TRANSACTION_RECOVERY_REQUIRED
 RESOURCE_LIMIT_EXCEEDED
 UNSUPPORTED_COMMIT_PRIMITIVE
 WORKSPACE_LOCK_INVALID
 PATH_EQUIVALENCE_UNSUPPORTED
+FILESYSTEM_SEMANTICS_UNSUPPORTED
 SNAPSHOT_UNSTABLE
 LINE_ANCHOR_OUT_OF_RANGE
 PLAN_ENCODING_LIMIT
@@ -1819,9 +2008,10 @@ TRANSACTION_RECORD_CORRUPT
 UNSUPPORTED_DURABILITY_PRIMITIVE
 RESERVED_NAME_COLLISION
 CANNOT_COMPLETE_PREPARING
+METADATA_LOSS_REQUIRES_OPT_IN
 ```
 
-Errors and warnings require structured context.
+Errors and warnings require structured context. Protocol v1 also freezes the metadata warnings named in Section 4.2 and every other warning in the Phase 0 registry; Phase 2 may not add identifiers absent from the checked-in v1 schema.
 
 ## Phase 2 checkpoint
 
@@ -1834,6 +2024,8 @@ Pass only when:
 * Resource limits are applied during parsing.
 * No filesystem access exists in protocol conversion.
 * Stable exit categories, retryability, JSON pointers, operation indices, redaction, warnings, and JSON stdout/stderr rules pass golden tests.
+* Every human renderer escapes controls in every untrusted field, not only diff bodies.
+* The frozen prior-v1 schema accepts every v1 response and the compatibility test proves that proposed enum/error additions require v2.
 
 ### Demonstration
 
@@ -1886,9 +2078,9 @@ pub trait SnapshotReader {
 * Convert platform identity into core identity tokens.
 * Populate core `WorkspaceSnapshot`.
 * Populate filesystem `CommitContext`.
-* Enforce snapshot memory limits.
+* Enforce snapshot-byte, per-file/total line-count, compact line-index, identity/key, and total planning-memory limits before allocation.
 * Detect path aliases.
-* Detect precondition conflicts.
+* Detect stable digest-precondition conflicts without retrying them as snapshot instability.
 * Represent absent destinations explicitly.
 * Prefer handle-relative resolution and record every documented platform fallback.
 
@@ -1905,10 +2097,10 @@ Pass only when:
 * Snapshot acquisition returns cycle-free core types.
 * Root identity is captured.
 * Root and operation path policies pass.
-* Linux, macOS, and Windows physical identity support works.
+* Every supported OS-plus-filesystem matrix row passes its runtime probes; every ambiguous or unsupported row fails before mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`.
 * Junction and reparse-point behavior is tested on Windows.
 * Preview acquisition creates no control directory.
-* Memory limits are enforced.
+* Snapshot, line-count, compact-index, key/identity, and total planning-memory limits are enforced with checked arithmetic.
 * Mutation-during-read detection and the bounded `SNAPSHOT_UNSTABLE` result pass.
 * Case/normalization-equivalent absent destinations and both reserved names are rejected according to native platform behavior.
 * No filesystem writes occur.
@@ -1923,7 +2115,9 @@ Show:
 * `.codesplice` symlink rejection.
 * Stale digest rejection.
 * Snapshot limit rejection.
+* High-line-count/index-memory rejection.
 * Mutation during read followed by retry and eventual structured failure.
+* Stable wrong digest returning `DIGEST_PRECONDITION_FAILED` without retry.
 * Absent-destination equivalence collision.
 
 **Stop after the checkpoint.**
@@ -1995,12 +2189,16 @@ JSON report
 
 but produces no candidate or transaction when no other output changes.
 
+A commit whose unlocked validated plan is a no-op returns before mutation-lock bootstrap. Its report has `transaction_id: null`, `transaction_state: "not_created"`, and an empty changed-file list. A successful no-op commit performs no intentional filesystem mutation, including first-time creation of `.codesplice.lock` or `.codesplice`.
+
 ## Phase 4 checkpoint
 
 Pass only when:
 
 * Segment planning passes all fixtures.
 * Complete output files are not retained.
+* Per-file and total resulting bytes, candidate bytes, segment counts, projected transaction disk use, response estimate, and total planning memory are charged with checked arithmetic before transaction creation.
+* The 1 GiB-to-10,000-output amplification fixture is rejected without a filesystem write.
 * Plan hashing follows the frozen binary format.
 * Golden hashes use synthetic identities.
 * Same-file no-op behavior is correct.
@@ -2134,19 +2332,21 @@ There is no non-journaled commit path.
 
 Before creating any persistent artifact, perform an unlocked preflight snapshot/plan and reject a mismatched `--expect-plan`. Then:
 
+0. If the unlocked validated plan changes no files, return the frozen successful no-op response immediately. Do not create or open-for-write `.codesplice.lock`, create `.codesplice`, run mutating repair/cleanup, or create a transaction. A plan that becomes no-op only after a previously changing unlocked preflight is a plan-change conflict, not a successful no-op.
 1. Acquire or bootstrap the exact persistent `.codesplice.lock` from Section 7.5.
-2. Revalidate workspace identity.
-3. Recompute the complete stable snapshot and plan while holding the lock.
-4. Verify `--expect-plan` again when provided and verify the plan changes at least one file.
-5. Securely validate or create `.codesplice` and `.codesplice/transactions` relative to root/control handles.
-6. Generate a validated 128-bit random transaction ID encoded as 32 lowercase hexadecimal digits.
-7. Exclusively create the transaction directory.
-8. Determine and collision-check all bounded candidate and backup basenames.
-9. Publish the complete versioned immutable manifest using Section 0.14.
-10. Publish state sequence `0` as `Preparing` with all candidates `missing`.
-11. Only then create candidate files, persisting each physical identity in a new `Preparing` state.
+2. Revalidate workspace identity and securely inspect an already-existing `.codesplice/transactions` directory.
+3. Apply the normative stale-transaction gate: boundedly scan and fold every entry while locked. Any unfinished, corrupt, partially published, unclassifiable, partially cleaned, or scan/control-limit-exceeding transaction set returns `TRANSACTION_RECOVERY_REQUIRED` with a stable `reason` before replanning or new transaction creation. The only exception is a valid `Committed`, `RolledBack`, `CleaningCommitted`, or `CleaningRolledBack` state whose complete target classification already proves the recorded all-new/all-old outcome; the implementation may advance/complete cleanup-only work, rescan to empty, and continue. It may not complete or roll back target content as part of a new commit.
+4. Recompute the complete stable snapshot and plan while holding the lock.
+5. Verify `--expect-plan` again when provided and verify the plan still changes at least one file.
+6. Securely validate or create `.codesplice` and `.codesplice/transactions` relative to root/control handles.
+7. Generate a validated 128-bit random transaction ID encoded as 32 lowercase hexadecimal digits.
+8. Exclusively create the restrictive transaction-private directory, capture its identity, and prove same-filesystem no-replace rename support to every target parent.
+9. Determine and collision-check all bounded candidate and backup basenames and candidate ownership nonces.
+10. Publish the complete versioned immutable manifest using Section 0.14.
+11. Publish state sequence `0` as the full `Preparing` snapshot with all candidates `authorized_missing`.
+12. Only then create candidate files, persisting each physical identity with a `candidate_created` delta.
 
-This prevents adjacent candidate files from existing without a durable transaction record.
+This prevents a candidate from existing without a durable transaction ownership record and gives the post-create/pre-identity crash a normative recovery classification.
 
 ## 6.2 Bounded reserved names
 
@@ -2162,11 +2362,10 @@ Use bounded basenames such as:
 Requirements:
 
 * The short transaction component is the first 16 hex digits of the validated transaction ID.
-* The target hash is the first 20 bytes (40 lowercase hex digits) of `SHA256("CODESPLICE-TARGET-NAME\0" || encoded PathEquivalenceKey)`.
+* The target hash is the first 20 bytes (40 lowercase hex digits) of `SHA256("CODESPLICE-TARGET-NAME\0" || encoded PathEquivalenceKey)`. The encoded `PathEquivalenceKey` is the only path-derived input; the normalized target-path spelling is never substituted.
 * Exact v1 basenames are `.cs-<16hex>-<40hex>-c` and `.cs-<16hex>-<40hex>-b`, each 63 ASCII bytes.
 * Single path component.
 * No user-controlled path separators.
-* Target hash derived from normalized target path.
 * Candidate creation uses exclusive create.
 * Backup installation uses no-replace rename.
 * All generated candidate and backup names must be distinct within the transaction. A truncation collision returns `RESERVED_NAME_COLLISION` before manifest publication; v1 does not choose an alternate name.
@@ -2174,7 +2373,7 @@ Requirements:
 * The manifest is immutable and is never rewritten because of a name collision.
 * The 63-byte length is below the minimum 255-byte component limit required of supported target filesystems.
 
-## 6.3 No-replace backup primitive
+## 6.3 Handle-relative no-replace rename primitive
 
 Do not reserve a backup through check-then-create or placeholder removal.
 
@@ -2184,8 +2383,10 @@ Implement a platform abstraction:
 pub trait RenameNoReplace {
     fn rename_no_replace(
         &self,
-        source: &Path,
-        destination: &Path,
+        source_parent: &SecureDirectoryHandle,
+        source_name: &ValidatedBasename,
+        destination_parent: &SecureDirectoryHandle,
+        destination_name: &ValidatedBasename,
     ) -> Result<(), RenameNoReplaceError>;
 }
 ```
@@ -2210,7 +2411,7 @@ check destination absent
 then ordinary replacing rename
 ```
 
-If a safe primitive is unavailable, fail with:
+The abstraction accepts no arbitrary paths. It must be used for target-to-backup, candidate-to-target, and backup-to-target rollback restoration. All participating directory handles, basenames, equivalence keys, identities, and same-filesystem relationships are validated before the first target mutation. Secure no-replace support for all three directions is mandatory. If a required safe primitive is unavailable, fail before target mutation with:
 
 ```text
 UNSUPPORTED_COMMIT_PRIMITIVE
@@ -2221,12 +2422,14 @@ UNSUPPORTED_COMMIT_PRIMITIVE
 After the manifest is durable enough for the selected mode:
 
 1. Exclusively create the candidate.
-2. Capture its physical identity from the retained handle and publish a `Preparing` state containing that identity.
+2. Capture its physical identity from the retained handle but publish no existence state.
 3. Apply restrictive candidate permissions from Section 0.16.
 4. Stream plan segments into it and hash while writing.
-5. Verify digest, length, path identity, and parent identity.
-6. Perform the selected Normal/Durable flush and sync protocol.
-7. After all candidates are ready, publish `Prepared` containing every candidate identity.
+5. Verify digest, length, path identity, and parent identity through the retained handle.
+6. Perform the selected Normal/Durable file flush; in Durable mode, sync the candidate file and then its transaction-directory parent.
+7. Only after those checks/orderings, publish a `candidate_created` delta containing the identity, close/reopen as required, and revalidate the recorded identity.
+8. After all candidates are ready, publish the full `Prepared` snapshot containing every candidate identity.
+9. Revalidate every initial input record under Sections 4.7 and 0.12 immediately before the first target mutation. A source-only copy input is not exempt.
 
 ## 6.5 Existing-target commit
 
@@ -2235,13 +2438,14 @@ After the manifest is durable enough for the selected mode:
 3. Move target to backup with no-replace semantics.
 4. Hash and identify the object actually moved.
 5. On mismatch, restore it and report conflict.
-6. Read its current ordinary permission bits.
-7. Apply those bits to the candidate.
-8. Revalidate the candidate against its recorded physical identity and install it with handle-relative safe platform semantics where available.
-9. Verify final type, identity, length, and digest.
-10. Record commit progress.
-11. Mark transaction committed.
-12. Clean backup and transaction artifacts.
+6. Inspect the backup’s current link/security metadata. If it now requires metadata-loss opt-in that was not granted, restore it with the no-replace primitive and report conflict; if opt-in was granted, emit the frozen warnings from the actual backup observation.
+7. Read its current ordinary permission bits.
+8. Apply those bits and the frozen final metadata policy to the candidate.
+9. Revalidate the candidate against its recorded physical identity and install it with the required handle-relative no-replace primitive.
+10. Verify final type, identity, length, digest, and reported metadata class.
+11. Record commit progress.
+12. Mark transaction committed.
+13. Clean backup and transaction artifacts.
 
 ## 6.6 New-target commit
 
@@ -2270,6 +2474,8 @@ original physical identity when present
 original digest when present
 original length when present
 original relevant metadata snapshot
+transaction-private directory identity
+candidate ownership nonce
 candidate basename
 candidate digest
 candidate length
@@ -2279,7 +2485,7 @@ expected final digest
 change kind
 ```
 
-Candidate physical identity is necessarily unknown when the immutable manifest is published. It is stored in the checksummed `Preparing`/`Prepared` state chain immediately after exclusive creation, as required by Section 0.15. Backup identity and installed-final identity are similarly stored in progress state records. Manifest digest/length never substitutes for these identities.
+Candidate physical identity is necessarily unknown when the immutable manifest is published. Sequence `0` instead binds the pre-creation authorization/nonce; after exclusive creation the identity is retained in memory and is stored in the checksummed delta/snapshot chain only after the candidate verification and durability ordering required by Section 0.15, before the last secure handle closes. Backup identity and installed-final identity are similarly stored in progress delta events and snapshots. Manifest digest/length never substitutes for these identities.
 
 For a new target:
 
@@ -2290,7 +2496,7 @@ original existence state = absent
 Candidate and backup locations are represented as:
 
 ```text
-validated parent-directory reference
+validated transaction-private directory reference
 +
 validated single-component basename
 ```
@@ -2314,7 +2520,7 @@ Recovery implements the exact state graph, commit point, record publication, can
 
 ## 6.9 Orphan rules
 
-Because the manifest is written before candidate creation, adjacent candidates should always have a transaction record.
+Because the manifest and authorization snapshot are written before candidate creation, transaction-private candidates should always have an ownership record.
 
 Potential orphan states:
 
@@ -2323,12 +2529,12 @@ Potential orphan states:
 Safe behavior:
 
 * List as `incomplete_transaction_record`.
-* Do not inspect or delete unrelated adjacent files.
-* Allow explicit cleanup only after verifying the directory is inside the secure control directory and contains no valid manifest references.
+* Do not inspect or delete anything outside that transaction-directory entry.
+* Allow explicit cleanup only after verifying the directory is inside the secure control directory, has the frozen owner-only transaction-directory policy, and contains only bounded unpublished record-temporary names permitted before manifest publication. An unknown or candidate-like entry is a conflict, not guessed ownership.
 
 ### Valid manifest with missing candidates
 
-Fresh-process `--complete` is rejected with `CANNOT_COMPLETE_PREPARING` while state is `Preparing`, because the manifest does not retain payload bytes and a partially written candidate is not trusted. Rollback leaves candidates recorded as `missing` absent and deletes only candidate entries whose recorded identity still matches. A recorded candidate that is absent in `Preparing` is safe for rollback. In `Prepared` or later, an absent candidate is acceptable only when the state/location matrix proves that exact recorded identity was renamed to the target during an interrupted install; otherwise it is an external conflict. Recovery never synthesizes replacement bytes from unrelated current files.
+Fresh-process `--complete` is rejected with `CANNOT_COMPLETE_PREPARING` while state is `Preparing`, because the manifest does not retain payload bytes and a partially written candidate is not trusted. Rollback leaves `authorized_missing` slots absent, deletes `candidate_created` entries only when their recorded identity still matches, and handles an existing `authorized_missing` slot only through the complete `owned_unpublished_candidate` rule. In `Prepared` or later, an absent candidate is acceptable only when the state/location matrix proves that exact recorded identity was renamed to the target during an interrupted install; otherwise it is an external conflict. Recovery never synthesizes replacement bytes from unrelated current files.
 
 ### Candidate-like filename without a manifest reference
 
@@ -2339,20 +2545,25 @@ Never delete it automatically merely because its name resembles a CodeSplice res
 Pass only when:
 
 * Single-target commits use the complete journal.
-* A manifest exists before candidate creation.
+* A manifest and `authorized_missing` sequence-0 snapshot exist before candidate creation.
+* The post-create/pre-identity crash classifies as `owned_unpublished_candidate`; completion is refused and rollback deletes only the transaction-owned untrusted entry.
 * Crashes between backup and install are recoverable.
-* No-replace backup movement is used.
+* Handle-relative no-replace movement is used for backup, installation, and rollback restoration; externally created destinations are never overwritten.
 * Backup names are bounded.
 * Expected-plan mismatch is rejected before transaction creation.
+* A successful no-op commit in a fresh workspace creates neither `.codesplice.lock` nor `.codesplice` and reports no transaction.
+* The stale-transaction gate blocks new work until every older transaction is recovered or safely cleanup-completed.
+* A source-only input change after `Prepared` aborts before the first target mutation.
 * Current backup permissions are applied to the candidate.
 * Single-target recovery commands work.
 * Read-only status follows stale-observation rules.
 * Every failpoint ends recoverably or in explicit conflict.
 * `.codesplice.lock` bootstrap, persistence, malformed-state behavior, workspace binding, contention, and lifetime pass on every release platform.
-* State transitions, monotonic/hash-chained sequences, atomic publication, checksum corruption, and commit-point behavior pass.
+* `doctor --repair-lock` succeeds and refuses exactly the states frozen in Phase 0.
+* Delta folding, periodic snapshots, state/control bounds, monotonic hash chains, atomic publication, checksum corruption, and commit-point behavior pass.
 * Candidate replacement by an equal-byte different-identity object is rejected.
-* Normal mode passes fresh-process termination recovery tests, and Durable mode passes ordered file/directory-sync trace tests on every supported filesystem.
-* New-target modes/ACL behavior match Section 0.16 and candidates are never intentionally broader.
+* Normal mode passes fresh-process termination recovery tests, and Durable mode proves candidate-parent sync precedes `candidate_created` publication plus all other ordered file/directory-sync traces on every supported filesystem.
+* New-target umask goldens pass; ACL/xattr/flag/hard-link/ownership/Windows read-only default rejection and opt-in reporting match the frozen metadata policy; candidates are never intentionally broader.
 
 ### Demonstration
 
@@ -2360,10 +2571,14 @@ Inject crashes:
 
 1. After transaction directory creation.
 2. After manifest write.
-3. After candidate creation.
-4. After target-to-backup move.
-5. After candidate installation.
-6. Before cleanup.
+3. Immediately after candidate creation and during candidate writing.
+4. After candidate file sync but before candidate-parent sync.
+5. After candidate-parent sync but before candidate-identity publication.
+6. After candidate-identity publication.
+7. After `Prepared`, then mutate a source-only input.
+8. After target-to-backup move.
+9. After candidate installation.
+10. Before cleanup.
 
 For each persisted transition and filesystem mutation, use the fresh-process failpoint framework rather than only returning an injected in-memory error.
 
@@ -2385,15 +2600,18 @@ Do not introduce a second transaction engine.
 
 1. Acquire exclusive mutation lock.
 2. Revalidate root.
-3. Recompute plan.
-4. Verify expected plan.
-5. Create transaction record.
-6. Write all target entries to the manifest.
-7. Persist initial state.
-8. Create all candidates.
-9. Verify all candidate digests.
-10. Mark `Prepared`.
-11. Begin no target replacement before every candidate is ready.
+3. Run the locked stale-transaction gate and stop with `TRANSACTION_RECOVERY_REQUIRED` unless only frozen cleanup-only work can safely finish.
+4. Recompute plan.
+5. Verify expected plan.
+6. Prove the transaction-private directory and every target parent support required same-filesystem no-replace renames.
+7. Create the transaction record.
+8. Write all target entries, ownership nonces, metadata classes, and resource projections to the manifest.
+9. Persist the `authorized_missing` initial snapshot.
+10. Create all candidates, syncing each parent before its identity delta in Durable mode.
+11. Verify all candidate digests and identities.
+12. Mark `Prepared`.
+13. Revalidate every input record, including source-only copy inputs.
+14. Begin no target replacement before every candidate is ready and every input revalidation passes.
 
 ## Commit ordering
 
@@ -2405,13 +2623,14 @@ For each target:
 
 1. Revalidate parent.
 2. Revalidate target or absence.
-3. Move existing target to backup with no-replace semantics.
+3. Move existing target to the transaction-private backup with handle-relative no-replace semantics.
 4. Verify moved backup.
-5. Capture current permission bits.
-6. Apply permissions to candidate.
-7. Install candidate.
-8. Verify final output.
-9. Persist progress.
+5. Revalidate current metadata-loss class and restore/report conflict if the required opt-in is absent.
+6. Capture current permission bits and frozen metadata report.
+7. Apply permissions/final metadata policy to candidate.
+8. Install candidate with handle-relative no-replace semantics.
+9. Verify final output and metadata class.
+10. Persist progress.
 
 ## Recovery classification
 
@@ -2492,12 +2711,18 @@ transaction-ID injection
 candidate-name collision
 backup-name collision
 unsupported no-replace primitive
+externally created install destination
+externally created rollback-restoration destination
 torn manifest
 torn state
 state sequence regression
+state-record count/cumulative-byte/snapshot-interval exhaustion
 candidate without manifest reference
+owned unpublished candidate
 transaction directory without manifest
+unfinished transaction blocks new commit
 permission change after preview
+source-only copy input change after Prepared
 external content change during commit
 external content change during recovery
 root identity change during recovery
@@ -2506,14 +2731,22 @@ concurrent commit
 concurrent rollback
 concurrent read-only status
 resource-limit violations
+output amplification and transaction-disk projection
+line-count, line-index, and planning-memory exhaustion
+JSON depth/response and identity/equivalence-key limits
+transaction-directory/recovery/control-directory scan limits
 concurrent first lock bootstrap
 malformed or workspace-mismatched persistent lock record
+lock owner/mode/DACL rejection and doctor repair refusal
 absent case and Unicode-equivalent target aliases
 snapshot changes during open-handle read
 candidate replacement with identical bytes and different identity
 committed state with partial cleanup
 new-file umask and restrictive candidate mode
+ACL/xattr/flag/hard-link/ownership/Windows read-only metadata policy
+unsupported filesystem/runtime-probe rejection
 binary diff escaping and computation-budget exhaustion
+terminal-control escaping in every human-output field
 ```
 
 ## Property tests
@@ -2550,18 +2783,26 @@ recovery classification
 
 Confirm that full output files are not stored in the plan.
 
+Acceptance is reproducible, not “measure and record”:
+
+* `docs/performance-baseline.json` identifies the reference CPU model/count, RAM, storage, power/performance mode, OS build, filesystem and mount options, Rust toolchain, build profile, and benchmark command/seed. Results from other hardware are informational until normalized by a separately frozen profile.
+* Checked-in workloads cover 1 MiB, 100 MiB, and 1 GiB snapshots; 1, 100, and 5,000 targets; 1, 10,000, and 1,000,000 segments; 200,000 and 10,000,000 line indexes; a 1 GiB-to-10,000-output amplification rejection; maximum-size manifest/state snapshots; and bounded recovery scans at 1, 1,000, and 10,000 transaction entries.
+* Each benchmark uses at least 10 measured runs after 3 warmups. Record median, p95 wall time, peak resident memory, and bytes read/written. Relative to the checked-in approved baseline on the same profile, median or p95 time may regress no more than 15% and peak resident memory no more than 10% unless Phase 8 updates the baseline with an explicit reviewed rationale.
+* Limit-rejection workloads must allocate no more than the frozen charged budget, write no transaction artifact, and complete within the workload-specific ceiling checked into `docs/performance-baseline.json`; no ceiling may be left as `TBD` at the Phase 0 exit.
+* Fuzz harnesses cover JSON streaming/schema boundaries, canonical plan/record decoders, path/equivalence parsing, arbitrary-byte line indexing, segment planning, state-chain folding, recovery classification, and terminal escaping. Each harness runs at least 12 aggregate CPU-hours with a pinned engine/version, corpus, dictionary, seed set, memory limit, and timeout. Acceptance is zero crash, panic, sanitizer finding, uncontrolled OOM, nontermination, or invariant violation; minimized reproducers are checked in. CI also runs a deterministic bounded corpus on every change.
+
 ## Phase 8 checkpoint
 
 Pass only when:
 
-* Release-platform identity support is reliable.
-* No-replace primitives are tested.
-* Fuzzing produces no crashes.
-* Resource limits are enforced.
+* Every claimed OS-plus-filesystem matrix row passes identity, path-equivalence, no-replace, directory-sync, metadata, mount, and runtime-probe suites; unclaimed rows reject before mutation.
+* Handle-relative no-replace backup, installation, and restoration primitives pass external-destination races.
+* Every fuzz harness meets its pinned 12-CPU-hour acceptance run with zero prohibited result and archived corpus metadata.
+* Every resource and checked-arithmetic limit is enforced, including output amplification, line-index memory, metadata inspection, transaction disk, state/recovery/control size, JSON depth/response, and identity/key lengths.
 * Recovery failpoints pass.
 * Permission concurrency behavior passes.
 * Workspace and control-directory security pass.
-* Benchmark results are recorded.
+* All benchmark workloads meet the frozen 15% time and 10% peak-memory regression budgets on the reference profile, and complete baseline/result files are recorded.
 
 **Stop after the checkpoint.**
 
@@ -2643,19 +2884,19 @@ Release only when:
 * Phases 0–9 pass.
 * No unresolved data-loss defect exists.
 * No known workspace or manifest path escape exists.
-* Physical identity works on minimum targets.
-* No-replace backup primitives work on minimum targets.
+* Physical identity works on every claimed OS-plus-filesystem matrix row, and unclaimed/ambiguous rows reject before mutation.
+* Handle-relative no-replace backup, installation, and restoration primitives work on every claimed matrix row.
 * Single-target and multi-target transactions share one implementation.
 * Preview wording and tests are portable.
 * Expected-plan commits work.
 * Plan-hash format is documented.
 * Protocol-v1 schemas, stable errors, warnings, and exit categories are documented and golden-tested.
-* Persistent lock bootstrap and absent-path equivalence work on every minimum target.
+* Persistent lock bootstrap/repair and absent-path equivalence work on every claimed matrix row.
 * Snapshot mutation during read is detected according to the bounded retry contract.
 * Transaction manifest and state formats are documented.
-* Normal and Durable guarantees, commit point, candidate identity, and partial-cleanup recovery are documented and tested.
-* New-file permissions and arbitrary-byte diff behavior are documented and tested.
-* Resource limits are documented.
+* Normal and Durable guarantees, commit point, transaction-private candidate ownership (including the unpublished-identity crash window), delta/snapshot state records, and partial-cleanup recovery are documented and tested.
+* New-file umask goldens, metadata-loss policy, and arbitrary-byte/terminal-safe output behavior are documented and tested.
+* Every resource limit is documented and its boundary tests pass.
 * Pilot criteria pass.
 
 Minimum release targets:
@@ -2665,6 +2906,8 @@ Linux x86_64
 macOS ARM64
 Windows x86_64
 ```
+
+These are packaging/CI architecture targets, not blanket filesystem claims; the Phase 0 support matrix defines which mounted filesystems are accepted at runtime.
 
 ---
 
