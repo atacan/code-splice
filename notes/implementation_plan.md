@@ -1,6 +1,6 @@
 # CodeSplice Technical Implementation Plan
 
-**Status:** Revised after second technical review
+**Status:** Revised after third technical review; Phase 0 specification work required before production implementation
 **Implementation language:** Rust
 **Working binary name:** `codesplice`
 **Initial release target:** `v0.1.0`
@@ -269,6 +269,8 @@ The supported guarantee is:
 
 > Every transaction is recorded before candidate creation or target replacement. Partial commit states are detectable. An interrupted transaction can be inspected and either completed or rolled back unless an external modification creates an explicit conflict.
 
+A multi-target transaction is **recoverable but not atomically visible** to unrelated readers. Between per-target installations, an unrelated process may observe a mixture of old and new files. Do not describe a transaction as “atomic” without the qualifier “record-atomic” or “recoverable.” Recovery converges to all-old or all-new when no external conflict exists; it does not make intermediate filesystem visibility atomic.
+
 ## 4.7 Concurrency guarantee
 
 CodeSplice uses a workspace mutation lock to coordinate cooperating CodeSplice processes.
@@ -363,6 +365,7 @@ Selector
 Anchor
 ByteRange
 WorkspacePath
+PathEquivalenceKey
 WorkspaceSnapshot
 FileSnapshot
 SnapshotFileId
@@ -384,12 +387,14 @@ PlanError
 ```rust
 pub struct WorkspaceSnapshot {
     pub workspace_identity: WorkspaceIdentityToken,
-    pub files: BTreeMap<WorkspacePath, FileSnapshot>,
-    pub absent_paths: BTreeSet<WorkspacePath>,
+    pub files: BTreeMap<PathEquivalenceKey, FileSnapshot>,
+    pub absent_paths: BTreeMap<PathEquivalenceKey, WorkspacePath>,
+    pub path_keys: BTreeMap<WorkspacePath, PathEquivalenceKey>,
 }
 
 pub struct FileSnapshot {
     pub path: WorkspacePath,
+    pub path_equivalence_key: PathEquivalenceKey,
     pub id: SnapshotFileId,
     pub bytes: Arc<[u8]>,
     pub sha256: Digest,
@@ -411,6 +416,8 @@ pub enum PlannedFileId {
 `SnapshotFileId` is opaque to the planner.
 
 The core may compare and serialize the token but must not interpret platform-specific identity fields.
+
+`PathEquivalenceKey` is likewise opaque, byte-orderable, and supplied by `codesplice-fs`; the core uses it for grouping, duplicate rejection, deterministic ordering, and plan encoding without reimplementing platform path comparison.
 
 ## 6.3 `codesplice-fs` ownership
 
@@ -459,6 +466,8 @@ pub struct SnapshotAcquisition {
 ```
 
 `CommitContext` contains filesystem-layer information that the pure planner does not need, such as securely resolved parent identities and platform handles or tokens.
+
+On supported platforms, mutation primitives must be relative to securely opened workspace or parent-directory handles whenever the operating system exposes the required semantics. A path-based fallback is permitted only for an operation whose documented platform primitive cannot be made handle-relative, and only after immediate parent and target identity revalidation. Such fallback must be named in `docs/platform-support.md`; it may not silently weaken the guarantee.
 
 ## 6.4 `codesplice-protocol` ownership
 
@@ -582,6 +591,82 @@ Rules:
 * On Unix, use restrictive permissions such as `0700`, subject to documented behavior.
 * On Windows, use the platform’s normal secure directory semantics and document ACL limitations.
 
+## 7.5 Workspace mutation-lock bootstrap
+
+The mutation lock is the persistent regular file:
+
+```text
+<workspace>/.codesplice.lock
+```
+
+Both `.codesplice.lock` and `.codesplice`, including every platform-equivalent spelling, are reserved. Operation paths may not name either path or their descendants. The lock is outside `.codesplice` so it can serialize the first creation and validation of the control directory.
+
+Bootstrap and acquisition are normative:
+
+1. Securely open the already-existing workspace root and capture its physical identity.
+2. Relative to that root handle, open `.codesplice.lock` as a regular file with read/write access, close-on-exec, and no-follow/no-reparse semantics. If absent, attempt exclusive creation. Unix creation mode is `0600`; Windows uses a non-inheritable handle and the root directory’s normal ACL inheritance.
+3. Reject a symlink, junction, unsupported reparse point, directory, special file, multiply linked file where link count is available, or a lock name whose `PathEquivalenceKey` is not the reserved key.
+4. Acquire a non-blocking exclusive OS file lock on that opened handle. Contention returns `TRANSACTION_BUSY`; v1 does not steal locks or infer staleness from PID or time.
+5. While holding the lock, revalidate the workspace-root identity and that the reserved directory entry still identifies the opened lock object.
+6. If the file is empty because this invocation created it or a prior creator crashed before initialization, write the versioned lock-identity record while holding the lock. Otherwise validate the complete checksummed record.
+7. The lock-identity record contains magic `CODESPLICE-LOCK\0`, format version `1`, the canonical workspace identity token, and a SHA-256 checksum over all preceding record bytes.
+8. A nonempty malformed record or a record bound to another workspace identity fails with `WORKSPACE_LOCK_INVALID`; it is never silently replaced.
+9. Only after these checks may commit or mutating recovery validate or create `.codesplice` and `.codesplice/transactions` relative to secure directory handles.
+10. Hold the same open lock handle through planning revalidation, transaction preparation, commit or rollback, state persistence, and required cleanup. Releasing or closing the handle releases the OS lock.
+
+Required native open/lock semantics are:
+
+```text
+Unix:
+  first try openat(root_fd, ".codesplice.lock",
+                   O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_CREAT | O_EXCL, 0600)
+  on EEXIST openat with O_RDWR | O_CLOEXEC | O_NOFOLLOW and no O_CREAT
+  fstat regular-file/type, link count, identity, owner/mode policy
+  acquire a whole-file exclusive advisory lock in non-blocking mode
+
+Windows:
+  CreateFileW relative to/opened beneath the validated root using CREATE_NEW first,
+  then OPEN_EXISTING only after ERROR_FILE_EXISTS
+  GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, no delete sharing
+  reject reparse tags and non-disk files; capture FileIdInfo
+  LockFileEx exclusive + FAIL_IMMEDIATELY over the whole v1 lock range
+```
+
+Equivalent reviewed crate calls are acceptable only when they preserve every listed flag and failure semantic. Lock-record initialization flushes runtime buffers in Normal mode and additionally syncs the file and root directory in Durable mode.
+
+The lock file persists after release. Normal cleanup never removes it. Preview, inspect, capabilities, protocol-version, `recover --list`, and `recover --status` do not create or acquire it. Concurrent first creators may both open the resulting file, but only the process that acquires the OS lock may initialize or validate it; all control-directory creation remains serialized.
+
+## 7.6 Authoritative path equivalence
+
+Every accepted operation, parent, target, reserved path, manifest path, and sort key has a filesystem-layer `PathEquivalenceKey`, whether or not the final entry exists. The key is an opaque, length-delimited sequence of:
+
+```text
+workspace identity
+for each component:
+  securely resolved parent-directory physical identity
+  platform component-comparison key
+```
+
+The platform component key is frozen as follows:
+
+* Linux: exact UTF-8 bytes. The supported Linux policy is case-sensitive and performs no Unicode normalization.
+* macOS: query the mounted volume’s case-sensitivity behavior; use the platform filesystem comparison form, including its canonical Unicode decomposition behavior, and apply case folding only on a case-insensitive volume. If the behavior cannot be queried or represented, reject with `PATH_EQUIVALENCE_UNSUPPORTED`.
+* Windows: reject Win32 device names, alternate-data-stream syntax, trailing dot/space spellings, and unsupported reparse behavior; normalize accepted UTF-8 to NFC and use the directory’s queried case-sensitivity setting, applying Windows ordinal invariant case mapping when insensitive.
+
+The filesystem implementation must validate these rules against native same-entry probes in platform tests. It must not use locale-sensitive casing. Existing entries additionally require matching physical identity; equivalence keys do not replace physical-identity validation.
+
+Use `PathEquivalenceKey` to:
+
+* Reject duplicate source/destination path records that the platform interprets as one entry.
+* Reject aliases of `.codesplice` and `.codesplice.lock`.
+* Detect absent-target basename collisions under one physical parent.
+* Group all operations targeting one new file.
+* Sort input and output tables, manifest targets, and commit order; ties are errors, never spelling-based tie breaks.
+* Bind every manifest parent/basename record to the same platform interpretation used during planning.
+
+The core retains the normalized user-visible path spelling for diagnostics. No two distinct retained spellings may share one authoritative equivalence key in a valid batch, except repeated references to the same logical operation path with one identical mandatory precondition.
+
 ---
 
 # 8. Protocol and capability model
@@ -689,6 +774,57 @@ pub enum ExpectedPlanPolicy {
 
 The same `BatchSpecification` must be reusable for preview and commit.
 
+## 8.5 Normative protocol-v1 and CLI surface
+
+Phase 0 must publish validating JSON Schema 2020-12 documents in:
+
+```text
+docs/schema/v1/request.schema.json
+docs/schema/v1/response.schema.json
+docs/schema/v1/recovery-request.schema.json
+docs/schema/v1/recovery-response.schema.json
+docs/schema/v1/common.schema.json
+```
+
+Together they must close and type every request envelope, move/copy operation, selector, anchor, mandatory precondition, execution response, preview report, transaction report, recovery request/report, error, warning, and context object. Every object uses `additionalProperties: false`; duplicate JSON object keys are rejected by the streaming parser before DTO construction. Unknown enum values are rejected. Integers are JSON integers with schema bounds and must convert without narrowing loss.
+
+Digest strings use exactly lowercase:
+
+```text
+sha256:<64 lowercase hexadecimal digits>
+```
+
+Uppercase hexadecimal, missing prefixes, whitespace, and other algorithms are invalid. JSON output emits one complete UTF-8 JSON value followed by `LF` on stdout. In `--json` mode, stdout contains no progress or prose; diagnostics intended for humans go to stderr and never replace the structured response.
+
+`apply` is the canonical batch command:
+
+```text
+codesplice apply --request <file-or-> (--preview | --commit) [execution options]
+```
+
+Direct `move` and `copy` commands are convenience constructors for exactly one protocol-v1 operation and use the same DTO conversion, planner, report, expected-plan policy, and transaction implementation. They are not independent protocols. `inspect`, `capabilities`, `protocol-version`, and `recover` have dedicated closed response schemas. Phase 0 examples must cover every command, every selector and anchor variant, existing and absent targets, preview, commit, no-op, recovery states, each stable error category, and each warning shape.
+
+Execution options—including preview/commit, durability, output form, diff policy, and expected-plan policy—are excluded from `BatchSpecification` and from `plan_sha256`. Any option that changes resulting bytes is therefore prohibited as an execution option.
+
+## 8.6 Stable errors, warnings, and exits
+
+Protocol v1 freezes these process exit categories:
+
+```text
+0  success, including a valid unchanged/no-op plan
+2  invalid CLI or protocol request; non-retryable without changing input
+3  precondition, identity, path, expected-plan, or external-modification conflict; retryable only after a fresh inspect/preview or external-state change
+4  resource or supported-capability limit; retryability depends on trusted local configuration
+5  transaction requires recovery or is busy; retryable/recoverable as identified by the response
+6  corrupt transaction/control record; non-retryable without explicit operator repair
+7  unsupported or unavailable platform primitive
+8  internal failure
+```
+
+Every error includes stable `code`, `category`, `retryable`, `message`, and `context`. Request-validation errors additionally include an RFC 6901 JSON pointer and, when applicable, a zero-based `operation_index`. Filesystem errors include only normalized workspace-relative paths by default; absolute workspace paths, raw physical identities, OS usernames, and adjacent unrelated names are redacted unless a trusted `--diagnostic-paths` option is used. Warnings have stable identifiers and structured context. Adding a new error code within an existing category is backward compatible; changing a code’s meaning, exit category, or context field type requires a protocol-major change.
+
+Phase 0 must add exhaustive error and warning registry tables to `docs/protocol.md`, assigning every code to one exit category and defining every context field. No production code may emit an unregistered identifier. The registry must at least cover all codes named in this plan, parser/schema failures, selector/anchor/conflict variants, snapshot and path failures, lock/control failures, transaction/recovery classifications, diff truncation, platform limitations, and internal failure. Golden CLI tests bind each registered error to its exit code and stdout/stderr behavior.
+
 ---
 
 # 9. Plan digest specification
@@ -760,75 +896,159 @@ For commit commands, require exactly one of:
 
 ## 9.3 Canonical plan encoding
 
-Freeze a versioned binary encoding.
-
-Plan hash version 1 must define:
+Plan-hash version 1 uses the following complete binary grammar. Concatenation is written `||`; no alignment or implicit padding is inserted.
 
 ```text
-magic:
-  fixed ASCII bytes "CODESPLICE-PLAN\0"
-
-plan-hash version:
-  unsigned 32-bit big-endian integer
-
-integer encoding:
-  unsigned integers encoded as fixed-width big-endian values
-  unless a field explicitly uses a bounded one-byte enum tag
-
-strings:
-  UTF-8
-  unsigned 32-bit big-endian byte length
-  followed by exact bytes
-
-paths:
-  normalized workspace-relative UTF-8
-  "/" as separator
-  no "." or ".." components
-  no trailing separator
-  case is not rewritten by the core
-
-digests:
-  raw 32-byte SHA-256 values
-
-identities:
-  identity-kind tag
-  length-prefixed canonical identity bytes
-
-absent files:
-  explicit absent-state tag
-
-operations:
-  retained in request order
-
-input file table:
-  sorted by normalized path
-
-output file table:
-  sorted by normalized path
-
-segments:
-  emitted in final output order
-
-warnings:
-  excluded
-
-human messages:
-  excluded
-
-tool version:
-  excluded
-
-timestamps:
-  excluded
-
-temporary paths:
-  excluded
-
-transaction ID:
-  excluded
+u8(x)      = one unsigned byte
+u16(x)     = unsigned 16-bit big-endian
+u32(x)     = unsigned 32-bit big-endian
+u64(x)     = unsigned 64-bit big-endian
+blob(b)    = u32(byte_length(b)) || b
+utf8(s)    = blob(exact UTF-8 bytes of s)
+digest(d)  = exactly 32 raw digest bytes
+none       = u8(0)
+some(x)    = u8(1) || encode(x)
+list(xs)   = u32(item_count) || encode(each item in order)
 ```
 
-Golden plan-hash tests must use synthetic identity tokens rather than live inodes or Windows file indexes.
+Before converting a byte length or item count to `u32`, reject values greater than `u32::MAX` with `PLAN_ENCODING_LIMIT`; wrapping, truncation, native-width integers, varints, and host byte order are forbidden. Every operation index is encoded as `u32`, never `usize`; protocol limits guarantee conversion succeeds.
+
+Normalized paths are UTF-8 workspace-relative strings with `/` separators, no empty, `.` or `..` components, and no trailing separator. Case is retained. A path-equivalence key is encoded independently:
+
+```text
+path_key = identity(workspace) || list(path_key_component)
+path_key_component = identity(parent_directory) || blob(platform_component_key)
+path = utf8(normalized_visible_path) || blob(complete_path_key_encoding)
+```
+
+Identity encoding and the v1 identity-kind registry are:
+
+```text
+identity = u16(identity_kind) || blob(canonical_identity_bytes)
+
+0x0000 synthetic test identity; forbidden for live filesystem plans
+0x0001 Linux file/directory identity v1
+0x0002 macOS file/directory identity v1
+0x0003 Windows file/directory identity v1
+```
+
+The canonical bytes for each live kind are fixed in `docs/adr/0004-path-identity-policy.md`. Existing tag meanings never change. A new representation receives a new tag even on the same OS.
+
+`NewPlannedFileId` is not platform identity. It is exactly:
+
+```text
+SHA256(
+  ASCII "CODESPLICE-NEW-ID\0"
+  || blob(complete destination PathEquivalenceKey encoding)
+)
+```
+
+The top-level record is exactly:
+
+```text
+plan_v1 =
+  ASCII "CODESPLICE-PLAN\0"
+  || u32(1)                         # plan-hash version
+  || u32(protocol_version)
+  || identity(workspace_identity)
+  || list(input_record)
+  || list(resolved_operation)
+  || list(output_record)
+
+plan_sha256 = SHA256(plan_v1)
+```
+
+Input records contain every distinct logical source or destination path mentioned by the batch. Sort by encoded `PathEquivalenceKey` bytes, then reject rather than tie-break if two records have the same key.
+
+```text
+input_record =
+  path
+  || input_state
+
+input_state =
+  u8(0)                             # absent
+  | u8(1) || identity(file) || u64(length) || digest(content_sha256)
+```
+
+Operations remain in request order. Duplicate operations are retained and distinguished by index. The record includes both syntax-level semantics and resolution so changes in selector or anchor spelling cannot collide merely because they currently resolve to the same offset.
+
+```text
+resolved_operation =
+  u32(operation_index)
+  || operation_kind
+  || path(source_path)
+  || identity(source_file)
+  || selector
+  || precondition(source_precondition)
+  || u64(resolved_source_start)
+  || u64(resolved_source_end)
+  || digest(selected_payload_sha256)
+  || path(destination_path)
+  || planned_file_id(destination_file)
+  || anchor
+  || precondition(destination_precondition)
+  || u64(resolved_destination_offset)
+  || operation_effect
+
+operation_kind = u8(1) move | u8(2) copy
+
+selector =
+  u8(1) || u64(first_line_inclusive) || u64(last_line_inclusive)
+  | u8(2) || u64(start_byte) || u64(end_byte_exclusive)
+
+anchor =
+  u8(1)                              # file_start
+  | u8(2)                            # file_end
+  | u8(3) || u64(line_number)        # before_line
+  | u8(4) || u64(line_number)        # after_line
+  | u8(5) || u64(byte_offset)
+
+precondition =
+  u8(1) || digest(expected_sha256)
+  | u8(2)                            # must_not_exist
+
+planned_file_id =
+  u8(1) || identity(existing_file)
+  | u8(2) || digest(NewPlannedFileId)
+
+operation_effect = u8(1) changed | u8(2) no_op
+```
+
+Every operation path has an explicit precondition. Therefore there is no absent/optional precondition tag. Source preconditions and existing destination preconditions use tag `1`; absent destinations use tag `2`.
+
+Output records are sorted by encoded `PathEquivalenceKey` bytes, again rejecting ties. They include every logical file whose final recipe or unchanged resolved operation is reported.
+
+```text
+output_record =
+  path
+  || planned_file_id
+  || optional_original_digest
+  || digest(resulting_sha256)
+  || u64(resulting_length)
+  || change_kind
+  || list(output_segment)
+
+optional_original_digest =
+  u8(0)
+  | u8(1) || digest(original_sha256)
+
+change_kind =
+  u8(1) unchanged
+  | u8(2) modified_existing
+  | u8(3) created_new
+  | u8(4) emptied_existing
+
+output_segment =
+  u8(1) || identity(source_file) || u64(start) || u64(end_exclusive)
+  | u8(2) || u32(operation_index) || identity(source_file)
+          || u64(start) || u64(end_exclusive) || digest(payload_sha256)
+```
+
+Segment tag `1` is an original surviving slice; tag `2` is an insertion sourced by the named operation. Segments are encoded in final byte-emission order. Empty outputs have an empty segment list.
+
+The following are excluded from `plan_v1`: execution options (`preview`, `commit`, durability, output/diff mode, expected-plan policy), warnings, human messages, executable version, timestamps, temporary or transaction paths, transaction ID, permission metadata, and preview truncation. No nested digest may reuse the plan domain: payload and file digests are ordinary SHA-256 of content bytes, while new-file IDs use the explicit `CODESPLICE-NEW-ID\0` domain above.
+
+Phase 0 golden vectors must include at least absent and existing destinations, every enum variant, a no-op, multiple same-offset insertions, non-UTF-8 payload bytes, and maximum-width numeric examples. Each vector includes the semantic input, annotated complete hexadecimal byte dump, byte length, and expected lowercase `sha256:` digest. Golden vectors use synthetic identity kind `0x0000`, never live inodes or Windows file indexes.
 
 ---
 
@@ -883,6 +1103,24 @@ Requirements:
 * Preview truncation never changes plan or output hashes.
 * Truncation is explicitly reported.
 
+## 10.1 Diff policy for arbitrary bytes
+
+Diff generation is reporting-only and may be disabled with `--no-diff`; disabling or truncating a diff cannot affect planning, hashing, or commit. A file is treated as binary when either side contains NUL or is not valid UTF-8. Binary reports contain lengths, SHA-256 digests, and bounded changed-span samples encoded as standard padded base64; they never place arbitrary bytes directly in JSON or terminal output.
+
+Text diffs tokenize LF, CRLF, and lone CR as indivisible terminators using the same line index as selectors. JSON escaping is the only string escaping in JSON mode. Human mode visibly escapes control characters other than recognized line terminators.
+
+The implementation must enforce all of these budgets while computing, not only while rendering:
+
+```text
+maximum bytes admitted to detailed diff algorithm per side: 8 MiB
+maximum lines admitted per side: 200,000
+maximum edit-graph/work units: 10,000,000
+maximum rendered bytes: selected configured diff limit
+maximum binary sample bytes across one report: 64 KiB
+```
+
+If any budget is reached, stop detailed computation and emit stable warning `DIFF_TRUNCATED` with `reason`, emitted byte count, and omitted-file/hunk counts when known. Use a bounded-memory algorithm with explicit work accounting; an unbounded quadratic LCS matrix is forbidden. For mixed terminators, reports preserve and label terminator kinds. Diff allocation must remain `O(admitted input bytes + configured output limit)`.
+
 ---
 
 # Phase 0 — Freeze complete `v0.1.0` semantics
@@ -902,6 +1140,12 @@ docs/metadata.md
 docs/security.md
 docs/resource-limits.md
 docs/transaction-model.md
+docs/platform-support.md
+docs/schema/v1/request.schema.json
+docs/schema/v1/response.schema.json
+docs/schema/v1/recovery-request.schema.json
+docs/schema/v1/recovery-response.schema.json
+docs/schema/v1/common.schema.json
 docs/adr/0001-exact-content-model.md
 docs/adr/0002-coordinate-semantics.md
 docs/adr/0003-workspace-root-model.md
@@ -911,6 +1155,9 @@ docs/adr/0006-new-file-policy.md
 docs/adr/0007-plan-hash-format.md
 docs/adr/0008-transaction-guarantees.md
 docs/adr/0009-permission-preservation.md
+docs/adr/0010-workspace-lock-bootstrap.md
+docs/adr/0011-path-equivalence-keys.md
+docs/adr/0012-transaction-state-and-durability.md
 ```
 
 ## 0.1 Line semantics
@@ -980,6 +1227,15 @@ Valid byte offsets satisfy:
 
 Do not expose `before_byte` or `after_byte`.
 
+Exact line-anchor semantics are:
+
+* `before_line(n)` resolves to the first byte of selectable line `n`.
+* `after_line(n)` resolves immediately after that line’s complete terminator (`LF`, `CRLF`, or lone `CR`). For an unterminated final line, it resolves to file length.
+* Valid `n` is `1 <= n <= line_count`; an empty file therefore accepts no line anchor.
+* `after_line(last_line)` always equals `file_end`, whether or not the final line is terminated.
+* A line anchor never resolves inside a CRLF pair. Byte anchors may split CRLF because they operate on arbitrary bytes.
+* Invalid line numbers return `LINE_ANCHOR_OUT_OF_RANGE` with the line count and operation index.
+
 ## 0.4 Same-file moves
 
 For source `[start, end)`:
@@ -1008,23 +1264,54 @@ A same-file no-op move:
 * Produces `change_kind = unchanged` when no other operation changes the file.
 * Creates no transaction when the entire plan is unchanged.
 
-## 0.5 Cross-operation conflicts
+## 0.5 Deterministic composition and cross-operation conflicts
 
 All sources and anchors resolve before composition.
 
 Rules:
 
-* Move source ranges may not overlap.
+* Effectful move source ranges may not overlap. A same-file no-op move creates no deleted range and does not participate in deleted-range overlap checks.
 * Copy ranges may overlap other copy ranges.
 * Copy ranges may overlap moved source ranges.
-* Multiple insertions at one offset retain request order.
+* Multiple insertions at one offset retain ascending operation-index order, which is request order.
 * An insertion at the start boundary of a deleted range is valid.
 * An insertion at the end boundary of a deleted range is valid.
 * An insertion strictly inside any deleted range is invalid.
 * Conflicting preconditions for one physical file are invalid.
-* Distinct paths resolving to one physical file are invalid.
+* Distinct paths resolving to one physical file or one `PathEquivalenceKey` are invalid as separate logical paths.
 
-The specification must define a complete total order for deletion boundaries and insertions.
+Composition is a deterministic event stream over each file’s immutable initial bytes. An effectful move contributes one deletion interval at its source and one insertion at its destination. A copy contributes only an insertion. A no-op move contributes a report event but neither deletion nor insertion. All inserted payloads refer to the initial snapshot even if another operation deletes the same source bytes.
+
+For each file, create events with key:
+
+```text
+(initial_byte_offset, event_class, operation_index, boundary_kind)
+```
+
+The total event-class order at one offset is:
+
+```text
+1. deletion_end, ascending source operation index
+2. insertion, ascending operation index
+3. deletion_start, ascending source operation index
+4. end_of_file
+```
+
+Original-slice emission is defined by this sweep, which is the normative output-construction algorithm:
+
+1. Sort and validate deletion intervals; adjacent intervals remain distinct, overlaps are rejected.
+2. Set `cursor = 0` and `deletion_active = false`.
+3. At each event offset, emit initial bytes `[cursor, offset)` only when `deletion_active` is false, then set `cursor = offset`.
+4. Process all `deletion_end` events, setting `deletion_active = false`.
+5. Emit all insertion payload slices in ascending operation-index order. Insertion does not advance `cursor`.
+6. Process all `deletion_start` events, setting `deletion_active = true`.
+7. Treat `file_length` as the synthetic EOF offset and run steps 3–5 there. Step 3 emits any final surviving original slice before EOF insertions; after those insertions, terminate. No deletion start is valid at EOF.
+
+Because effectful move deletions do not overlap, `deletion_active` is boolean. At the shared boundary of adjacent deletions, the end is processed, insertions at that offset are emitted, then the next deletion begins. This makes boundary insertion legal and deterministic.
+
+A forward same-file move needs no separate mutable-coordinate rule: its insertion is attached to the initial destination offset and naturally appears at final offset `destination - total_deleted_bytes_strictly_before_destination`. A backward move is analogous. A whole-file effectful move deletes `[0, file_length)`; absent other insertions, the existing source remains present with zero content bytes. New files run the same sweep over a zero-length initial snapshot, so all legal insertions occur at offset `0` in operation order.
+
+Phase 0 must include annotated byte examples for: start/end insertion on one deletion, two insertions at each boundary, adjacent deletions with an insertion between them, forward/backward moves, a no-op plus a boundary insertion, line and byte anchors resolving to one offset, copy sourced from bytes another move removes, EOF insertion, and whole-file move.
 
 ## 0.6 Workspace and path rules
 
@@ -1035,11 +1322,12 @@ Operation paths:
 * Are workspace-relative.
 * Cannot be absolute.
 * Cannot contain `..`.
-* Cannot target `.codesplice`.
+* Cannot target `.codesplice`, `.codesplice.lock`, or any platform-equivalent spelling.
 * Cannot traverse symlinks, junctions, or unsupported reparse points.
 * Cannot refer to directories or special files.
 * Cannot escape the root.
 * Cannot rely on parent-directory creation.
+* Must receive and retain an authoritative `PathEquivalenceKey` under Section 7.6, including when the final entry is absent.
 
 ## 0.7 Physical identity
 
@@ -1063,6 +1351,8 @@ FILE_IDENTITY_ALIAS
 
 ## 0.8 Preconditions
 
+Every operation path requires an explicit precondition. Omission is invalid, including when commit uses `--accept-current-plan`.
+
 Existing source or destination:
 
 ```json
@@ -1081,6 +1371,8 @@ New destination:
 ```
 
 A source cannot use `must_not_exist`.
+
+Every reference to one logical path in a batch must repeat an identical precondition. Conflicting or lexically different digest values after canonical parsing are rejected before snapshot acquisition.
 
 ## 0.9 New files
 
@@ -1143,9 +1435,144 @@ If state changes during an unlocked status read:
 1. Retry once.
 2. If it changes again, return `TRANSACTION_BUSY`.
 
-## 0.12 Required fixtures
+## 0.12 Stable snapshot acquisition
 
-Create at least 40 fixtures, including:
+Each existing physical file is acquired from one open handle:
+
+1. Open relative to a securely opened parent directory with read-only, close-on-exec, and no-follow/no-reparse semantics.
+2. From the handle, capture physical identity, regular-file type, length, ordinary permissions where supported, and the strongest portable change indicator available on the platform (including high-resolution modification/change time when available).
+3. Reject the file before allocation if its declared length exceeds the per-file or remaining batch limit.
+4. Read to EOF in bounded chunks while hashing, rejecting more bytes than the limit or more bytes than the captured length permits.
+5. From the same handle, capture identity, type, length, and change indicators again.
+6. Treat different before/after metadata, short/long reads relative to final length, or a changed digest precondition as an unstable attempt.
+7. Re-resolve the parent entry without following and verify it still identifies the opened object and the same parent identity.
+8. Close only after all captured commit-context tokens are finalized.
+
+Retry the complete open/read/validate sequence at most two additional times, for three attempts total. A third unstable result returns `SNAPSHOT_UNSTABLE` with the normalized path, attempt count, and which indicators changed. Never combine chunks from separate attempts. This detects ordinary concurrent in-place writes; the security documentation must state that platforms lacking a generation counter cannot prove absence of a hostile write that restores all observed metadata.
+
+## 0.13 Lock and secure-handle contract
+
+Freeze and test the exact Section 7.5 bootstrap. All `.codesplice`, transaction-directory, candidate, backup, target, rollback, and cleanup operations use handle-relative APIs where supported. Every path-based exception must identify its OS primitive, pre/post identity validation, and residual race in `docs/platform-support.md`. `WORKSPACE_LOCK_INVALID`, `TRANSACTION_BUSY`, and `PATH_EQUIVALENCE_UNSUPPORTED` are protocol-v1 stable errors.
+
+## 0.14 Transaction records, states, and durability
+
+The immutable manifest is published before any candidate creation. The mutable logical state is represented by a sequence of complete atomic records. Every record contains transaction ID, manifest SHA-256, `sequence`, state tag and payload, and the prior published state record’s stored checksum (`none` for sequence `0`). The checksum is SHA-256 over every record byte from magic through payload, excluding only the final checksum field.
+
+```text
+manifest magic: CODESPLICE-MANIFEST\0
+state magic:    CODESPLICE-STATE\0
+format version: u32 big-endian 1
+first state sequence: 0
+next sequence: exactly previous + 1, without wrap
+```
+
+`manifest SHA-256` means the manifest record’s stored checksum under the same rule. `sequence`, target indices, state tags, optional tags, identity encodings, lengths, and list counts receive fixed big-endian widths and numeric discriminants in the Phase 0 byte grammar in `docs/transaction-model.md`; the grammar must include an annotated golden byte dump for every state tag before Phase 1.
+
+State tags and payloads are:
+
+```text
+Preparing
+  per-target candidate status: missing | created(candidate physical identity)
+Prepared
+  every candidate identity present and verified
+Committing
+  per-target stage: original | backed_up(backup identity) | installed(final identity)
+Committed
+  every final target verified; this persisted record is the logical commit point
+RollingBack
+  per-target rollback stage and observed identities
+RolledBack
+  every existing original restored and every originally absent target absent
+CleaningCommitted
+  cleanup progress; only all-new recovery is legal
+CleaningRolledBack
+  cleanup progress; only all-old recovery is legal
+```
+
+Legal transitions are:
+
+```text
+Preparing -> Preparing | Prepared | RollingBack
+Prepared -> Committing | RollingBack
+Committing -> Committing | Committed | RollingBack
+RollingBack -> RollingBack | RolledBack
+Committed -> CleaningCommitted
+CleaningCommitted -> CleaningCommitted | remove transaction directory
+RolledBack -> CleaningRolledBack
+CleaningRolledBack -> CleaningRolledBack | remove transaction directory
+```
+
+No transition may regress a target stage or sequence. Rollback from `Committing` is allowed only after filesystem classification proves all installed candidates can be removed and all backups still identify the recorded originals. `Committed` is the irrevocable logical commit point: rollback is rejected thereafter, and recovery may only verify/complete cleanup. State that names an unknown target, invalid index, impossible stage, candidate identity absent from `Prepared`, or a manifest digest/transaction ID mismatch returns `TRANSACTION_RECORD_CORRUPT`. Filesystem observations never silently repair a corrupt record; valid lag after a crash is handled by the recovery matrix.
+
+Record publication protocol:
+
+1. Exclusively create a bounded single-component temporary name inside the transaction directory: `manifest-<txn>.tmp` or `state-<20-digit-sequence>-<txn>.tmp`.
+2. Serialize the complete bounded record in canonical binary form, append its checksum, write all bytes, and flush language/runtime buffers.
+3. Apply the selected durability sync requirement below.
+4. Publish with a handle-relative no-replace rename to `manifest.rec` or `state-<20-digit-sequence>.rec`.
+5. Apply the selected directory-sync requirement.
+6. Never overwrite a published record. On recovery, ignore only a validly bounded `.tmp` name owned by that manifest; never infer state from it.
+
+The current state is the highest valid contiguous sequence whose hash chain begins at `0`. A gap, duplicate sequence, checksum failure in a published record, or forked prior hash is corruption. This append-and-publish protocol is the v1 state-file replacement model; no in-place state write or separate checksum file is allowed.
+
+Durability guarantees are:
+
+| Operation | `Normal` | `Durable` |
+|---|---|---|
+| Record/candidate data write | `write_all`, flush runtime buffers, close before dependent rename | `write_all`, flush, `sync_all` file before dependent rename |
+| Publish manifest/state | atomic no-replace rename; no directory sync required | sync temp file, rename, then sync transaction directory |
+| Create control/transaction directory | ordinary secure create | secure create, then sync its parent directory at every new level |
+| Candidate ready | close and verify before `Prepared` | apply permissions, `sync_all`, close/verify, then publish and sync `Prepared` |
+| Target-to-backup rename | publish next state after rename | rename, sync target parent directory, then publish and sync next state |
+| Candidate-to-target rename | verify then publish next state | pre-sync candidate data/metadata, rename, sync target parent, verify, then publish/sync state |
+| Cleanup unlink/transaction removal | best effort with state retained until completion | sync affected parent after each cleanup batch and after transaction removal |
+
+`Normal` guarantees recoverability after process termination provided the operating system and filesystem preserve acknowledged cached writes and renames; it makes no power-loss or kernel-crash persistence guarantee. `Durable` orders file and directory synchronization to survive a system crash or power loss under the documented filesystem’s `fsync`/equivalent contract. Unsupported directory sync or rename semantics fail before mutation with `UNSUPPORTED_DURABILITY_PRIMITIVE`. Neither mode makes multi-target visibility atomic.
+
+## 0.15 Candidate identity and recovery comparison
+
+After exclusive candidate creation, capture its canonical physical identity from the retained open handle. Persist that identity in the next `Preparing` state record before closing the handle; `Prepared` is forbidden until every candidate identity is recorded. Reopen/revalidate the directory entry against that identity immediately before installation. Recovery uses the recorded identity, never digest and length alone.
+
+For every target, classification compares:
+
+```text
+target path vs recorded original identity and digest
+target path vs recorded candidate/final identity and planned digest
+backup path vs recorded original identity and digest
+candidate path vs recorded candidate identity and planned digest
+each containing parent vs recorded parent identity and PathEquivalenceKey
+```
+
+Identical bytes with a different physical identity classify as `identity_mismatch`, except that a successfully installed candidate’s identity becomes the recorded final identity in the post-install state. A crash after rename but before that state update is recognized only when the target has the previously recorded candidate identity. Secure handles may be retained across installation when the platform permits; recovery must still work from persisted identities alone in a fresh process.
+
+The minimum recovery-action matrix is normative:
+
+| Original state | Target observation | Backup observation | Candidate observation | Safe action before `Committed` |
+|---|---|---|---|---|
+| present | recorded original | missing | recorded candidate | complete may back up then install; rollback removes candidate only |
+| present | missing | recorded original | recorded candidate | complete installs candidate; rollback restores original |
+| present | recorded candidate identity | recorded original | missing | complete records/verifies install; rollback removes target then restores original |
+| absent | absent | not applicable | recorded candidate | complete installs; rollback removes candidate |
+| absent | recorded candidate identity | not applicable | missing | complete records/verifies install; rollback removes target |
+| either | any different identity/digest/type | any unexpected entry | any different identity/digest/type | explicit conflict; mutate nothing |
+
+After `Committed`, rows that already name the recorded candidate/final object may only advance cleanup; a missing or mismatching final target is an explicit external-modification conflict, never grounds for rollback. Recovery applies this matrix to all targets before the first recovery mutation, then revalidates the affected row immediately before each handle-relative operation.
+
+## 0.16 New-file permission policy
+
+On Unix, every candidate is created exclusively at mode `0600`, and the implementation immediately verifies/reapplies `0600`. Before worker threads start, the CLI captures and restores the process umask. A new target’s final ordinary mode is exactly `0666 & captured_umask`; apply it to the candidate immediately before installation. The candidate is never broader than `0600` during preparation and never broader than its final mode after that chmod. Existing targets continue to receive the current mode read from the validated backup. Protocol v1 has no requested-mode field or CLI mode override.
+
+On Windows, candidates use non-inheritable handles and the target parent’s normal inherited ACL policy. Read-only attribute behavior is documented separately and no POSIX-mode equivalence is promised. Candidate creation must not deliberately grant access beyond the final inherited policy. Platform tests record the effective ACL/attribute behavior.
+
+## 0.17 Deterministic crash failpoints
+
+Test builds expose named failpoints after every published record and before/after every candidate create, permission application, backup rename, install rename, verification, state transition, cleanup unlink, and directory removal. Production builds do not enable failpoints.
+
+Scenario tests launch CodeSplice as a child process with one failpoint selected through a test-only inherited channel, wait for a “reached” acknowledgement, forcibly terminate the child without unwinding, then run inspection and recovery in a fresh process. In-memory injected errors alone do not satisfy a crash checkpoint. Failpoint names are stable and include transaction sequence plus target commit index in test reports.
+
+## 0.18 Required fixtures
+
+Create at least 60 normative fixtures, including:
 
 1. LF.
 2. CRLF.
@@ -1192,6 +1619,25 @@ Create at least 40 fixtures, including:
 43. Manifest path traversal.
 44. Torn state record.
 45. Transaction directory without manifest.
+46. `before_line` and `after_line` for every terminator.
+47. Unterminated-final-line anchors.
+48. Empty-file line-anchor rejection.
+49. Adjacent deletions with a boundary insertion.
+50. No-op move overlapping an effectful source range.
+51. Line and byte anchors resolving to one offset.
+52. Absent case-equivalent targets.
+53. Absent Unicode-normalization-equivalent targets.
+54. `.codesplice.lock` spelling alias.
+55. Snapshot mutation during read and bounded retry.
+56. Candidate replaced with identical bytes and different identity.
+57. State/manifest digest disagreement.
+58. State sequence gap, regression, and fork.
+59. New-file mode under representative umasks.
+60. Binary and truncated diff.
+61. Normal-mode process crash.
+62. Durable-mode system-crash model.
+63. Committed transaction with partial cleanup.
+64. Candidate hash-truncation collision detected before publication.
 
 ## Phase 0 checkpoint
 
@@ -1200,19 +1646,34 @@ Pass only when:
 * Crate ownership is cycle-free.
 * Workspace-root behavior is frozen.
 * `.codesplice` behavior is frozen.
+* `.codesplice.lock` bootstrap, identity binding, persistence, and lifetime are frozen.
+* Path equivalence for existing and absent entries is frozen on all release platforms.
 * Plan-hash encoding is frozen.
+* Golden plan vectors include annotated byte dumps.
+* Edit composition and every line-anchor offset are frozen.
 * Single-target and multi-target commits share one transaction model.
+* The complete transaction state machine and both durability protocols are frozen.
+* Candidate and final identities are present in recovery comparisons.
 * Preview wording does not promise stable access time.
 * Permission concurrency behavior is frozen.
+* New-file permissions are frozen.
 * Backup no-replace behavior is specified.
 * Manifest target records are fully specified.
 * Orphan handling is frozen.
-* At least 40 fixtures exist.
+* Protocol-v1 schemas validate all normative examples and reject duplicate/unknown keys.
+* Exit categories, error context, arbitrary-byte diff behavior, and failpoint mechanics are frozen.
+* At least 60 fixtures exist.
 * No production editing engine exists.
 
-### Demonstration
+### Phase 0 evidence
 
-Present:
+Phase 0 does not require or permit production filesystem editing or transaction behavior. Its evidence is divided into:
+
+1. **Normative examples and state-transition tables:** required for every item below and checked for internal consistency.
+2. **Optional non-production executable specification tests:** pure models, schema-validation tests, golden encoders, and in-memory/test-double state machines are allowed under `codesplice-test-support` or documentation tooling. They may not be linked into the production CLI/crates as an editing or transaction engine and may not mutate real workspace targets.
+3. **Production behavioral demonstrations:** explicitly deferred to the phase named below and not part of the Phase 0 pass/fail decision.
+
+Present normative examples for:
 
 1. A same-file no-op move.
 2. A cross-file move with expected plan.
@@ -1220,6 +1681,16 @@ Present:
 4. A workspace-root replacement conflict.
 5. A transaction directory created before candidate generation.
 6. A target backup collision rejected through no-replace rename.
+
+Production evidence is deferred as follows:
+
+```text
+same-file no-op and cross-file expected-plan behavior: Phases 4–5
+workspace-root replacement detection: Phase 3 and commit revalidation in Phase 6
+permission change, transaction-before-candidate, and backup collision: Phase 6
+multi-target state/recovery visibility: Phase 7
+systematic crash failpoints: Phases 6–8
+```
 
 **Stop after the checkpoint.**
 
@@ -1298,18 +1769,22 @@ cargo test --workspace --all-features
 
 ## Objective
 
-Define the initial `move` and `copy` protocol.
+Implement the frozen protocol-v1 schemas and the one-operation `move`/`copy` convenience constructors. Phase 2 may not invent or revise wire semantics; any schema ambiguity returns the project to Phase 0.
 
 ## Required protocol behavior
 
+* The checked-in protocol-v1 JSON Schemas are normative and every example validates against them.
+* Duplicate JSON keys and unknown object fields fail before domain conversion.
 * `workspace_root` must equal `"."`.
 * Unknown operations fail explicitly.
 * Unknown selectors fail explicitly.
 * Unknown anchors fail explicitly.
 * Unknown semantic fields fail explicitly.
-* Source preconditions must be SHA-256.
-* Destination preconditions may be SHA-256 or `must_not_exist`.
+* Every source and destination path has an explicit precondition.
+* Source preconditions and existing-destination preconditions must be SHA-256.
+* Absent-destination preconditions must be `must_not_exist`.
 * Resource limits are validated before large allocation.
+* Direct `move` and `copy` parse into a one-operation `BatchSpecification` and have no separate semantics.
 
 ## Expected-plan CLI policy
 
@@ -1335,6 +1810,15 @@ CONTROL_DIRECTORY_INVALID
 TRANSACTION_BUSY
 RESOURCE_LIMIT_EXCEEDED
 UNSUPPORTED_COMMIT_PRIMITIVE
+WORKSPACE_LOCK_INVALID
+PATH_EQUIVALENCE_UNSUPPORTED
+SNAPSHOT_UNSTABLE
+LINE_ANCHOR_OUT_OF_RANGE
+PLAN_ENCODING_LIMIT
+TRANSACTION_RECORD_CORRUPT
+UNSUPPORTED_DURABILITY_PRIMITIVE
+RESERVED_NAME_COLLISION
+CANNOT_COMPLETE_PREPARING
 ```
 
 Errors and warnings require structured context.
@@ -1349,6 +1833,7 @@ Pass only when:
 * Expected-plan policy is parsed separately.
 * Resource limits are applied during parsing.
 * No filesystem access exists in protocol conversion.
+* Stable exit categories, retryability, JSON pointers, operation indices, redaction, warnings, and JSON stdout/stderr rules pass golden tests.
 
 ### Demonstration
 
@@ -1360,6 +1845,10 @@ Deserialize:
 4. Unknown selector.
 5. Oversized request.
 6. Commit options with expected plan.
+7. Missing mandatory precondition.
+8. Duplicate key and unknown field.
+9. Every recovery request/response state.
+10. Every stable error exit category.
 
 **Stop after the checkpoint.**
 
@@ -1392,7 +1881,8 @@ pub trait SnapshotReader {
 * Validate `.codesplice` only when it already exists; preview must not create it.
 * Validate operation paths.
 * Reject reserved control paths.
-* Read each physical file once.
+* Build and validate `PathEquivalenceKey` values for every existing and absent operation path.
+* Read each physical file through one handle per attempt using Section 0.12; retry no more than three total attempts.
 * Convert platform identity into core identity tokens.
 * Populate core `WorkspaceSnapshot`.
 * Populate filesystem `CommitContext`.
@@ -1400,6 +1890,7 @@ pub trait SnapshotReader {
 * Detect path aliases.
 * Detect precondition conflicts.
 * Represent absent destinations explicitly.
+* Prefer handle-relative resolution and record every documented platform fallback.
 
 ## Line indexing
 
@@ -1418,6 +1909,8 @@ Pass only when:
 * Junction and reparse-point behavior is tested on Windows.
 * Preview acquisition creates no control directory.
 * Memory limits are enforced.
+* Mutation-during-read detection and the bounded `SNAPSHOT_UNSTABLE` result pass.
+* Case/normalization-equivalent absent destinations and both reserved names are rejected according to native platform behavior.
 * No filesystem writes occur.
 
 ### Demonstration
@@ -1430,6 +1923,8 @@ Show:
 * `.codesplice` symlink rejection.
 * Stale digest rejection.
 * Snapshot limit rejection.
+* Mutation during read followed by retry and eventual structured failure.
+* Absent-destination equivalence collision.
 
 **Stop after the checkpoint.**
 
@@ -1458,6 +1953,7 @@ This API now compiles because `WorkspaceSnapshot` belongs to `codesplice-core`.
 pub struct PlannedOutput {
     pub file_id: PlannedFileId,
     pub path: WorkspacePath,
+    pub path_equivalence_key: PathEquivalenceKey,
     pub original_sha256: Option<Digest>,
     pub resulting_sha256: Digest,
     pub resulting_length: u64,
@@ -1471,7 +1967,7 @@ pub enum OutputSegment {
         range: ByteRange,
     },
     PayloadSlice {
-        operation_index: usize,
+        operation_index: u32,
         source_file: SnapshotFileId,
         range: ByteRange,
         sha256: Digest,
@@ -1508,6 +2004,7 @@ Pass only when:
 * Plan hashing follows the frozen binary format.
 * Golden hashes use synthetic identities.
 * Same-file no-op behavior is correct.
+* The Section 0.5 event stream is the sole composition algorithm and every boundary-order fixture passes.
 * No filesystem writes occur.
 
 ### Demonstration
@@ -1519,6 +2016,7 @@ Show one plan containing:
 * A no-op move.
 * A new destination.
 * Its canonical plan hash.
+* The annotated canonical byte encoding that produced that hash.
 
 **Stop after the checkpoint.**
 
@@ -1555,6 +2053,7 @@ Preview:
 * Does not write destination files.
 * Does not intentionally modify metadata.
 * May cause filesystem-controlled access-time changes.
+* Applies the bounded arbitrary-byte diff policy in Section 10.1, including `--no-diff`.
 
 ## Inspect output
 
@@ -1604,6 +2103,7 @@ Pass only when:
 * JSON output is one parseable value.
 * Plan hash is returned.
 * Commit remains disabled.
+* Binary, mixed-terminator, disabled, and work-budget-truncated diff reports pass.
 
 ### Demonstration
 
@@ -1632,22 +2132,19 @@ There is no non-journaled commit path.
 
 ## 6.1 Transaction creation order
 
-While holding the mutation lock:
+Before creating any persistent artifact, perform an unlocked preflight snapshot/plan and reject a mismatched `--expect-plan`. Then:
 
-1. Revalidate workspace identity.
-2. Recompute the snapshot and plan.
-3. Verify `--expect-plan` when provided.
-4. Verify the plan changes at least one file.
-5. Securely create `.codesplice` if absent.
-6. Securely create `.codesplice/transactions`.
-7. Generate a validated transaction ID.
-8. Exclusively create the transaction directory.
-9. Determine bounded candidate and backup basenames.
-10. Write a versioned immutable manifest before candidate creation.
-11. Write manifest checksum.
-12. Write initial state `Preparing`.
-13. Write state checksum.
-14. Only then create candidate files.
+1. Acquire or bootstrap the exact persistent `.codesplice.lock` from Section 7.5.
+2. Revalidate workspace identity.
+3. Recompute the complete stable snapshot and plan while holding the lock.
+4. Verify `--expect-plan` again when provided and verify the plan changes at least one file.
+5. Securely validate or create `.codesplice` and `.codesplice/transactions` relative to root/control handles.
+6. Generate a validated 128-bit random transaction ID encoded as 32 lowercase hexadecimal digits.
+7. Exclusively create the transaction directory.
+8. Determine and collision-check all bounded candidate and backup basenames.
+9. Publish the complete versioned immutable manifest using Section 0.14.
+10. Publish state sequence `0` as `Preparing` with all candidates `missing`.
+11. Only then create candidate files, persisting each physical identity in a new `Preparing` state.
 
 This prevents adjacent candidate files from existing without a durable transaction record.
 
@@ -1664,13 +2161,18 @@ Use bounded basenames such as:
 
 Requirements:
 
-* Fixed maximum length.
+* The short transaction component is the first 16 hex digits of the validated transaction ID.
+* The target hash is the first 20 bytes (40 lowercase hex digits) of `SHA256("CODESPLICE-TARGET-NAME\0" || encoded PathEquivalenceKey)`.
+* Exact v1 basenames are `.cs-<16hex>-<40hex>-c` and `.cs-<16hex>-<40hex>-b`, each 63 ASCII bytes.
 * Single path component.
 * No user-controlled path separators.
 * Target hash derived from normalized target path.
 * Candidate creation uses exclusive create.
 * Backup installation uses no-replace rename.
-* Reserved-name collision causes safe transaction failure.
+* All generated candidate and backup names must be distinct within the transaction. A truncation collision returns `RESERVED_NAME_COLLISION` before manifest publication; v1 does not choose an alternate name.
+* A collision with any existing entry, including stale transaction artifacts or unrelated user data, causes safe transaction failure. No colliding entry is removed or replaced.
+* The manifest is immutable and is never rewritten because of a name collision.
+* The 63-byte length is below the minimum 255-byte component limit required of supported target filesystems.
 
 ## 6.3 No-replace backup primitive
 
@@ -1719,12 +2221,12 @@ UNSUPPORTED_COMMIT_PRIMITIVE
 After the manifest is durable enough for the selected mode:
 
 1. Exclusively create the candidate.
-2. Stream plan segments into it.
-3. Hash while writing.
-4. Verify digest and length.
-5. Flush.
-6. Synchronize in durable mode.
-7. Update transaction state to `Prepared`.
+2. Capture its physical identity from the retained handle and publish a `Preparing` state containing that identity.
+3. Apply restrictive candidate permissions from Section 0.16.
+4. Stream plan segments into it and hash while writing.
+5. Verify digest, length, path identity, and parent identity.
+6. Perform the selected Normal/Durable flush and sync protocol.
+7. After all candidates are ready, publish `Prepared` containing every candidate identity.
 
 ## 6.5 Existing-target commit
 
@@ -1735,7 +2237,7 @@ After the manifest is durable enough for the selected mode:
 5. On mismatch, restore it and report conflict.
 6. Read its current ordinary permission bits.
 7. Apply those bits to the candidate.
-8. Install candidate with safe platform semantics.
+8. Revalidate the candidate against its recorded physical identity and install it with handle-relative safe platform semantics where available.
 9. Verify final type, identity, length, and digest.
 10. Record commit progress.
 11. Mark transaction committed.
@@ -1745,7 +2247,7 @@ After the manifest is durable enough for the selected mode:
 
 1. Revalidate root and parent identity.
 2. Revalidate complete absence.
-3. Install candidate without replacement.
+3. Apply and verify the Section 0.16 new-file final mode, revalidate candidate identity, and install without replacement.
 4. Verify final type, identity, length, and digest.
 5. Record progress.
 6. Mark committed.
@@ -1758,7 +2260,9 @@ Every target entry includes:
 ```text
 deterministic commit index
 normalized target path
+authoritative target PathEquivalenceKey
 normalized target parent path
+authoritative parent PathEquivalenceKey
 target basename
 captured target-parent identity
 original existence state
@@ -1774,6 +2278,8 @@ expected final type
 expected final digest
 change kind
 ```
+
+Candidate physical identity is necessarily unknown when the immutable manifest is published. It is stored in the checksummed `Preparing`/`Prepared` state chain immediately after exclusive creation, as required by Section 0.15. Backup identity and installed-final identity are similarly stored in progress state records. Manifest digest/length never substitutes for these identities.
 
 For a new target:
 
@@ -1804,6 +2310,8 @@ codesplice recover <ID> --complete
 
 These commands must work for one-target transactions before Phase 6 passes.
 
+Recovery implements the exact state graph, commit point, record publication, candidate/original/final identity comparisons, and Normal/Durable protocols in Sections 0.14–0.15. `Committed` with partial cleanup can only complete cleanup. State/manifest disagreement is corruption, not a guessed recovery action.
+
 ## 6.9 Orphan rules
 
 Because the manifest is written before candidate creation, adjacent candidates should always have a transaction record.
@@ -1820,7 +2328,7 @@ Safe behavior:
 
 ### Valid manifest with missing candidates
 
-Recovery uses manifest state and actual filesystem classification.
+Fresh-process `--complete` is rejected with `CANNOT_COMPLETE_PREPARING` while state is `Preparing`, because the manifest does not retain payload bytes and a partially written candidate is not trusted. Rollback leaves candidates recorded as `missing` absent and deletes only candidate entries whose recorded identity still matches. A recorded candidate that is absent in `Preparing` is safe for rollback. In `Prepared` or later, an absent candidate is acceptable only when the state/location matrix proves that exact recorded identity was renamed to the target during an interrupted install; otherwise it is an external conflict. Recovery never synthesizes replacement bytes from unrelated current files.
 
 ### Candidate-like filename without a manifest reference
 
@@ -1840,6 +2348,11 @@ Pass only when:
 * Single-target recovery commands work.
 * Read-only status follows stale-observation rules.
 * Every failpoint ends recoverably or in explicit conflict.
+* `.codesplice.lock` bootstrap, persistence, malformed-state behavior, workspace binding, contention, and lifetime pass on every release platform.
+* State transitions, monotonic/hash-chained sequences, atomic publication, checksum corruption, and commit-point behavior pass.
+* Candidate replacement by an equal-byte different-identity object is rejected.
+* Normal mode passes fresh-process termination recovery tests, and Durable mode passes ordered file/directory-sync trace tests on every supported filesystem.
+* New-target modes/ACL behavior match Section 0.16 and candidates are never intentionally broader.
 
 ### Demonstration
 
@@ -1851,6 +2364,8 @@ Inject crashes:
 4. After target-to-backup move.
 5. After candidate installation.
 6. Before cleanup.
+
+For each persisted transition and filesystem mutation, use the fresh-process failpoint framework rather than only returning an injected in-memory error.
 
 Recover each state.
 
@@ -1882,7 +2397,7 @@ Do not introduce a second transaction engine.
 
 ## Commit ordering
 
-Targets use deterministic normalized-path order.
+Targets use deterministic encoded-`PathEquivalenceKey` order. Equivalent-key ties are rejected during planning.
 
 The manifest records `commit_index`.
 
@@ -1913,6 +2428,8 @@ identity_mismatch
 
 Completion or rollback proceeds only when every required transition is safe.
 
+Classification is per location and uses the Section 0.15 comparison matrix: target against recorded original and candidate/final identity, backup against original identity, candidate entry against candidate identity, and every entry against its recorded parent identity/equivalence key. Digest and length are additional integrity checks, never object identity. The recovery report identifies the compared stored identity kind through an opaque hash rather than exposing raw identity bytes.
+
 ## Read-only recovery inspection
 
 `recover --list` and `recover --status`:
@@ -1935,6 +2452,7 @@ Pass only when:
 * Read-only status handles active transactions safely.
 * Mutating recovery requires the exclusive lock.
 * Failpoints cover every target and state update.
+* Reports and documentation explicitly show that unrelated readers may observe mixed old/new files before recovery converges.
 
 ### Demonstration
 
@@ -1988,6 +2506,14 @@ concurrent commit
 concurrent rollback
 concurrent read-only status
 resource-limit violations
+concurrent first lock bootstrap
+malformed or workspace-mismatched persistent lock record
+absent case and Unicode-equivalent target aliases
+snapshot changes during open-handle read
+candidate replacement with identical bytes and different identity
+committed state with partial cleanup
+new-file umask and restrictive candidate mode
+binary diff escaping and computation-budget exhaustion
 ```
 
 ## Property tests
@@ -2123,7 +2649,12 @@ Release only when:
 * Preview wording and tests are portable.
 * Expected-plan commits work.
 * Plan-hash format is documented.
+* Protocol-v1 schemas, stable errors, warnings, and exit categories are documented and golden-tested.
+* Persistent lock bootstrap and absent-path equivalence work on every minimum target.
+* Snapshot mutation during read is detected according to the bounded retry contract.
 * Transaction manifest and state formats are documented.
+* Normal and Durable guarantees, commit point, candidate identity, and partial-cleanup recovery are documented and tested.
+* New-file permissions and arbitrary-byte diff behavior are documented and tested.
 * Resource limits are documented.
 * Pilot criteria pass.
 
