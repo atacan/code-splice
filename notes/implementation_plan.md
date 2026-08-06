@@ -1,6 +1,6 @@
 # CodeSplice Technical Implementation Plan
 
-**Status:** Revised after fourth technical review; no-go for Phase 1 until every Phase 0 blocker and evidence item passes
+**Status:** Revised after fifth technical review; no-go for Phase 1 until every Phase 0 blocker and evidence item passes
 **Implementation language:** Rust
 **Working binary name:** `codesplice`
 **Initial release target:** `v0.1.0`
@@ -111,8 +111,13 @@ The first release includes:
 
 ```text
 inspect
+apply
 move
 copy
+recover
+doctor
+capabilities
+protocol-version
 line selectors
 byte selectors
 line anchors
@@ -624,9 +629,9 @@ Bootstrap and acquisition are normative:
 3. Reject a symlink, junction, unsupported reparse point, directory, special file, multiply linked file where link count is available, or a lock name whose `PathEquivalenceKey` is not the reserved key. On Unix, an existing lock must have link count `1`, be owned by the effective user ID, and have exactly owner read/write permission (`0600`) with no group, other, set-ID, or sticky bits. On Windows, Phase 0 must freeze the owner and DACL validation that prevents a less-privileged principal from replacing or writing the lock.
 4. Acquire a non-blocking exclusive OS file lock on that opened handle. Contention returns `TRANSACTION_BUSY`; v1 does not steal locks or infer staleness from PID or time.
 5. While holding the lock, revalidate the workspace-root identity and that the reserved directory entry still identifies the opened lock object.
-6. If the file is empty because this invocation created it or a prior creator crashed before initialization, write the versioned lock-identity record while holding the lock. Otherwise validate the complete checksummed record.
-7. The lock-identity record contains magic `CODESPLICE-LOCK\0`, format version `1`, the canonical workspace identity token, and a SHA-256 checksum over all preceding record bytes.
-8. A nonempty malformed record or a record bound to another workspace identity fails with `WORKSPACE_LOCK_INVALID`; it is never silently replaced.
+6. If this invocation created the empty file, initialize the first slot while holding the lock. If an earlier creator crashed during first initialization, follow only the Phase 0-frozen recognizer/reinitialization rule for that exact partial shape; otherwise validate both complete checksummed slots and select the active generation.
+7. The lock-identity record is a fixed-capacity, two-slot record in the existing lock-file object. Each independently checksummed slot contains magic `CODESPLICE-LOCK\0`, format version `1`, a monotonically increasing nonzero `generation`, and the canonical workspace identity token. The active slot is the valid slot with the highest generation. Equal-generation nonidentical slots, generation wrap, an oversized identity, or no valid slot outside the narrowly recognized first-initialization crash state is `WORKSPACE_LOCK_INVALID`. Phase 0 freezes the exact file length, slot offsets, padding, byte grammar, initialization crash states, and golden vectors.
+8. A malformed active record or one bound to another workspace identity fails with `WORKSPACE_LOCK_INVALID`; normal commit and recovery never rewrite or replace it.
 9. Only after these checks may commit or mutating recovery validate or create `.codesplice` and `.codesplice/transactions` relative to secure directory handles.
 10. Hold the same open lock handle through planning revalidation, transaction preparation, commit or rollback, state persistence, and required cleanup. Releasing or closing the handle releases the OS lock.
 
@@ -641,15 +646,17 @@ Unix:
   acquire a whole-file exclusive advisory lock in non-blocking mode
 
 Windows:
-  CreateFileW relative to/opened beneath the validated root using CREATE_NEW first,
-  then OPEN_EXISTING only after ERROR_FILE_EXISTS
-  GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, no delete sharing
+  a reviewed NtCreateFile wrapper with OBJECT_ATTRIBUTES.RootDirectory set to
+  the validated root handle; use FILE_CREATE first, then FILE_OPEN only after
+  STATUS_OBJECT_NAME_COLLISION
+  request read/write and synchronization access, non-inheritable handle,
+  FILE_SHARE_READ | FILE_SHARE_WRITE, no delete sharing, and open-reparse-point
+  semantics without following the final component
   reject reparse tags and non-disk files; capture FileIdInfo
   LockFileEx exclusive + FAIL_IMMEDIATELY over the whole v1 lock range
 ```
 
-Equivalent reviewed crate calls are acceptable only when they preserve every listed flag and failure semantic. Lock-record initialization flushes runtime buffers in Normal mode and additionally syncs the file and root directory in Durable mode.
+`CreateFileW` is not a handle-relative substitute and is forbidden for this operation. An equivalent reviewed crate is acceptable only when it demonstrably preserves `NtCreateFile`/`RootDirectory`, every listed flag, and every failure semantic. Lock-record initialization flushes runtime buffers in Normal mode and additionally syncs the file and root directory in Durable mode.
 
 The lock file persists after release. Normal cleanup never removes it. Preview, inspect, capabilities, protocol-version, `recover --list`, and `recover --status` do not create or acquire it. Concurrent first creators may both open the resulting file, but only the process that acquires the OS lock may initialize or validate it; all control-directory creation remains serialized.
 
@@ -660,7 +667,22 @@ codesplice doctor --status [--json]
 codesplice doctor --repair-lock --acknowledge-workspace-rebind [--json]
 ```
 
-`doctor --status` is read-only. Lock repair is deliberately narrower than normal commit: it securely opens and locks the existing regular lock object when possible, validates the current root and control-directory identities, and performs a locked scan of every transaction entry. It refuses repair with `TRANSACTION_RECOVERY_REQUIRED` if any valid unfinished, committed-but-not-cleaned, corrupt, partially published, or unclassifiable transaction/control entry exists. It also refuses insecure lock ownership, mode, link count, type, or replacement races; those require manual operator remediation documented per platform. Only when the transaction directory is absent or proven empty may it use the Phase 0-frozen crash-safe replacement protocol to bind a new checksummed lock record to the current root. The replacement protocol must retain exclusive serialization throughout publication, use bounded root-relative names and no-replace operations, sync the file and root directory in Durable mode, and have model-based crash cases for every step. Neither normal commit nor recovery silently invokes repair.
+`doctor --status` is read-only and noncreating. If the lock path is absent, it reports that fact without creating it. If present, it securely opens the existing regular object and attempts a nonblocking shared diagnostic lock over the same v1 range. Failure to acquire it returns `TRANSACTION_BUSY`; after acquisition it validates the lock record and performs its bounded control scan. It never diagnoses an empty, partial, or invalid record while initialization or repair owns the exclusive lock. The shared lock is retained through the complete observation, so no stable-double-read substitute is needed.
+
+Lock repair is deliberately narrower than normal commit. It securely opens and exclusively locks the existing regular lock object, validates the current root and control-directory identities, and performs a locked scan of every transaction entry. It refuses repair with `TRANSACTION_RECOVERY_REQUIRED` if any valid unfinished, committed-but-not-cleaned, corrupt, partially published, or unclassifiable transaction/control entry exists. It also refuses insecure lock ownership, mode, link count, type, or namespace races; those require manual operator remediation documented per platform. Only when the transaction directory is absent or proven empty may repair write the inactive or older fixed slot in the **same locked file object**, flush/sync it as required, reread and validate both slots, and select the new higher generation. The prior valid slot remains intact until the new slot is durably valid. Repair never renames, unlinks, or replaces `.codesplice.lock`, so participants cannot split across old and new lock objects; the Windows choreography remains compatible with the normal handle's deliberate omission of delete sharing. Phase 0 must freeze crash cases before, during, and after every slot write and prove that each yields either the old valid generation, the new valid generation, or explicit `WORKSPACE_LOCK_INVALID`, never two lock objects. Neither normal commit nor recovery silently invokes repair.
+
+### Noncreating no-op transaction-health check
+
+Before a commit may report successful no-op, it performs this normative, mutation-free check:
+
+1. Inspect `.codesplice.lock` and `.codesplice` relative to the retained root handle without creating, initializing, repairing, truncating, or opening either for write.
+2. If neither exists, return the frozen no-op success immediately.
+3. If the control directory exists but the lock does not, return `WORKSPACE_LOCK_INVALID`; transaction health cannot be serialized safely.
+4. If the lock exists, securely open and validate it and attempt the normal nonblocking exclusive lock. Contention returns `TRANSACTION_BUSY`, even when the content plan is unchanged.
+5. While holding that existing lock, revalidate the root and lock namespace identities and boundedly inspect the existing control directory, if any, using the stale-transaction gate. Any unfinished, corrupt, partially published, unclassifiable, or not-fully-cleaned transaction returns `TRANSACTION_RECOVERY_REQUIRED`. A scan/control limit that prevents a clean determination also returns recovery required with its frozen reason.
+6. Only a valid lock record and absent or provably transaction-clean control directory permit no-op success. Release the handle without writing either reserved artifact.
+
+The no-op report still uses `transaction_id: null`, `transaction_state: "not_created"`, and `files_changed: []`; it additionally reports `transaction_health: "clean"`. This check never advances cleanup, because doing so would violate mutation-free no-op semantics.
 
 ## 7.6 Authoritative path equivalence
 
@@ -675,9 +697,9 @@ for each component:
 
 The platform component key is frozen as follows for a filesystem that has passed the runtime support gate in Section 7.7:
 
-* Linux: use exact UTF-8 bytes only after a runtime probe proves that the containing filesystem performs case-sensitive, exact-byte component lookup without Unicode normalization. Do not infer these semantics from the Linux kernel or CPU architecture.
+* Linux: use exact UTF-8 bytes only when the Section 7.7 evidence hierarchy selects a matrix row whose Phase 0 mutation-based spike established case-sensitive, exact-byte component lookup without Unicode normalization. Do not infer these semantics from the Linux kernel, CPU architecture, or a read-only runtime observation alone.
 * macOS: query the mounted volume’s case-sensitivity behavior; use the platform filesystem comparison form, including its canonical Unicode decomposition behavior, and apply case folding only on a case-insensitive volume. If the behavior cannot be queried or represented, reject with `PATH_EQUIVALENCE_UNSUPPORTED`.
-* Windows: reject Win32 device names, alternate-data-stream syntax, trailing dot/space spellings, and unsupported reparse behavior; normalize accepted UTF-8 to NFC and use the directory’s queried case-sensitivity setting, applying Windows ordinal invariant case mapping when insensitive.
+* Windows: reject Win32 device names, alternate-data-stream syntax, trailing dot/space spellings, and unsupported reparse behavior. Preserve each accepted component's original UTF-16 code-unit sequence; do not apply NFC, NFD, or any other Unicode normalization. On a case-sensitive directory, the component key contains that exact sequence. On a case-insensitive directory, derive the key with the Phase 0-validated Windows ordinal case-insensitive mapping/comparison semantics. Canonically equivalent precomposed and decomposed sequences remain distinct unless the native directory lookup itself identifies the same entry.
 
 The filesystem implementation must validate these rules against native same-entry probes in platform tests. It must not use locale-sensitive casing. Existing entries additionally require matching physical identity; equivalence keys do not replace physical-identity validation.
 
@@ -696,7 +718,14 @@ The core retains the normalized user-visible path spelling for diagnostics. No t
 
 An operating-system architecture alone never establishes support. Phase 0 must publish a matrix keyed by OS version family, filesystem type/version where observable, local versus network/overlay/mounted-volume status, case behavior, normalization behavior, physical-identity stability, hard-link reporting, ACL/xattr/flag inspection, handle-relative open/rename support, no-replace semantics, and file/directory synchronization semantics.
 
-Before planning a commit, and before creating the mutation lock on a previously unprobed workspace, read-only runtime probes must classify the workspace root, control directory location, every source/target parent volume, and every rename pair. Probes must establish or conservatively reject:
+Runtime support decisions use this formal evidence hierarchy:
+
+1. Read-only identification records the OS build, filesystem and mount/volume identity, local/network/overlay/removable status, directory case-sensitivity settings, and exposed volume capabilities for the workspace root, control location, every source/target parent, and every rename pair.
+2. Those observations are looked up in a frozen, versioned support matrix backed by the Phase 0 mutation-based feasibility spikes for that exact row. Matrix evidence, not a runtime read-only operation, establishes no-replace rename, staging-to-target rename, and file/directory durability semantics.
+3. When the matrix explicitly permits it but read-only identification is insufficient, commit may run an optional mutation-based probe only after acquiring the workspace lock and before manifest creation, inside a newly created secured test directory whose identity, cleanup, byte/directory budget, and crash residue handling are frozen. Preview and other read-only commands never run this probe. Any residue or cleanup failure returns `TRANSACTION_RECOVERY_REQUIRED` and blocks transaction creation.
+4. If the observations do not select one exact matrix row, or the permitted write probe cannot determine the result, reject conservatively with `FILESYSTEM_SEMANTICS_UNSUPPORTED` before manifest creation or target mutation.
+
+The evidence must establish or conservatively reject:
 
 * Exact component equivalence behavior for existing and absent names.
 * Stable file and directory identity for the duration required by commit and fresh-process recovery.
@@ -705,7 +734,7 @@ Before planning a commit, and before creating the mutation lock on a previously 
 * Durable file sync and parent-directory sync when Durable mode is requested.
 * Network, FUSE, overlay, virtualized, bind-mounted, removable, and nested-mounted volume behavior.
 
-Failure or ambiguity returns `FILESYSTEM_SEMANTICS_UNSUPPORTED` before transaction creation or target mutation. Phase 0 feasibility spikes must exercise at least Linux ext4, XFS, Btrfs, and overlay/network rejection paths; macOS APFS in case-sensitive and case-insensitive configurations plus network rejection; and Windows NTFS plus reparse/network rejection. The published matrix may support fewer filesystems when a spike fails, but it may not silently generalize from one filesystem to an OS family.
+No runtime read-only probe may be described as proving no-replace rename, cross-directory rename, or crash durability. Failure or ambiguity returns `FILESYSTEM_SEMANTICS_UNSUPPORTED` before transaction creation or target mutation. Phase 0 feasibility spikes must exercise at least Linux ext4, XFS, Btrfs, and overlay/network rejection paths; macOS APFS in case-sensitive and case-insensitive configurations plus network rejection; and Windows NTFS plus reparse/network rejection. The published matrix may support fewer filesystems when a spike fails, but it may not silently generalize from one filesystem to an OS family.
 
 ---
 
@@ -852,7 +881,7 @@ codesplice apply --request <file-or-> (--preview | --commit) [execution options]
 
 Direct `move` and `copy` commands are convenience constructors for exactly one protocol-v1 operation and use the same DTO conversion, planner, report, expected-plan policy, and transaction implementation. They are not independent protocols. `inspect`, `capabilities`, `protocol-version`, `doctor`, and `recover` have dedicated closed request/response schemas where applicable.
 
-Phase 0 must freeze an executable CLI grammar, not merely examples. It defines every positional argument, required and mutually exclusive option, stdin/stdout behavior, `--json` placement, default, and interaction for `apply`, `inspect`, direct `move`/`copy`, `recover`, and `doctor`; the exact JSON request and response shape for each command; error JSON placement; no-op response fields (`transaction_id: null`, `transaction_state: "not_created"`, `files_changed: []`); and recovery selection/confirmation semantics. Golden examples must cover every command, selector and anchor variant, existing and absent targets, preview, commit, no-op, every recovery state, each stable error category, and each warning shape. Missing CLI or schema semantics are a Phase 0 blocker and may not be deferred to Phase 2 documentation.
+Phase 0 must freeze an executable CLI grammar, not merely examples. It defines every positional argument, required and mutually exclusive option, stdin/stdout behavior, `--json` placement, default, and interaction for `apply`, `inspect`, direct `move`/`copy`, `recover`, `doctor`, `capabilities`, and `protocol-version`; the exact JSON request and response shape for each command; error JSON placement; no-op response fields (`transaction_id: null`, `transaction_state: "not_created"`, `transaction_health: "clean"`, `files_changed: []`); and recovery selection/confirmation semantics. Golden examples must cover every command, selector and anchor variant, existing and absent targets, preview, commit, no-op, every recovery state, each stable error category, and each warning shape. Missing CLI or schema semantics are a Phase 0 blocker and may not be deferred to Phase 2 documentation.
 
 Execution options—including preview/commit, durability, output form, diff policy, expected-plan policy, and trusted metadata-loss policy—are excluded from `BatchSpecification` and from `plan_sha256`. Any option that changes resulting content bytes is therefore prohibited as an execution option; metadata-loss permission may change only whether an otherwise byte-identical commit is allowed and which frozen warnings are emitted.
 
@@ -1068,7 +1097,7 @@ operation_effect = u8(1) changed | u8(2) no_op
 
 Every operation path has an explicit precondition. Therefore there is no absent/optional precondition tag. Source preconditions and existing destination preconditions use tag `1`; absent destinations use tag `2`.
 
-Output records are sorted by encoded `PathEquivalenceKey` bytes, again rejecting ties. They include every logical file whose final recipe or unchanged resolved operation is reported.
+Output records are sorted by encoded `PathEquivalenceKey` bytes, again rejecting ties. The set is exact: include every file that has at least one deletion or insertion edit event, plus every file containing at least one same-file no-op move report event. Exclude an otherwise unchanged file used only as a copy payload source. There is exactly one output record per included `PathEquivalenceKey`; no other unchanged/source-only file is encoded.
 
 ```text
 output_record =
@@ -1214,6 +1243,14 @@ maximum projected transaction disk use:
   8 GiB
 ```
 
+Limit ownership follows when the bounded value first exists:
+
+* Phase 2 validates request bytes, JSON nesting, textual UTF-8 path lengths, operation/path request counts, and response projections derivable from the request/schema before large allocation.
+* Phase 3 validates filesystem-generated `PathEquivalenceKey` encodings, physical-identity tokens, metadata entry/byte counts, snapshot bytes, line indexes, and aggregate snapshot/planning acquisition budgets.
+* Phase 4 and later validate segment counts, resulting-output amplification, candidate bytes, transaction/control projections, state/recovery records, disk use, and final response projections as those values are constructed.
+
+An earlier phase must not claim to validate a generated value that does not yet exist. Every handoff carries already-charged counters so later phases cannot double-count or leave allocations uncharged.
+
 Requirements:
 
 * Limits apply before uncontrolled allocation.
@@ -1273,6 +1310,8 @@ docs/schema/v1/request.schema.json
 docs/schema/v1/response.schema.json
 docs/schema/v1/recovery-request.schema.json
 docs/schema/v1/recovery-response.schema.json
+docs/schema/v1/doctor-request.schema.json
+docs/schema/v1/doctor-response.schema.json
 docs/schema/v1/common.schema.json
 docs/adr/0001-exact-content-model.md
 docs/adr/0002-coordinate-semantics.md
@@ -1288,7 +1327,7 @@ docs/adr/0011-path-equivalence-keys.md
 docs/adr/0012-transaction-state-and-durability.md
 docs/adr/0013-candidate-ownership.md
 docs/adr/0014-protocol-evolution.md
-docs/performance-baseline.json
+docs/performance-methodology.json
 ```
 
 ## 0.1 Line semantics
@@ -1413,11 +1452,16 @@ Rules:
 
 Composition is a deterministic event stream over each file’s immutable initial bytes. An effectful move contributes one deletion interval at its source and one insertion at its destination. A copy contributes only an insertion. A no-op move contributes a report event but neither deletion nor insertion. All inserted payloads refer to the initial snapshot even if another operation deletes the same source bytes.
 
-For each file, create events with key:
+For each file, the complete event enum is:
 
 ```text
-(initial_byte_offset, event_class, operation_index, boundary_kind)
+deletion_end(operation_index)
+insertion(operation_index)
+deletion_start(operation_index)
+end_of_file
 ```
+
+The complete sort key is `(initial_byte_offset, event_class, operation_index)`. Event-class discriminants are the order below. `end_of_file` uses the reserved sentinel operation index `u32::MAX`; real operation indices are strictly smaller because of the frozen request limit. There is no `boundary_kind` field.
 
 The total event-class order at one offset is:
 
@@ -1601,13 +1645,13 @@ next sequence: exactly previous + 1, without wrap
 
 `manifest SHA-256` means the manifest record’s stored checksum under the same rule. `sequence`, target indices, record kinds, event/state tags, optional tags, identity encodings, lengths, and list counts receive fixed big-endian widths and numeric discriminants in the Phase 0 byte grammar in `docs/transaction-model.md`; the grammar must include an annotated golden byte dump for every snapshot and delta kind before Phase 1.
 
-Sequence `0` is one full `Preparing` snapshot. It authorizes every candidate slot before creation as `authorized_missing` and binds its 128-bit ownership nonce, derived basename, expected transaction-private parent identity, digest, and length. Subsequent candidate creation and commit progress use one-target delta events. A full snapshot is published after at most 512 deltas and at each phase boundary (`Prepared`, `Committed`, `RolledBack`, and cleanup entry); recovery may start from the newest valid snapshot whose preceding chain has been validated, then fold later deltas. Record count, individual bytes, cumulative bytes, scan entries, and total control-directory use are limited by Section 10 and a worst-case state/control projection must pass before transaction creation.
+Sequence `0` is one full `Preparing` snapshot. It authorizes every candidate slot before creation as `authorized_missing` and binds its exact derived basename, expected transaction-private parent identity, digest, and length. Subsequent candidate creation and commit progress use one-target delta events. A full snapshot is published after at most 512 deltas and at each phase boundary (`Prepared`, `Committed`, `RolledBack`, and cleanup entry); recovery may start from the newest valid snapshot whose preceding chain has been validated, then fold later deltas. Record count, individual bytes, cumulative bytes, scan entries, and total control-directory use are limited by Section 10 and a worst-case state/control projection must pass before transaction creation.
 
 State tags and payloads are:
 
 ```text
 Preparing
-  initial snapshot: per-target authorized_missing(ownership nonce and derived name)
+  initial snapshot: per-target authorized_missing(exact derived name and parent identity)
   deltas: candidate_created(target index, candidate physical identity)
 Prepared
   full snapshot: every candidate identity present and content verified
@@ -1638,6 +1682,19 @@ CleaningCommitted -> CleaningCommitted | remove transaction directory
 RolledBack -> CleaningRolledBack
 CleaningRolledBack -> CleaningRolledBack | remove transaction directory
 ```
+
+The mutation/progress order is normative, not an implementation summary:
+
+1. After all candidates and inputs pass final revalidation, publish `commit_started` and enter `Committing` **before** the first target mutation.
+2. For an existing target, rename target to backup with handle-relative no-replace semantics, perform required durability ordering, verify the backup's recorded original identity/digest/type, then publish `backed_up(target index, backup identity)`.
+3. Derive, apply, and verify the target's final metadata on the candidate. For an existing target, use the validated backup observation; for a new target, use Section 0.16.
+4. Rename candidate to target with handle-relative no-replace semantics, perform required durability ordering, verify final target identity/digest/type/metadata, then publish `installed(target index, final identity)`.
+5. Repeat steps 2–4 in deterministic commit-index order. An originally absent target has no `backed_up` event and proceeds from metadata verification to install.
+6. Only after every target has a published `installed` event and a complete revalidation may the full `Committed` snapshot be published.
+
+A state event never anticipates its filesystem mutation: `backed_up` follows backup rename and verification; `installed` follows install rename and verification. Conversely, a crash after a filesystem mutation but before its event is classified only by the Section 0.15 identity matrix.
+
+Any error after the first target mutation—including metadata-policy refusal, verification failure, no-replace collision, progress-record publication failure, or a later-target conflict—must attempt transaction-wide rollback, not merely restore the current target. If the state chain remains publishable, first publish `rollback_started` and enter `RollingBack`; classify **all** targets, then remove installed candidates and restore all recorded originals in reverse commit order while publishing per-target rollback progress. If the triggering failure prevents a trustworthy `RollingBack` publication, or rollback cannot reach and publish `RolledBack`, return `TRANSACTION_RECOVERY_REQUIRED` with both the triggering error and rollback status. Do not return the original conflict alone. Before the first target mutation, failures may return their ordinary error without a rollback transition.
 
 No event may regress a target stage or sequence, apply twice where not idempotent in the logical fold, or exceed the bounded snapshot interval. Rollback from `Committing` is allowed only after filesystem classification proves all installed candidates can be removed and all backups still identify the recorded originals. `Committed` is the irrevocable logical commit point: rollback is rejected thereafter, and recovery may only verify/complete cleanup. State that names an unknown target, invalid index, impossible stage, candidate identity absent from `Prepared`, an invalid snapshot fold, or a manifest digest/transaction ID mismatch returns `TRANSACTION_RECORD_CORRUPT`. Filesystem observations never silently repair a corrupt record; valid lag after a crash is handled by the recovery matrix.
 
@@ -1670,11 +1727,11 @@ Durability guarantees are:
 
 ## 0.15 Candidate identity and recovery comparison
 
-Candidates and backups are created only inside the transaction-private directory, not adjacent to user targets. Before the manifest is published, the implementation captures that directory’s physical identity, verifies it is a newly and exclusively created real directory, and proves through Section 7.7 probes that it is on the same supported filesystem as every target parent. On Unix the directory must be owned by the effective user and have exact mode `0700` with no special bits; on Windows it must have the Phase 0-frozen owner-only/service-required DACL, reject inheritance that grants another writable principal, and reject every reparse tag. Transactions spanning a nested mount or any target for which staging-to-target and target-to-staging no-replace rename cannot be proven fail before manifest publication.
+Candidates and backups are created only inside the transaction-private directory, not adjacent to user targets. Before the manifest is published, the implementation captures that directory’s physical identity, verifies it is a newly and exclusively created real directory, and uses Section 7.7's read-only identity plus matrix evidence (and only a matrix-authorized secured write probe) to establish the same supported filesystem/rename relationship to every target parent. On Unix the directory must be owned by the effective user and have exact mode `0700` with no special bits; on Windows it must have the Phase 0-frozen owner-only/service-required DACL, reject inheritance that grants another writable principal, and reject every reparse tag. Transactions spanning a nested mount or any target for which staging-to-target and target-to-staging no-replace rename cannot be established fail before manifest publication.
 
-The manifest assigns each target a cryptographically random 128-bit candidate-ownership nonce and binds it to the one candidate basename derived from the complete transaction ID and encoded target `PathEquivalenceKey`; no normalized path spelling is a hash input. Sequence `0` durably authorizes that exact nonce/name/slot tuple as absent before candidate creation. After exclusive candidate creation, capture its canonical physical identity from the retained open handle but publish no existence state yet. Prepare and verify the file through that handle. In Durable mode, `sync_all` the candidate file and then sync the transaction directory; only afterward may the `candidate_created` delta publish the identity. Persist the identity before closing the last retained secure handle; `Prepared` is forbidden until every candidate identity is recorded and revalidated. Reopen/revalidate the directory entry against that identity immediately before installation. Recovery normally uses the recorded identity, never digest and length alone.
+Candidate ownership does not rely on an unobservable nonce. It derives from the secured, recorded transaction-directory identity; the exact authorized basename derived from the complete transaction ID and encoded target `PathEquivalenceKey`; sequence `0` proving that name was `authorized_missing`; and exclusive creation through the retained directory handle. No normalized path spelling is a hash input. After exclusive candidate creation, capture its canonical physical identity from the retained open handle but publish no existence state yet. Prepare and verify the file through that handle. In Durable mode, `sync_all` the candidate file and then sync the transaction directory; only afterward may the `candidate_created` delta publish the identity. Persist the identity before closing the last retained secure handle; `Prepared` is forbidden until every candidate identity is recorded and revalidated. Reopen/revalidate the directory entry against that identity immediately before installation. Recovery normally uses the recorded identity, never digest and length alone.
 
-The exact crash after exclusive creation but before `candidate_created` publication is classified as `owned_unpublished_candidate`, not as a normal candidate. That classification is valid only when all of these hold: the last folded state is `authorized_missing`; the transaction-directory identity, ownership, mode/DACL, and no-reparse properties match the manifest; the entry has the exact authorized basename bound to the recorded ownership nonce in that directory; it is a regular, single-link object; and no containing-directory or state corruption exists. Its content, length, and digest are irrelevant to ownership. Fresh-process completion is forbidden because no recorded physical identity authorizes installation, but rollback may unlink this transaction-owned untrusted entry with handle-relative identity-before/after checks. If any ownership condition is missing, recovery returns explicit conflict and mutates nothing. This rule is part of the documented ordinary-race/cooperating-process threat model and does not claim protection from a hostile principal able to write inside the owner-only transaction directory.
+The exact crash after exclusive creation but before `candidate_created` publication is classified as `owned_unpublished_candidate`, not as a normal candidate. That classification is valid only when all of these hold: the last folded state is `authorized_missing`; the transaction-directory identity, ownership, mode/DACL, and no-reparse properties match the manifest; the entry has the exact authorized basename in that recorded directory; it is a regular, single-link object; and no containing-directory or state corruption exists. Its content, length, and digest are irrelevant to ownership. Fresh-process completion is forbidden because no recorded physical identity authorizes installation, but rollback may unlink this transaction-owned untrusted entry with handle-relative identity-before/after checks. If any ownership condition is missing, recovery returns explicit conflict and mutates nothing. This rule is part of the documented ordinary-race/cooperating-process threat model and does not claim protection from a hostile principal able to write inside the owner-only transaction directory.
 
 For every target, classification compares:
 
@@ -1703,7 +1760,7 @@ The minimum recovery-action matrix is normative:
 
 After `Committed`, rows that already name the recorded candidate/final object may only advance cleanup; a missing or mismatching final target is an explicit external-modification conflict, never grounds for rollback. Recovery applies this matrix to all targets before the first recovery mutation, then revalidates the affected row immediately before each handle-relative operation.
 
-## 0.16 New-file permission policy
+## 0.16 New-file permission and security-metadata policy
 
 On Unix, every candidate is created exclusively at mode `0600`, and the implementation immediately verifies/reapplies `0600`. Before worker threads start, the single-threaded CLI captures the process umask using the Phase 0-frozen race-free bootstrap procedure, immediately restores it, and never changes it after worker creation. A new target’s final ordinary mode is exactly `0666 & ((!captured_umask) & 0o777)`; the complement is explicitly masked to the platform’s ordinary permission-bit width before the `0666` intersection. Apply that mode to the candidate immediately before installation. The candidate is never broader than `0600` during preparation and never broader than its final mode after that chmod. Existing targets continue to receive the current mode read from the validated backup. Protocol v1 has no requested-mode field or CLI mode override.
 
@@ -1713,6 +1770,20 @@ On Unix filesystems with default ACLs, transaction-private creation does not by 
 
 On Windows, candidates use non-inheritable handles and restrictive ACLs while inside the transaction-private directory. Because rename from that directory does not reliably recreate target-parent inheritance, immediately before installation the implementation must compute and apply the same frozen effective inherited ACL/owner class that a newly created file in the validated target parent would receive, then verify it through the retained handle. If that cannot be represented or verified without granting unintended access, fail before target mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`. For an existing target, any security-semantic difference remains subject to the default metadata-loss rejection and explicit opt-in in Section 4.2. The Windows read-only attribute is never silently copied or discarded: Phase 0 freezes its default error, opt-in warning, and final attribute state. No POSIX-mode equivalence is promised. Platform tests record effective ACL/attribute behavior before staging, before rename, and after installation.
 
+For **every** new-target security metadata class recognized by Section 4.2 or by a claimed support-matrix row, `docs/metadata.md` and `docs/platform-support.md` must assign exactly one frozen disposition:
+
+1. `derived_applied_verified`: derive the metadata that a direct secure creation in the validated target parent would receive, apply it to the staged candidate before installation, and verify it both before and after rename;
+2. `intentionally_absent`: prove with the Phase 0 platform spike that an ordinary new regular file in that parent would not receive the class, and verify absence on the candidate and installed target; or
+3. `unsupported`: fail before the first target mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`.
+
+At minimum the per-platform table covers:
+
+* Linux/Unix default ACLs, security namespaces and labels (including SELinux/SMACK-style security xattrs where present), inheritable or creation-derived file flags, ownership/group derivation, and other security-relevant xattrs exposed by the filesystem.
+* macOS ACLs, ownership/group derivation, security and quarantine-related xattrs, inherited flags, and resource-fork/Finder metadata. A resource fork or ordinary user xattr may be `intentionally_absent` only when the direct-create spike proves it is not parent-derived; absence is still verified.
+* Windows effective inherited DACL/SACL and owner/group classes that the process is permitted to inspect, integrity labels and other security descriptors, creation-derived file attributes/flags, alternate data streams, and reparse state. Alternate streams may be `intentionally_absent` only with verified direct-create equivalence.
+
+An uninspectable SACL or security-label class is not silently ignored: the matrix must prove it irrelevant/absent for that row or mark the row unsupported. Candidate metadata originating only from the transaction-private directory must never leak into the final target. These new-file rules are not bypassed by `--allow-metadata-loss`, which governs destructive replacement of existing targets rather than incorrect inheritance for a newly created target.
+
 ## 0.17 Deterministic crash failpoints
 
 Test builds expose named failpoints after every published record and before/after every candidate create, permission application, backup rename, install rename, verification, state transition, cleanup unlink, and directory removal. Production builds do not enable failpoints.
@@ -1721,7 +1792,7 @@ Scenario tests launch CodeSplice as a child process with one failpoint selected 
 
 ## 0.18 Required fixtures
 
-Create at least 80 normative fixtures, including:
+Create at least 88 normative fixtures, including:
 
 1. LF.
 2. CRLF.
@@ -1775,7 +1846,7 @@ Create at least 80 normative fixtures, including:
 50. No-op move overlapping an effectful source range.
 51. Line and byte anchors resolving to one offset.
 52. Absent case-equivalent targets.
-53. Absent Unicode-normalization-equivalent targets.
+53. Absent Unicode-normalization-equivalent targets follow the native per-platform rule (including distinct Windows UTF-16 sequences).
 54. `.codesplice.lock` spelling alias.
 55. Snapshot mutation during read and bounded retry.
 56. Candidate replaced with identical bytes and different identity.
@@ -1803,6 +1874,14 @@ Create at least 80 normative fixtures, including:
 78. JSON nesting, response-size, identity-token, `PathEquivalenceKey`, metadata-inspection, transaction-count, state-record-count, recovery-byte, and control-directory budgets.
 79. No-op commit on a workspace without a lock or control directory creates neither.
 80. Runtime filesystem probes reject unsupported case, normalization, identity, network/overlay, cross-mount rename, no-replace, and directory-sync semantics.
+81. Windows precomposed and decomposed canonically equivalent names remain distinct path keys on both case-sensitive and case-insensitive NTFS directories unless native lookup identifies the same entry.
+82. Windows lock bootstrap uses `NtCreateFile` with `RootDirectory`; backup/install/restore use `SetFileInformationByHandle`, `FILE_RENAME_INFO.RootDirectory`, and `ReplaceIfExists = FALSE`.
+83. A no-op commit with an existing busy lock returns `TRANSACTION_BUSY`; with unfinished/corrupt/partially cleaned state it returns `TRANSACTION_RECOVERY_REQUIRED`; each case writes nothing.
+84. A failure after backup and a failure after an earlier target install both enter `RollingBack`, record progress for every affected target, and return recovery required when rollback cannot finish.
+85. Lock repair crashes at every dual-slot write boundary and never replaces the lock object; status selects the old/new valid generation or returns the frozen invalid result.
+86. Concurrent lock initialization or repair makes `doctor --status` return `TRANSACTION_BUSY`, never a transient corruption diagnosis.
+87. The evidence hierarchy selects exact matrix rows, permits a secured post-lock/pre-manifest write probe only where frozen, and rejects ambiguity; no read-only result claims to prove rename or durability semantics.
+88. Every claimed platform row assigns and verifies a new-file disposition for ACLs, security labels/xattrs, ownership, flags/attributes, resource forks, and alternate streams.
 
 ## Phase 0 checkpoint
 
@@ -1811,19 +1890,20 @@ Pass only when:
 * Crate ownership is cycle-free.
 * Workspace-root behavior is frozen.
 * `.codesplice` behavior is frozen.
-* `.codesplice.lock` bootstrap, Unix owner/mode validation, Windows owner/DACL validation, identity binding, persistence, lifetime, and crash-safe `doctor --repair-lock` procedure are frozen.
-* The OS-plus-filesystem support matrix, runtime probes, and rejection behavior are frozen; path equivalence for existing and absent entries is proven on every supported matrix row.
+* `.codesplice.lock` bootstrap, Unix owner/mode validation, Windows owner/DACL validation, `NtCreateFile` root-relative opening, identity binding, persistence, lifetime, in-place dual-slot repair, and `doctor --status` diagnostic locking are frozen.
+* The OS-plus-filesystem evidence hierarchy, support matrix, optional secured write probes, and conservative rejection behavior are frozen; path equivalence for existing and absent entries is proven on every supported matrix row without Windows Unicode normalization.
 * Plan-hash encoding is frozen.
 * Golden plan vectors include annotated byte dumps.
 * Edit composition and every line-anchor offset are frozen.
 * Single-target and multi-target commits share one transaction model.
 * The delta-plus-periodic-snapshot transaction grammar, record/control bounds, complete state machine, and both durability protocols are frozen.
-* Transaction-private staging, candidate pre-creation authorization/nonce rules, the `owned_unpublished_candidate` crash window, and candidate/final identity comparisons are frozen.
+* Transaction-private staging, observable candidate pre-creation authorization rules, the `owned_unpublished_candidate` crash window, and candidate/final identity comparisons are frozen.
 * Preview wording does not promise stable access time.
-* Successful no-op commit semantics are frozen as intentionally mutation-free, including lock/control bootstrap.
+* Successful no-op commit semantics and the noncreating transaction-health check are frozen, including busy and recovery-required outcomes.
 * Permission concurrency behavior is frozen.
-* New-file permissions and all required umask golden values are frozen.
-* Handle-relative no-replace target-to-backup, candidate-to-target, and backup-to-target restoration are required and proven feasible for every supported matrix row.
+* New-file permissions, every security-metadata disposition, and all required umask golden values are frozen.
+* Handle-relative no-replace target-to-backup, candidate-to-target, and backup-to-target restoration—including Windows `FILE_RENAME_INFO.RootDirectory` with `ReplaceIfExists = FALSE`—are required and proven feasible for every supported matrix row.
+* `commit_started`, `backed_up`, and `installed` publication order and transaction-wide `RollingBack` behavior are frozen for single- and multi-target failure paths.
 * Manifest target records are fully specified.
 * Orphan handling is frozen.
 * Protocol-v1 schemas and the complete CLI grammar validate all normative examples, reject duplicate/unknown keys, freeze every v1 enum/error/warning, and pass previous-v1-client compatibility tests.
@@ -1832,8 +1912,8 @@ Pass only when:
 * Metadata detection, default rejection, explicit opt-in, and Unix/macOS/Windows warning/error behavior are frozen.
 * All human output contexts escape terminal controls.
 * Exit categories, error context, arbitrary-byte diff behavior, and failpoint mechanics are frozen.
-* Phase 8 reference hardware/filesystem profiles, workloads, corpus durations/seeds, absolute workload ceilings, and 15% time/10% peak-memory regression budgets are frozen with no `TBD` values.
-* At least 80 fixtures exist.
+* `docs/performance-methodology.json` freezes the Phase 8 reference hardware/filesystem profiles, benchmark method, workloads, corpus durations/seeds, hard resource/SLO ceilings, and the 15% time/10% peak-memory budgets for changes after the first approved measurement; it contains no invented measured results and no `TBD` values.
+* At least 88 fixtures exist.
 * No production editing engine exists.
 
 ### Phase 0 evidence
@@ -1866,6 +1946,14 @@ Phase 0 must additionally check in executable or model-based evidence for these 
 8. Every response validates against the frozen previous protocol-v1 schema; attempting to add a v1 enum, operation, warning, or error demonstrates a compatibility failure and requires v2.
 9. Lock repair succeeds only in the no-outstanding-transaction model and is refused for unfinished, corrupt, or not-fully-cleaned transaction states.
 10. ACL, security-xattr, flag, multiple-hard-link, ownership, macOS resource-fork, Windows alternate-stream, inherited-ACL, and read-only cases produce exactly the frozen default error or opt-in warning.
+11. Windows native comparison fixtures preserve distinct precomposed/decomposed UTF-16 names and validate ordinal ignore-case behavior without normalization.
+12. Windows feasibility spikes prove root-relative lock opening with `NtCreateFile` and no-replace rename with `SetFileInformationByHandle`/`FILE_RENAME_INFO`.
+13. No-op health models cover no artifacts, clean existing artifacts, busy lock, missing lock with control state, unfinished state, corrupt state, and partially cleaned state without any write.
+14. Single- and multi-target failures at every post-mutation boundary publish/attempt `RollingBack` and cover rollback-record failure as recovery required.
+15. Dual-slot lock repair failpoints preserve one lock object and a selectable old/new generation; concurrent `doctor --status` returns busy.
+16. The evidence-hierarchy model prevents read-only observations from independently asserting no-replace or durability support and bounds/cleans any permitted write probe.
+17. New-file metadata tables have no unclassified security class on any claimed row, and each `derived_applied_verified`, `intentionally_absent`, or `unsupported` behavior has a platform fixture.
+18. Canonical planner vectors prove the EOF sentinel/event order and exact output-record inclusion set, including exclusion of an unchanged copy-only source.
 
 Production evidence is deferred as follows:
 
@@ -1968,7 +2056,7 @@ Implement the frozen protocol-v1 schemas and the one-operation `move`/`copy` con
 * Every source and destination path has an explicit precondition.
 * Source preconditions and existing-destination preconditions must be SHA-256.
 * Absent-destination preconditions must be `must_not_exist`.
-* Request bytes, JSON nesting depth, path/key/identity lengths, counts, response estimates, and all other applicable resource limits are validated before large allocation with checked arithmetic.
+* Request bytes, JSON nesting depth, textual UTF-8 path lengths, request operation/path counts, and request-derived response estimates are validated before large allocation with checked arithmetic. Filesystem-generated path-equivalence keys, identity tokens, and metadata are explicitly deferred to Phase 3.
 * Direct `move` and `copy` parse into a one-operation `BatchSpecification` and have no separate semantics.
 
 ## Expected-plan CLI policy
@@ -1990,6 +2078,7 @@ Add:
 EXPECTED_PLAN_MISMATCH
 PLAN_CHANGED_DURING_COMMIT
 DIGEST_PRECONDITION_FAILED
+FILE_IDENTITY_ALIAS
 INVALID_WORKSPACE_ROOT
 WORKSPACE_IDENTITY_CHANGED
 RESERVED_CONTROL_PATH
@@ -2097,7 +2186,7 @@ Pass only when:
 * Snapshot acquisition returns cycle-free core types.
 * Root identity is captured.
 * Root and operation path policies pass.
-* Every supported OS-plus-filesystem matrix row passes its runtime probes; every ambiguous or unsupported row fails before mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`.
+* Read-only identification selects an exact frozen OS-plus-filesystem matrix row; preview never runs write probes, and every ambiguous or unsupported observation fails without mutation with `FILESYSTEM_SEMANTICS_UNSUPPORTED`.
 * Junction and reparse-point behavior is tested on Windows.
 * Preview acquisition creates no control directory.
 * Snapshot, line-count, compact-index, key/identity, and total planning-memory limits are enforced with checked arithmetic.
@@ -2189,7 +2278,7 @@ JSON report
 
 but produces no candidate or transaction when no other output changes.
 
-A commit whose unlocked validated plan is a no-op returns before mutation-lock bootstrap. Its report has `transaction_id: null`, `transaction_state: "not_created"`, and an empty changed-file list. A successful no-op commit performs no intentional filesystem mutation, including first-time creation of `.codesplice.lock` or `.codesplice`.
+A commit whose unlocked validated plan is a no-op runs the Section 7.5 noncreating transaction-health check before success. If neither reserved artifact exists it returns immediately; otherwise it diagnoses busy/invalid/recovery-required state under the existing lock without writing. Its successful report has `transaction_id: null`, `transaction_state: "not_created"`, `transaction_health: "clean"`, and an empty changed-file list. A successful no-op commit performs no intentional filesystem mutation, including first-time creation, initialization, repair, or cleanup of `.codesplice.lock` or `.codesplice`.
 
 ## Phase 4 checkpoint
 
@@ -2332,7 +2421,7 @@ There is no non-journaled commit path.
 
 Before creating any persistent artifact, perform an unlocked preflight snapshot/plan and reject a mismatched `--expect-plan`. Then:
 
-0. If the unlocked validated plan changes no files, return the frozen successful no-op response immediately. Do not create or open-for-write `.codesplice.lock`, create `.codesplice`, run mutating repair/cleanup, or create a transaction. A plan that becomes no-op only after a previously changing unlocked preflight is a plan-change conflict, not a successful no-op.
+0. If the unlocked validated plan changes no files, run the Section 7.5 noncreating transaction-health check. Return frozen no-op success only when health is clean; return `TRANSACTION_BUSY`, `TRANSACTION_RECOVERY_REQUIRED`, or `WORKSPACE_LOCK_INVALID` as specified otherwise. Do not create, initialize, open-for-write, repair, or clean `.codesplice.lock`/`.codesplice`, and do not create a transaction. A plan that becomes no-op only after a previously changing unlocked preflight is a plan-change conflict, not a successful no-op.
 1. Acquire or bootstrap the exact persistent `.codesplice.lock` from Section 7.5.
 2. Revalidate workspace identity and securely inspect an already-existing `.codesplice/transactions` directory.
 3. Apply the normative stale-transaction gate: boundedly scan and fold every entry while locked. Any unfinished, corrupt, partially published, unclassifiable, partially cleaned, or scan/control-limit-exceeding transaction set returns `TRANSACTION_RECOVERY_REQUIRED` with a stable `reason` before replanning or new transaction creation. The only exception is a valid `Committed`, `RolledBack`, `CleaningCommitted`, or `CleaningRolledBack` state whose complete target classification already proves the recorded all-new/all-old outcome; the implementation may advance/complete cleanup-only work, rescan to empty, and continue. It may not complete or roll back target content as part of a new commit.
@@ -2340,8 +2429,8 @@ Before creating any persistent artifact, perform an unlocked preflight snapshot/
 5. Verify `--expect-plan` again when provided and verify the plan still changes at least one file.
 6. Securely validate or create `.codesplice` and `.codesplice/transactions` relative to root/control handles.
 7. Generate a validated 128-bit random transaction ID encoded as 32 lowercase hexadecimal digits.
-8. Exclusively create the restrictive transaction-private directory, capture its identity, and prove same-filesystem no-replace rename support to every target parent.
-9. Determine and collision-check all bounded candidate and backup basenames and candidate ownership nonces.
+8. Select the exact support-matrix row for every rename pair and, only when that row permits it, run and completely clean the bounded secured write probe. Then exclusively create the restrictive transaction-private directory, capture its identity, and verify its volume relationship to every target parent. Do not claim the directory creation itself proves no-replace or durability semantics.
+9. Determine and collision-check all bounded candidate and backup basenames.
 10. Publish the complete versioned immutable manifest using Section 0.14.
 11. Publish state sequence `0` as the full `Preparing` snapshot with all candidates `authorized_missing`.
 12. Only then create candidate files, persisting each physical identity with a `candidate_created` delta.
@@ -2401,8 +2490,11 @@ macOS:
   exclusive no-replace rename primitive through a reviewed crate
 
 Windows:
-  move/rename primitive that fails when destination exists
+  SetFileInformationByHandle with FILE_RENAME_INFO.RootDirectory set to the
+  validated destination-parent handle and ReplaceIfExists = FALSE
 ```
+
+The Windows source is the securely opened source handle; `RootDirectory` supplies the handle-relative destination. Phase 0 must freeze the exact `FILE_RENAME_INFO` layout/flags used by the supported Windows versions and prove collision, reparse, cross-volume, and identity behavior. A reviewed crate wrapper is acceptable only when it preserves those documented semantics.
 
 There must be no fallback that performs:
 
@@ -2433,29 +2525,25 @@ After the manifest is durable enough for the selected mode:
 
 ## 6.5 Existing-target commit
 
-1. Revalidate root and parent identity.
-2. Revalidate target path type and identity.
-3. Move target to backup with no-replace semantics.
-4. Hash and identify the object actually moved.
-5. On mismatch, restore it and report conflict.
-6. Inspect the backup’s current link/security metadata. If it now requires metadata-loss opt-in that was not granted, restore it with the no-replace primitive and report conflict; if opt-in was granted, emit the frozen warnings from the actual backup observation.
-7. Read its current ordinary permission bits.
-8. Apply those bits and the frozen final metadata policy to the candidate.
-9. Revalidate the candidate against its recorded physical identity and install it with the required handle-relative no-replace primitive.
-10. Verify final type, identity, length, digest, and reported metadata class.
-11. Record commit progress.
-12. Mark transaction committed.
-13. Clean backup and transaction artifacts.
+1. Revalidate root, parent, target path type, and target identity.
+2. Ensure `commit_started` has been published before this or any earlier target mutation.
+3. Move target to backup with handle-relative no-replace semantics, apply the selected durability ordering, hash/identify/verify the moved object, then publish `backed_up`.
+4. Inspect the backup’s current link/security metadata and read its current ordinary permission bits.
+5. If the observation now requires metadata-loss opt-in that was not granted, or any post-backup verification/policy step fails, enter `RollingBack` and run transaction-wide recorded rollback. Do not report the conflict alone.
+6. Apply and verify those current bits and the frozen final metadata policy on the recorded candidate.
+7. Revalidate candidate identity, install it with handle-relative no-replace semantics, apply the selected durability ordering, verify final type/identity/length/digest/metadata, then publish `installed`.
+8. After every target is installed and verified, publish `Committed`.
+9. Enter committed cleanup and remove backup/transaction artifacts under the recorded cleanup protocol.
 
 ## 6.6 New-target commit
 
-1. Revalidate root and parent identity.
-2. Revalidate complete absence.
-3. Apply and verify the Section 0.16 new-file final mode, revalidate candidate identity, and install without replacement.
-4. Verify final type, identity, length, and digest.
-5. Record progress.
-6. Mark committed.
-7. Clean transaction artifacts.
+1. Revalidate root, parent identity, and complete target absence.
+2. Ensure `commit_started` has been published before this or any earlier target mutation.
+3. Derive, apply, and verify every Section 0.16 new-file permission/security-metadata class on the recorded candidate, then revalidate candidate identity.
+4. Install without replacement, apply the selected durability ordering, verify final type/identity/length/digest/metadata, then publish `installed`.
+5. Any failure after this or an earlier target mutation enters `RollingBack` and attempts transaction-wide recorded rollback; incomplete rollback returns `TRANSACTION_RECOVERY_REQUIRED`.
+6. After every target is installed and verified, publish `Committed`.
+7. Enter committed cleanup and remove transaction artifacts under the recorded cleanup protocol.
 
 ## 6.7 Manifest target record
 
@@ -2475,7 +2563,6 @@ original digest when present
 original length when present
 original relevant metadata snapshot
 transaction-private directory identity
-candidate ownership nonce
 candidate basename
 candidate digest
 candidate length
@@ -2485,7 +2572,7 @@ expected final digest
 change kind
 ```
 
-Candidate physical identity is necessarily unknown when the immutable manifest is published. Sequence `0` instead binds the pre-creation authorization/nonce; after exclusive creation the identity is retained in memory and is stored in the checksummed delta/snapshot chain only after the candidate verification and durability ordering required by Section 0.15, before the last secure handle closes. Backup identity and installed-final identity are similarly stored in progress delta events and snapshots. Manifest digest/length never substitutes for these identities.
+Candidate physical identity is necessarily unknown when the immutable manifest is published. Sequence `0` instead binds the observable pre-creation authorization (secured transaction-directory identity plus exact authorized basename); after exclusive creation the identity is retained in memory and is stored in the checksummed delta/snapshot chain only after the candidate verification and durability ordering required by Section 0.15, before the last secure handle closes. Backup identity and installed-final identity are similarly stored in progress delta events and snapshots. Manifest digest/length never substitutes for these identities.
 
 For a new target:
 
@@ -2551,7 +2638,7 @@ Pass only when:
 * Handle-relative no-replace movement is used for backup, installation, and rollback restoration; externally created destinations are never overwritten.
 * Backup names are bounded.
 * Expected-plan mismatch is rejected before transaction creation.
-* A successful no-op commit in a fresh workspace creates neither `.codesplice.lock` nor `.codesplice` and reports no transaction.
+* A successful no-op commit in a fresh workspace creates neither `.codesplice.lock` nor `.codesplice` and reports no transaction; existing clean artifacts are inspected without writes, a busy lock returns `TRANSACTION_BUSY`, and unhealthy transaction state returns `TRANSACTION_RECOVERY_REQUIRED`.
 * The stale-transaction gate blocks new work until every older transaction is recovered or safely cleanup-completed.
 * A source-only input change after `Prepared` aborts before the first target mutation.
 * Current backup permissions are applied to the candidate.
@@ -2559,7 +2646,7 @@ Pass only when:
 * Read-only status follows stale-observation rules.
 * Every failpoint ends recoverably or in explicit conflict.
 * `.codesplice.lock` bootstrap, persistence, malformed-state behavior, workspace binding, contention, and lifetime pass on every release platform.
-* `doctor --repair-lock` succeeds and refuses exactly the states frozen in Phase 0.
+* `doctor --status` takes a nonblocking diagnostic lock and returns busy during initialization/repair; `doctor --repair-lock` performs in-place dual-slot repair without replacing the lock object and refuses exactly the states frozen in Phase 0.
 * Delta folding, periodic snapshots, state/control bounds, monotonic hash chains, atomic publication, checksum corruption, and commit-point behavior pass.
 * Candidate replacement by an equal-byte different-identity object is rejected.
 * Normal mode passes fresh-process termination recovery tests, and Durable mode proves candidate-parent sync precedes `candidate_created` publication plus all other ordered file/directory-sync traces on every supported filesystem.
@@ -2603,9 +2690,9 @@ Do not introduce a second transaction engine.
 3. Run the locked stale-transaction gate and stop with `TRANSACTION_RECOVERY_REQUIRED` unless only frozen cleanup-only work can safely finish.
 4. Recompute plan.
 5. Verify expected plan.
-6. Prove the transaction-private directory and every target parent support required same-filesystem no-replace renames.
+6. Select exact support-matrix rows and run any permitted secured post-lock/pre-manifest write probes; reject ambiguity, then verify the transaction-private directory and every target parent have the required recorded same-filesystem relationships.
 7. Create the transaction record.
-8. Write all target entries, ownership nonces, metadata classes, and resource projections to the manifest.
+8. Write all target entries, exact authorized candidate basenames, metadata classes, and resource projections to the manifest.
 9. Persist the `authorized_missing` initial snapshot.
 10. Create all candidates, syncing each parent before its identity delta in Durable mode.
 11. Verify all candidate digests and identities.
@@ -2619,18 +2706,22 @@ Targets use deterministic encoded-`PathEquivalenceKey` order. Equivalent-key tie
 
 The manifest records `commit_index`.
 
+Publish `commit_started` once after final input revalidation and before the first target mutation.
+
 For each target:
 
 1. Revalidate parent.
 2. Revalidate target or absence.
 3. Move existing target to the transaction-private backup with handle-relative no-replace semantics.
 4. Verify moved backup.
-5. Revalidate current metadata-loss class and restore/report conflict if the required opt-in is absent.
-6. Capture current permission bits and frozen metadata report.
-7. Apply permissions/final metadata policy to candidate.
+5. Publish `backed_up` for an existing target; an absent target has no backup event.
+6. Revalidate current metadata-loss class and capture current permission bits/frozen metadata report, or derive all new-file metadata under Section 0.16.
+7. Apply and verify the final metadata policy on the candidate.
 8. Install candidate with handle-relative no-replace semantics.
 9. Verify final output and metadata class.
-10. Persist progress.
+10. Publish `installed`.
+
+After all targets have a verified and published `installed` event, publish `Committed`. Any failure after the first target mutation publishes `rollback_started`, transitions to `RollingBack`, classifies every target, and attempts recorded rollback of all affected targets in reverse commit order. A failure to publish or complete rollback returns `TRANSACTION_RECOVERY_REQUIRED` with the original failure preserved as context; it never returns only a per-target conflict while earlier targets remain installed.
 
 ## Recovery classification
 
@@ -2668,6 +2759,7 @@ Pass only when:
 * External modifications are not overwritten.
 * Rollback restores exact originals.
 * Completion produces exact planned outputs.
+* Every target proves rename/verify/event ordering; a failure after any target mutation attempts recorded transaction-wide rollback of all affected targets and incomplete rollback returns `TRANSACTION_RECOVERY_REQUIRED`.
 * Read-only status handles active transactions safely.
 * Mutating recovery requires the exclusive lock.
 * Failpoints cover every target and state update.
@@ -2744,7 +2836,7 @@ candidate replacement with identical bytes and different identity
 committed state with partial cleanup
 new-file umask and restrictive candidate mode
 ACL/xattr/flag/hard-link/ownership/Windows read-only metadata policy
-unsupported filesystem/runtime-probe rejection
+unsupported filesystem/evidence-hierarchy rejection
 binary diff escaping and computation-budget exhaustion
 terminal-control escaping in every human-output field
 ```
@@ -2783,26 +2875,27 @@ recovery classification
 
 Confirm that full output files are not stored in the plan.
 
-Acceptance is reproducible, not “measure and record”:
+Acceptance separates the frozen method from the first measurement:
 
-* `docs/performance-baseline.json` identifies the reference CPU model/count, RAM, storage, power/performance mode, OS build, filesystem and mount options, Rust toolchain, build profile, and benchmark command/seed. Results from other hardware are informational until normalized by a separately frozen profile.
+* Phase 0's `docs/performance-methodology.json` identifies the reference CPU model/count, RAM, storage, power/performance mode, OS build, filesystem and mount options, Rust toolchain, build profile, benchmark command/seed, workloads, and hard resource/SLO ceilings. It defines measurement; it does not contain pretend timings from a nonexistent transaction engine.
 * Checked-in workloads cover 1 MiB, 100 MiB, and 1 GiB snapshots; 1, 100, and 5,000 targets; 1, 10,000, and 1,000,000 segments; 200,000 and 10,000,000 line indexes; a 1 GiB-to-10,000-output amplification rejection; maximum-size manifest/state snapshots; and bounded recovery scans at 1, 1,000, and 10,000 transaction entries.
-* Each benchmark uses at least 10 measured runs after 3 warmups. Record median, p95 wall time, peak resident memory, and bytes read/written. Relative to the checked-in approved baseline on the same profile, median or p95 time may regress no more than 15% and peak resident memory no more than 10% unless Phase 8 updates the baseline with an explicit reviewed rationale.
-* Limit-rejection workloads must allocate no more than the frozen charged budget, write no transaction artifact, and complete within the workload-specific ceiling checked into `docs/performance-baseline.json`; no ceiling may be left as `TBD` at the Phase 0 exit.
+* Each benchmark uses at least 10 measured runs after 3 warmups. Phase 8 records median, p95 wall time, peak resident memory, and bytes read/written in the first measured `docs/performance-baseline.json`, after the transaction engine exists, and submits it for approval. The first baseline must meet every Phase 0 hard ceiling but has no self-referential regression comparison.
+* After that baseline is approved, every subsequent change on the same profile must keep median and p95 time regressions at or below 15% and peak resident-memory regression at or below 10%, unless an updated baseline has an explicit reviewed rationale. Results from other hardware are informational until normalized by a separately frozen profile.
+* Limit-rejection workloads must allocate no more than the frozen charged budget, write no transaction artifact, and meet the hard workload-specific ceilings in `docs/performance-methodology.json`.
 * Fuzz harnesses cover JSON streaming/schema boundaries, canonical plan/record decoders, path/equivalence parsing, arbitrary-byte line indexing, segment planning, state-chain folding, recovery classification, and terminal escaping. Each harness runs at least 12 aggregate CPU-hours with a pinned engine/version, corpus, dictionary, seed set, memory limit, and timeout. Acceptance is zero crash, panic, sanitizer finding, uncontrolled OOM, nontermination, or invariant violation; minimized reproducers are checked in. CI also runs a deterministic bounded corpus on every change.
 
 ## Phase 8 checkpoint
 
 Pass only when:
 
-* Every claimed OS-plus-filesystem matrix row passes identity, path-equivalence, no-replace, directory-sync, metadata, mount, and runtime-probe suites; unclaimed rows reject before mutation.
+* Every claimed OS-plus-filesystem matrix row passes identity, path-equivalence, no-replace, directory-sync, metadata, mount, matrix-lookup, and permitted write-probe suites; unclaimed or ambiguous rows reject before mutation.
 * Handle-relative no-replace backup, installation, and restoration primitives pass external-destination races.
 * Every fuzz harness meets its pinned 12-CPU-hour acceptance run with zero prohibited result and archived corpus metadata.
 * Every resource and checked-arithmetic limit is enforced, including output amplification, line-index memory, metadata inspection, transaction disk, state/recovery/control size, JSON depth/response, and identity/key lengths.
 * Recovery failpoints pass.
 * Permission concurrency behavior passes.
 * Workspace and control-directory security pass.
-* All benchmark workloads meet the frozen 15% time and 10% peak-memory regression budgets on the reference profile, and complete baseline/result files are recorded.
+* The first measured `docs/performance-baseline.json` is recorded on the frozen reference profile and every workload meets the Phase 0 hard ceiling. If an approved baseline already exists, the 15% time and 10% peak-memory regression budgets also pass.
 
 **Stop after the checkpoint.**
 
@@ -2843,7 +2936,7 @@ The agent must not use `--accept-current-plan` unless explicitly instructed.
 
 ## Pilot scenarios
 
-Run at least 12 scenarios:
+Run all 15 required scenarios:
 
 1. Move one function to an existing file.
 2. Move one function to a new file.
@@ -2870,7 +2963,7 @@ Pass only when:
 * No silent stale overwrite occurs.
 * Permission changes are handled according to specification.
 * Recovery produces all-old, all-new, or explicit conflict.
-* At least 12 scenarios complete without manual repair.
+* All 15 scenarios complete without manual repair; none is optional or skippable for release qualification.
 * Every failure is categorized.
 
 **Stop after the checkpoint.**
