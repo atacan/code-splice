@@ -19,19 +19,22 @@ interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
 
-At the Phase 6 checkpoint, `inspect --json`, `apply --preview` in JSON or human
-mode, `recover --list`, recovery status, control-only rollback for canonical
-orphan/manifest-only records, `capabilities --json`, and `protocol-version --json`
-are implemented. Read-only commands create nothing and retain the existing shared
-control lock through their scan, workspace observation, and report when it exists.
-Commit, recovery completion, and any rollback that could change a user target
-remain explicit development-only routes; they never report simulated success.
+At the Phase 7 checkpoint, `inspect`, preview, single-target commit, recovery list
+and status, and explicit single-target completion/rollback are implemented.
+Read-only commands create nothing and retain the existing shared control lock
+through their scan, workspace observation, and report when it exists. Commit uses
+two planning passes, requires explicit plan intent, and temporarily rejects plans
+with more than one changed target until Phase 8.
 
 Preview reports resolved byte coordinates, selected payload digests, output
 before/after lengths and digests, plan-hash version 1, the plan digest, and an
 opaque workspace identity hash. `--no-diff` changes only the diff field. Text
 diffs label `LF`, `CRLF`, lone `CR`, and unterminated (`NONE`) lines; binary data
 uses digest, length, and bounded base64 head/tail samples.
+
+Commit reports include a transaction ID (or `null` for a no-op), terminal state,
+changed paths, preserved existing-target permission modes, and an inserted payload
+digest for every effectful operation (`null` for a reported same-file no-op).
 
 JSON mode writes exactly one UTF-8 JSON value followed by LF to stdout. Human
 diagnostics use stderr and visibly escape terminal control and bidi characters.

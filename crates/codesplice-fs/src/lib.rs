@@ -24,6 +24,7 @@ use sha2::{Digest, Sha256};
 mod control;
 mod journal;
 mod recovery_classifier;
+mod transaction;
 
 pub use control::{
     ControlObservation, DiagnosticLock, MutationLock, RecoveryEntry, RecoveryEntryKind,
@@ -40,6 +41,7 @@ pub use journal::{
 pub use recovery_classifier::{
     LocationObservation, RecoveryDisposition, SyntheticTargetObservation, classify_recovery,
 };
+pub use transaction::{CommitOutcome, RecoveryOutcome};
 
 /// Maximum bytes in one immutable file snapshot.
 pub const MAX_SNAPSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -668,6 +670,15 @@ pub enum FsError {
         /// Configured maximum.
         limit: u64,
     },
+    /// The workspace control tree and a changed target parent are on different devices.
+    CrossDeviceTransaction,
+    /// The platform did not provide the required no-replace rename primitive.
+    NoReplaceUnavailable,
+    /// The selected workspace is not on a qualified v0.1 local filesystem.
+    UnsupportedFilesystem {
+        /// Stable observed filesystem name or numeric type.
+        filesystem: String,
+    },
     /// Another process holds an incompatible workspace control lock.
     TransactionBusy,
     /// One or more active transaction directories require explicit recovery.
@@ -760,6 +771,15 @@ impl fmt::Display for FsError {
                 formatter,
                 "resource limit exceeded for {resource}: {actual} > {limit}"
             ),
+            Self::CrossDeviceTransaction => {
+                write!(formatter, "transaction paths are on different filesystems")
+            }
+            Self::NoReplaceUnavailable => {
+                write!(formatter, "no-replace rename is unavailable")
+            }
+            Self::UnsupportedFilesystem { filesystem } => {
+                write!(formatter, "unsupported filesystem: {filesystem}")
+            }
             Self::TransactionBusy => write!(formatter, "workspace transaction lock is busy"),
             Self::TransactionRecoveryRequired { transaction_ids } => write!(
                 formatter,
@@ -817,6 +837,40 @@ impl From<CoreError> for FsError {
     fn from(error: CoreError) -> Self {
         Self::Core(error)
     }
+}
+
+/// Captures the process umask for deriving the v0.1 new-file permission mode.
+///
+/// Call this once at CLI startup, before any worker threads are created.
+#[must_use]
+pub fn capture_startup_umask() -> u32 {
+    use rustix::fs::Mode;
+    use rustix::process::umask;
+
+    let previous = umask(Mode::empty());
+    umask(previous);
+    u32::from(previous.bits())
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn test_failpoint(name: &str) -> Result<(), FsError> {
+    if std::env::var_os("CODESPLICE_TEST_FAILPOINT").is_some_and(|value| value == name) {
+        if std::env::var_os("CODESPLICE_TEST_FAILPOINT_ACTION").is_some_and(|value| value == "exit")
+        {
+            std::process::exit(86);
+        }
+        return Err(FsError::Io {
+            operation: "test_failpoint",
+            path: None,
+            kind: io::ErrorKind::Interrupted,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+pub(crate) const fn test_failpoint(_name: &str) -> Result<(), FsError> {
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1088,7 +1142,10 @@ fn io_error(operation: &'static str, path: Option<&str>, error: io::Error) -> Fs
 }
 
 fn ensure_supported_platform() -> Result<(), FsError> {
-    if cfg!(any(target_os = "linux", target_os = "macos")) {
+    if cfg!(any(
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "macos", target_arch = "aarch64")
+    )) {
         Ok(())
     } else {
         Err(FsError::UnsupportedPlatform)

@@ -52,11 +52,13 @@ The private payload schemas are
 `docs/schema/transaction-v1/state.schema.json`; golden JSON and complete envelope
 bytes are under `tests/golden/transaction-v1/`.
 
-## Phase 5 recovery boundary
+## Phase 7 single-target boundary
 
 `recover --list` and `recover ID --status` are read-only and create nothing. They
-take a nonblocking shared lock when a valid control tree exists. Explicit rollback
-may delete only a validated `orphan_record` or `manifest_only` directory; completion
-and every recovery operation that could change a user target remain disabled until
-Phase 7. A new-transaction gate rejects every active transaction and may delete
-only fully validated suffix-classified cleanup-only directories.
+take a nonblocking shared lock when a valid control tree exists. Explicit recovery
+can complete or roll back every valid single-target state, including filesystem
+lag after candidate, backup, install, rollback, terminal rename, and cleanup steps.
+Candidate identity is authoritative even when replacement bytes are equal. A
+new-transaction gate rejects every active transaction and may delete only fully
+validated suffix-classified cleanup-only directories. Phase 8 removes the temporary
+one-changed-target admission guard without introducing a second engine.

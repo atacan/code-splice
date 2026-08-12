@@ -385,6 +385,49 @@ impl TransactionJournal {
         })
     }
 
+    pub(crate) fn resume(
+        directory: TransactionDirectory,
+        manifest: &Manifest,
+        last_state: StateSnapshot,
+        last_checksum: String,
+        state_record_bytes: u64,
+    ) -> Result<Self, FsError> {
+        validate_manifest(manifest, TransactionLimits::default())?;
+        validate_state_against_manifest(&last_state, manifest)?;
+        let manifest_bytes = fs::read(directory.path.join("manifest.rec"))
+            .map_err(|error| record_io("read_manifest_for_recovery", error))?;
+        let manifest_checksum = checksum_text(record_checksum(&manifest_bytes)?);
+        if manifest_checksum != last_state.manifest_checksum {
+            return Err(corrupt(
+                Some(&directory.transaction_id),
+                "recovery_manifest_checksum_mismatch",
+            ));
+        }
+        let projected_disk_bytes =
+            projected_artifact_bytes(manifest, TransactionLimits::default())?
+                .checked_add(u64::try_from(manifest_bytes.len()).unwrap_or(u64::MAX))
+                .and_then(|value| value.checked_add(state_record_bytes))
+                .ok_or(FsError::ResourceLimitExceeded {
+                    resource: "projected_transaction_disk_bytes",
+                    actual: u64::MAX,
+                    limit: MAX_TRANSACTION_DISK_BYTES,
+                })?;
+        Ok(Self {
+            directory: directory.path,
+            manifest_checksum,
+            original_existence: manifest
+                .targets
+                .iter()
+                .map(|target| target.original_existed)
+                .collect(),
+            limits: TransactionLimits::default(),
+            projected_disk_bytes,
+            state_record_bytes,
+            last_state: Some(last_state),
+            last_checksum: Some(last_checksum),
+        })
+    }
+
     /// Publishes the next validated full state snapshot.
     ///
     /// # Errors
@@ -1165,7 +1208,8 @@ fn publish_record(
         .map_err(|error| record_io("flush_record", error))?;
     file.sync_all()
         .map_err(|error| record_io("sync_record", error))?;
-    failpoint("before_record_publication")?;
+    crate::test_failpoint("before_record_publication")?;
+    crate::test_failpoint(&format!("before_{published}_publication"))?;
     renameat_with(
         CWD,
         &temporary_path,
@@ -1179,7 +1223,8 @@ fn publish_record(
             io::Error::from_raw_os_error(error.raw_os_error()),
         )
     })?;
-    failpoint("after_record_publication")?;
+    crate::test_failpoint(&format!("after_{published}_publication"))?;
+    crate::test_failpoint("after_record_publication")?;
     sync_directory(directory)?;
     Ok(())
 }
@@ -1237,23 +1282,6 @@ fn corrupt(transaction_id: Option<&str>, reason: &'static str) -> FsError {
         transaction_id: transaction_id.map(str::to_owned),
         reason,
     }
-}
-
-#[cfg(test)]
-fn failpoint(name: &str) -> Result<(), FsError> {
-    if std::env::var_os("CODESPLICE_TEST_FAILPOINT").is_some_and(|value| value == name) {
-        return Err(FsError::Io {
-            operation: "test_failpoint",
-            path: None,
-            kind: io::ErrorKind::Interrupted,
-        });
-    }
-    Ok(())
-}
-
-#[cfg(not(test))]
-const fn failpoint(_name: &str) -> Result<(), FsError> {
-    Ok(())
 }
 
 #[cfg(test)]

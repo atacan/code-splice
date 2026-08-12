@@ -7,7 +7,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsE
 use std::path::{Path, PathBuf};
 
 use getrandom::fill;
-use rustix::fs::{FlockOperation, flock};
+use rustix::fs::{CWD, FlockOperation, RenameFlags, flock, renameat_with};
 use rustix::io::Errno;
 
 use crate::journal::{
@@ -81,6 +81,14 @@ impl RecoveryEntry {
     #[must_use]
     pub fn actions(&self) -> &[&'static str] {
         &self.actions
+    }
+
+    pub(crate) fn active_path(&self) -> Option<&Path> {
+        self.active_path.as_deref()
+    }
+
+    pub(crate) fn completed_path(&self) -> Option<&Path> {
+        self.completed_path.as_deref()
     }
 }
 
@@ -320,6 +328,62 @@ impl MutationLock {
         fs::remove_dir(path).map_err(|error| control_io("remove_transaction_directory", error))?;
         sync_directory(&self.paths.transactions)
     }
+
+    pub(crate) fn recovery_entry(&self, transaction_id: &str) -> Result<RecoveryEntry, FsError> {
+        validate_transaction_id(transaction_id)?;
+        scan_control(&self.paths, TransactionLimits::default())?
+            .find(transaction_id)
+            .cloned()
+            .ok_or_else(|| FsError::TransactionNotFound {
+                transaction_id: transaction_id.to_owned(),
+            })
+    }
+
+    pub(crate) fn finish_transaction(
+        &self,
+        transaction_id: &str,
+        active_path: &Path,
+        committed: bool,
+    ) -> Result<(), FsError> {
+        validate_transaction_id(transaction_id)?;
+        if active_path != self.paths.transactions.join(transaction_id) {
+            return Err(FsError::InternalInvariant {
+                invariant: "terminal_transaction_path_is_canonical",
+            });
+        }
+        let suffix = if committed { "committed" } else { "rolledback" };
+        let completed = self
+            .paths
+            .completed
+            .join(format!("{transaction_id}-{suffix}"));
+        crate::test_failpoint("before_terminal_directory_rename")?;
+        renameat_with(CWD, active_path, CWD, &completed, RenameFlags::NOREPLACE).map_err(
+            |error| match error {
+                Errno::EXIST => FsError::RecoveryConflict {
+                    reason: "completed_directory_collision",
+                },
+                Errno::XDEV => FsError::CrossDeviceTransaction,
+                Errno::NOSYS | Errno::NOTSUP | Errno::INVAL => FsError::NoReplaceUnavailable,
+                _ => control_io(
+                    "terminal_directory_rename",
+                    io::Error::from_raw_os_error(error.raw_os_error()),
+                ),
+            },
+        )?;
+        sync_directory(&self.paths.transactions)?;
+        sync_directory(&self.paths.completed)?;
+        crate::test_failpoint("after_terminal_directory_rename")?;
+        crate::test_failpoint("before_terminal_cleanup")?;
+        cleanup_completed_directory(&completed, transaction_id)?;
+        crate::test_failpoint("after_terminal_cleanup")
+    }
+
+    pub(crate) fn cleanup_completed(&self, entry: &RecoveryEntry) -> Result<(), FsError> {
+        let path = entry.completed_path().ok_or(FsError::InternalInvariant {
+            invariant: "cleanup_entry_has_completed_path",
+        })?;
+        cleanup_completed_directory(path, entry.transaction_id())
+    }
 }
 
 /// Newly allocated active transaction directory.
@@ -340,6 +404,13 @@ impl TransactionDirectory {
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub(crate) fn from_recovery(transaction_id: String, path: PathBuf) -> Self {
+        Self {
+            transaction_id,
+            path,
+        }
     }
 }
 
@@ -438,7 +509,9 @@ impl Workspace {
     }
 }
 
-fn acquire_existing_mutation_lock(workspace: &Workspace) -> Result<MutationLock, FsError> {
+pub(crate) fn acquire_existing_mutation_lock(
+    workspace: &Workspace,
+) -> Result<MutationLock, FsError> {
     let paths = ControlPaths::new(workspace);
     validate_control_tree(&paths)?;
     let lock_file = OpenOptions::new()

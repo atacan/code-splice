@@ -3,8 +3,8 @@
 //! Command grammar, protocol orchestration, and output discipline for CodeSplice.
 //!
 //! Preview and inspection use immutable workspace snapshots coordinated by the
-//! existing diagnostic lock when present. Commit and target-mutating recovery
-//! remain explicit development-only routes.
+//! existing diagnostic lock when present. Single-target commit and recovery use
+//! the persistent transaction engine; multi-target admission waits for Phase 8.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -13,30 +13,33 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::OnceLock;
 
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, Parser, Subcommand};
-use codesplice_core::{Operation, Precondition, ResourceBudget, plan};
+use codesplice_core::{Operation, OutputChange, Precondition, ResourceBudget, plan};
 use codesplice_fs::{
     DiagnosticLock, FsError, InspectedState, RecoveryEntryKind, RequiredPathState, SnapshotLimits,
-    SnapshotRequirement, Workspace,
+    SnapshotRequirement, Workspace, capture_startup_umask,
 };
 use codesplice_protocol::{
-    CapabilitiesResponse, ErrorCode, ErrorDto, InspectPathResponse, InspectResponse,
-    MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
-    ProtocolVersionResponse, RecoveryEntryResponse, RecoveryListResponse, RecoveryStatusResponse,
-    WarningCode, WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path,
-    to_json_line,
+    CapabilitiesResponse, CommitResponse, ErrorCode, ErrorDto, InspectPathResponse,
+    InspectResponse, MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
+    OutputResponse, ProtocolVersionResponse, RecoveryEntryResponse, RecoveryListResponse,
+    RecoveryStatusResponse, ResolvedOperationResponse, WarningCode, WarningDto,
+    escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
 };
 use serde_json::json;
 
 mod preview;
 
+static STARTUP_UMASK: OnceLock<u32> = OnceLock::new();
+
 /// Parses process arguments, runs the selected command, and returns its exit status.
 ///
 /// Output is written according to the command's JSON or human-mode contract. This
-/// Inspection and preview are read-only. Commit and target-mutating recovery
-/// remain development-only stubs.
+/// Inspection and preview are read-only. Commit and recovery mutate only through
+/// the persistent transaction engine.
 #[must_use]
 pub fn run() -> ExitCode {
     let mut stdin = io::stdin().lock();
@@ -145,6 +148,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
+    let startup_umask = *STARTUP_UMASK.get_or_init(capture_startup_umask);
     let arguments = arguments
         .into_iter()
         .map(Into::into)
@@ -175,18 +179,18 @@ where
         }
     };
 
-    match execute(cli, stdin) {
+    match execute(cli, stdin, startup_umask) {
         Ok(response) => render_success(&response, stdout, stderr),
         Err((report, json)) => render_error(&report, json, stdout, stderr),
     }
 }
 
-fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
+fn execute(cli: Cli, stdin: &mut dyn Read, startup_umask: u32) -> Result<String, (ErrorDto, bool)> {
     let has_workspace = cli.workspace.is_some();
     match cli.command {
         Command::Capabilities(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
-            serialize_success(&CapabilitiesResponse::phase_six(), arguments.json)
+            serialize_success(&CapabilitiesResponse::phase_seven(), arguments.json)
         }
         Command::ProtocolVersion(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
@@ -196,7 +200,9 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
             validate_inspect_paths(&arguments.paths).map_err(|report| (report, arguments.json))?;
             execute_inspect(cli.workspace.as_deref(), arguments)
         }
-        Command::Apply(arguments) => execute_apply(cli.workspace.as_deref(), arguments, stdin),
+        Command::Apply(arguments) => {
+            execute_apply(cli.workspace.as_deref(), arguments, stdin, startup_umask)
+        }
         Command::Recover(arguments) => execute_recovery(cli.workspace.as_deref(), arguments),
     }
 }
@@ -349,6 +355,21 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             actual,
             limit,
         }) => limit_error(resource, actual, limit),
+        FsError::CrossDeviceTransaction => ErrorDto::new(
+            ErrorCode::CrossDeviceTransaction,
+            "the control directory and changed target parent are on different filesystems",
+            BTreeMap::new(),
+        ),
+        FsError::NoReplaceUnavailable => ErrorDto::new(
+            ErrorCode::NoReplaceUnavailable,
+            "the required no-replace rename primitive is unavailable",
+            BTreeMap::new(),
+        ),
+        FsError::UnsupportedFilesystem { filesystem } => ErrorDto::new(
+            ErrorCode::UnsupportedFilesystem,
+            "commit requires a qualified local ext4 or APFS filesystem",
+            BTreeMap::from([("filesystem".to_owned(), json!(filesystem))]),
+        ),
         FsError::TransactionBusy => ErrorDto::new(
             ErrorCode::TransactionBusy,
             "another CodeSplice process holds the workspace lock",
@@ -514,19 +535,32 @@ fn execute_recovery(
         ));
     }
     if arguments.action.rollback {
-        workspace
-            .recovery_rollback_control_only(transaction_id)
+        let outcome = workspace
+            .recovery_rollback(transaction_id)
             .map_err(|error| (filesystem_error(error), arguments.json))?;
         let completed =
             RecoveryEntryResponse::new(transaction_id, "cleanup_only", std::iter::empty::<&str>());
         if arguments.json {
             return serialize_success(&RecoveryStatusResponse::new(completed), true);
         }
-        return Ok(format!("{transaction_id} rolled_back_control_only\n"));
+        return Ok(format!(
+            "{} {}\n",
+            outcome.transaction_id(),
+            outcome.state()
+        ));
     }
-    Err((
-        development_unimplemented("recovery_complete", 7),
-        arguments.json,
+    let outcome = workspace
+        .recovery_complete(transaction_id)
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let completed =
+        RecoveryEntryResponse::new(transaction_id, "cleanup_only", std::iter::empty::<&str>());
+    if arguments.json {
+        return serialize_success(&RecoveryStatusResponse::new(completed), true);
+    }
+    Ok(format!(
+        "{} {}\n",
+        outcome.transaction_id(),
+        outcome.state()
     ))
 }
 
@@ -558,6 +592,7 @@ fn execute_apply(
     workspace_path: Option<&std::path::Path>,
     arguments: ApplyArgs,
     stdin: &mut dyn Read,
+    startup_umask: u32,
 ) -> Result<String, (ErrorDto, bool)> {
     if arguments.mode.commit && arguments.expect_plan.is_none() && !arguments.accept_current_plan {
         return Err((
@@ -570,21 +605,28 @@ fn execute_apply(
         ));
     }
 
-    if let Some(expected) = &arguments.expect_plan {
-        parse_sha256(expected, "--expect-plan")
-            .map_err(|error| (error.into_report(), arguments.json))?;
-    }
+    let expected_plan = arguments
+        .expect_plan
+        .as_deref()
+        .map(|expected| parse_sha256(expected, "--expect-plan"))
+        .transpose()
+        .map_err(|error| (error.into_report(), arguments.json))?;
 
     let request =
         read_request(&arguments.request, stdin).map_err(|report| (report, arguments.json))?;
     let batch = parse_request(&request).map_err(|error| (error.into_report(), arguments.json))?;
 
-    if arguments.mode.commit {
-        return Err((development_unimplemented("commit", 7), arguments.json));
-    }
-
     let workspace = Workspace::open(workspace_path.unwrap_or_else(|| std::path::Path::new(".")))
         .map_err(|error| (filesystem_error(error), arguments.json))?;
+    if arguments.mode.commit {
+        return execute_commit(
+            &workspace,
+            &batch,
+            expected_plan,
+            startup_umask,
+            arguments.json,
+        );
+    }
     let (diagnostic_lock, warnings) = diagnostic_context(&workspace)
         .map_err(|error| (filesystem_error(error), arguments.json))?;
     let requirements = snapshot_requirements(&batch);
@@ -608,6 +650,258 @@ fn execute_apply(
     };
     drop(diagnostic_lock);
     result
+}
+
+fn execute_commit(
+    workspace: &Workspace,
+    batch: &codesplice_core::BatchSpecification,
+    expected_plan: Option<codesplice_core::Sha256Digest>,
+    startup_umask: u32,
+    json: bool,
+) -> Result<String, (ErrorDto, bool)> {
+    let requirements = snapshot_requirements(batch);
+    let commit_budget = ResourceBudget {
+        changed_targets: 1,
+        ..ResourceBudget::default()
+    };
+    let prelock_snapshot = workspace
+        .acquire_snapshot(&requirements, SnapshotLimits::default())
+        .map_err(|error| (filesystem_error(error), json))?;
+    let prelock_plan = plan(&prelock_snapshot, batch, commit_budget)
+        .map_err(|error| (filesystem_error(error.into()), json))?;
+    if expected_plan.is_some_and(|expected| expected != prelock_plan.digest.0) {
+        return Err((
+            expected_plan_mismatch(expected_plan, prelock_plan.digest.0),
+            json,
+        ));
+    }
+    phase_seven_test_hook("after_prelock_plan").map_err(|error| (error, json))?;
+
+    if prelock_plan.usage.changed_targets == 0 {
+        let (diagnostic_lock, warnings) =
+            diagnostic_context(workspace).map_err(|error| (filesystem_error(error), json))?;
+        let response = build_commit_response(
+            &prelock_snapshot,
+            &prelock_plan,
+            workspace,
+            warnings,
+            None,
+            None,
+        );
+        let result = serialize_commit_response(&response, json);
+        drop(diagnostic_lock);
+        return result;
+    }
+
+    let lock = workspace
+        .mutation_lock()
+        .map_err(|error| (filesystem_error(error), json))?;
+    lock.gate_new_transaction()
+        .map_err(|error| (filesystem_error(error), json))?;
+    let locked_snapshot = workspace
+        .acquire_snapshot(&requirements, SnapshotLimits::default())
+        .map_err(|error| (filesystem_error(error), json))?;
+    let locked_plan = plan(&locked_snapshot, batch, commit_budget)
+        .map_err(|error| (filesystem_error(error.into()), json))?;
+    if expected_plan.is_some_and(|expected| expected != locked_plan.digest.0) {
+        return Err((
+            expected_plan_mismatch(expected_plan, locked_plan.digest.0),
+            json,
+        ));
+    }
+    if locked_plan.digest != prelock_plan.digest {
+        return Err((
+            ErrorDto::new(
+                ErrorCode::PlanChangedDuringCommit,
+                "the resolved plan changed while acquiring the mutation lock",
+                BTreeMap::from([
+                    (
+                        "prelock_plan_sha256".to_owned(),
+                        json!(prelock_plan.digest.0.to_prefixed_hex()),
+                    ),
+                    (
+                        "locked_plan_sha256".to_owned(),
+                        json!(locked_plan.digest.0.to_prefixed_hex()),
+                    ),
+                ]),
+            ),
+            json,
+        ));
+    }
+    let new_file_mode = 0o666 & !startup_umask;
+    let outcome = workspace
+        .commit_single_target(&lock, &locked_snapshot, &locked_plan, new_file_mode)
+        .map_err(|error| (filesystem_error(error), json))?;
+    let warning = WarningDto::new(
+        WarningCode::MetadataNotPreserved,
+        "metadata outside content bytes and POSIX permission bits is not preserved",
+        BTreeMap::new(),
+    );
+    let response = build_commit_response(
+        &locked_snapshot,
+        &locked_plan,
+        workspace,
+        vec![warning],
+        Some(outcome.transaction_id().to_owned()),
+        outcome
+            .preserved_mode()
+            .map(|mode| (outcome.changed_path(), mode)),
+    );
+    serialize_commit_response(&response, json)
+}
+
+#[cfg(debug_assertions)]
+fn phase_seven_test_hook(name: &str) -> Result<(), ErrorDto> {
+    use std::time::{Duration, Instant};
+
+    if std::env::var_os("CODESPLICE_TEST_HOOK").is_none_or(|value| value != name) {
+        return Ok(());
+    }
+    let ready = std::env::var_os("CODESPLICE_TEST_READY").ok_or_else(|| {
+        ErrorDto::new(
+            ErrorCode::InternalError,
+            "the Phase 7 test hook is missing its ready marker",
+            BTreeMap::new(),
+        )
+    })?;
+    let resume = std::env::var_os("CODESPLICE_TEST_CONTINUE").ok_or_else(|| {
+        ErrorDto::new(
+            ErrorCode::InternalError,
+            "the Phase 7 test hook is missing its continue marker",
+            BTreeMap::new(),
+        )
+    })?;
+    File::create(&ready).map_err(|_| {
+        ErrorDto::new(
+            ErrorCode::InternalError,
+            "the Phase 7 test hook could not publish its ready marker",
+            BTreeMap::new(),
+        )
+    })?;
+    let started = Instant::now();
+    while !std::path::Path::new(&resume).exists() {
+        if started.elapsed() > Duration::from_secs(10) {
+            return Err(ErrorDto::new(
+                ErrorCode::InternalError,
+                "the Phase 7 test hook timed out",
+                BTreeMap::new(),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+const fn phase_seven_test_hook(_name: &str) -> Result<(), ErrorDto> {
+    Ok(())
+}
+
+fn expected_plan_mismatch(
+    expected: Option<codesplice_core::Sha256Digest>,
+    actual: codesplice_core::Sha256Digest,
+) -> ErrorDto {
+    ErrorDto::new(
+        ErrorCode::ExpectedPlanMismatch,
+        "the current resolved plan does not match --expect-plan",
+        BTreeMap::from([
+            (
+                "expected_plan_sha256".to_owned(),
+                json!(expected.map(codesplice_core::Sha256Digest::to_prefixed_hex)),
+            ),
+            (
+                "actual_plan_sha256".to_owned(),
+                json!(actual.to_prefixed_hex()),
+            ),
+        ]),
+    )
+}
+
+fn build_commit_response(
+    snapshot: &codesplice_core::WorkspaceSnapshot,
+    plan: &codesplice_core::EditPlan,
+    workspace: &Workspace,
+    warnings: Vec<WarningDto>,
+    transaction_id: Option<String>,
+    preserved_mode: Option<(&str, u32)>,
+) -> CommitResponse {
+    let operations = plan
+        .operations
+        .iter()
+        .map(ResolvedOperationResponse::from_committed)
+        .collect();
+    let outputs = plan
+        .outputs
+        .iter()
+        .map(|output| {
+            let before_length = snapshot
+                .files
+                .iter()
+                .find(|file| file.path == output.path)
+                .map(|file| u64::try_from(file.bytes.len()).unwrap_or(u64::MAX));
+            OutputResponse::new(
+                output.path.value.clone(),
+                output.change,
+                before_length,
+                output.original_digest,
+                output.resulting_length,
+                output.resulting_digest,
+            )
+        })
+        .collect();
+    let files_changed = plan
+        .outputs
+        .iter()
+        .filter(|output| output.change != OutputChange::Unchanged)
+        .map(|output| output.path.value.clone())
+        .collect();
+    let preserved_permission_modes = preserved_mode
+        .map(|(path, mode)| BTreeMap::from([(path.to_owned(), mode)]))
+        .unwrap_or_default();
+    CommitResponse::new(
+        plan.digest.0,
+        workspace.identity_hash(),
+        operations,
+        outputs,
+        warnings,
+        transaction_id,
+        files_changed,
+        preserved_permission_modes,
+    )
+}
+
+fn serialize_commit_response(
+    response: &CommitResponse,
+    json: bool,
+) -> Result<String, (ErrorDto, bool)> {
+    if json {
+        let line = to_json_line(response).map_err(|error| (error.into_report(), true))?;
+        let actual = u64::try_from(line.len()).unwrap_or(u64::MAX);
+        if actual > MAX_RESPONSE_BYTES {
+            return Err((
+                limit_error("serialized_json_response", actual, MAX_RESPONSE_BYTES),
+                true,
+            ));
+        }
+        Ok(line)
+    } else {
+        let value = serde_json::to_value(response).map_err(|_| {
+            (
+                ErrorDto::new(
+                    ErrorCode::InternalError,
+                    "failed to render the commit report",
+                    BTreeMap::new(),
+                ),
+                false,
+            )
+        })?;
+        Ok(format!(
+            "plan {}\ntransaction {}\nstate {}\n",
+            escape_terminal_text(value["plan_sha256"].as_str().unwrap_or("<invalid>")),
+            escape_terminal_text(value["transaction_id"].as_str().unwrap_or("none (no-op)")),
+            escape_terminal_text(value["transaction_state"].as_str().unwrap_or("<invalid>"))
+        ))
+    }
 }
 
 fn serialize_preview(
@@ -732,21 +1026,6 @@ fn reject_workspace_for_target_independent(
         ));
     }
     Ok(())
-}
-
-fn development_unimplemented(capability: &'static str, implementation_phase: u64) -> ErrorDto {
-    ErrorDto::new(
-        ErrorCode::InternalError,
-        "the command is validated but execution is not implemented in this phase",
-        BTreeMap::from([
-            ("capability".to_string(), json!(capability)),
-            ("development_only".to_string(), json!(true)),
-            (
-                "implementation_phase".to_string(),
-                json!(implementation_phase),
-            ),
-        ]),
-    )
 }
 
 fn serialize_success<T: serde::Serialize>(

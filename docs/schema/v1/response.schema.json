@@ -272,12 +272,17 @@
             "transaction_id",
             "transaction_state",
             "files_changed",
+            "preserved_permission_modes",
             "recoverability_status"
           ],
           "properties": {
             "transaction_id": { "type": ["string", "null"], "pattern": "^[0-9a-f]{32}$" },
             "transaction_state": { "enum": ["committed", "no_op"] },
             "files_changed": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+            "preserved_permission_modes": {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 4095 }
+            },
             "recoverability_status": { "enum": ["complete", "recovery_required"] }
           }
         }

@@ -79,11 +79,9 @@ fn protocol_version_command_should_match_golden_output() {
 }
 
 #[test]
-fn disabled_execution_commands_should_validate_then_match_their_golden_stubs() {
-    let expected: Value = serde_json::from_str(&golden("cli-command-results.json"))
-        .expect("CLI command golden must be JSON");
+fn phase_seven_execution_commands_should_reach_workspace_validation() {
     let transaction_id = "0123456789abcdef0123456789abcdef";
-    let cases: Vec<(&str, Vec<&str>, Vec<u8>)> = vec![
+    let cases = vec![
         (
             "commit",
             vec![
@@ -96,6 +94,8 @@ fn disabled_execution_commands_should_validate_then_match_their_golden_stubs() {
                 "--json",
             ],
             valid_request(),
+            2,
+            "INVALID_REQUEST",
         ),
         (
             "commit",
@@ -108,18 +108,22 @@ fn disabled_execution_commands_should_validate_then_match_their_golden_stubs() {
                 "--json",
             ],
             valid_request(),
+            2,
+            "INVALID_REQUEST",
         ),
         (
             "recovery_complete",
             vec!["recover", transaction_id, "--complete", "--json"],
             Vec::new(),
+            5,
+            "TRANSACTION_NOT_FOUND",
         ),
     ];
 
-    for (name, arguments, stdin) in cases {
+    for (name, arguments, stdin, status, code) in cases {
         let output = invoke(&arguments, &stdin);
-        assert_eq!(output.status.code(), Some(8), "command: {name}");
-        assert_eq!(json_stdout(&output), expected[name], "command: {name}");
+        assert_eq!(output.status.code(), Some(status), "command: {name}");
+        assert_eq!(json_stdout(&output)["code"], code, "command: {name}");
     }
 }
 
@@ -139,11 +143,8 @@ fn apply_should_read_and_validate_a_request_file() {
         ],
         b"",
     );
-    let expected: Value = serde_json::from_str(&golden("cli-command-results.json"))
-        .expect("CLI command golden must be JSON");
-
-    assert_eq!(output.status.code(), Some(8));
-    assert_eq!(json_stdout(&output), expected["commit"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(json_stdout(&output)["code"], "INVALID_REQUEST");
 }
 
 #[test]

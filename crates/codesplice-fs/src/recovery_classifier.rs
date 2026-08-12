@@ -1,6 +1,6 @@
 //! Pure recovery classification over synthetic filesystem observations.
 
-use crate::{CandidateKind, CommitKind, FsError, GlobalState, RollbackKind, TargetState};
+use crate::{CommitKind, FsError, GlobalState, RollbackKind, TargetState};
 
 /// Classification of one relevant filesystem location against recorded bytes and identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -235,14 +235,44 @@ fn classify_rolling_back(
         RollbackKind::AbsenceRestored if !original_existed => {
             classify_restored_absence(observed, RecoveryDisposition::rollback_only())
         }
-        RollbackKind::None
-            if recorded.candidate.kind == CandidateKind::Missing
-                && recorded.commit.kind == CommitKind::Untouched =>
-        {
-            classify_preparing(original_existed, observed)
+        RollbackKind::None => {
+            let valid = if original_existed {
+                matches!(
+                    (observed.target, observed.candidate, observed.backup),
+                    (
+                        LocationObservation::Original,
+                        LocationObservation::Absent | LocationObservation::Candidate,
+                        LocationObservation::Absent
+                    ) | (
+                        LocationObservation::Absent,
+                        LocationObservation::Absent | LocationObservation::Candidate,
+                        LocationObservation::Original
+                    ) | (
+                        LocationObservation::Candidate,
+                        LocationObservation::Absent,
+                        LocationObservation::Original
+                    )
+                )
+            } else {
+                matches!(
+                    (observed.target, observed.candidate, observed.backup),
+                    (
+                        LocationObservation::Absent,
+                        LocationObservation::Absent | LocationObservation::Candidate,
+                        LocationObservation::Absent
+                    ) | (
+                        LocationObservation::Candidate,
+                        LocationObservation::Absent,
+                        LocationObservation::Absent
+                    )
+                )
+            };
+            if valid {
+                Ok(RecoveryDisposition::rollback_only())
+            } else {
+                Err(conflict("rolling_back_observation_invalid"))
+            }
         }
-        RollbackKind::None => classify_committing(original_existed, recorded, observed)
-            .map(|_| RecoveryDisposition::rollback_only()),
         _ => Err(conflict("rolling_back_record_invalid")),
     }
 }

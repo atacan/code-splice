@@ -502,6 +502,8 @@ pub struct ResolvedOperationResponse {
     destination_offset: u64,
     effect: &'static str,
     selected_payload_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inserted_payload_sha256: Option<Option<String>>,
 }
 
 impl ResolvedOperationResponse {
@@ -524,7 +526,20 @@ impl ResolvedOperationResponse {
                 OperationEffect::NoOp => "no_op",
             },
             selected_payload_sha256: operation.selected_digest.to_prefixed_hex(),
+            inserted_payload_sha256: None,
         }
+    }
+
+    /// Converts a resolved operation into a final commit record with exact
+    /// inserted-payload evidence, or `null` for a reported same-file no-op.
+    #[must_use]
+    pub fn from_committed(operation: &ResolvedOperation) -> Self {
+        let mut response = Self::from_resolved(operation);
+        response.inserted_payload_sha256 = Some(match operation.effect {
+            OperationEffect::Changed => Some(operation.selected_digest.to_prefixed_hex()),
+            OperationEffect::NoOp => None,
+        });
+        response
     }
 }
 
@@ -639,6 +654,61 @@ impl PreviewResponse {
             outputs,
             diff,
             warnings,
+        }
+    }
+}
+
+/// Successful response for `apply --commit --json`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CommitResponse {
+    protocol_version: u64,
+    plan_hash_version: u64,
+    plan_sha256: String,
+    workspace_identity_hash: String,
+    resolved_operations: Vec<ResolvedOperationResponse>,
+    outputs: Vec<OutputResponse>,
+    diff: DiffResponse,
+    warnings: Vec<WarningDto>,
+    transaction_id: Option<String>,
+    transaction_state: &'static str,
+    files_changed: Vec<String>,
+    preserved_permission_modes: BTreeMap<String, u32>,
+    recoverability_status: &'static str,
+}
+
+impl CommitResponse {
+    /// Creates a complete protocol-v1 commit report.
+    #[must_use]
+    #[expect(clippy::too_many_arguments, reason = "wire record fields are explicit")]
+    pub fn new(
+        plan_sha256: Sha256Digest,
+        workspace_identity_hash: Sha256Digest,
+        resolved_operations: Vec<ResolvedOperationResponse>,
+        outputs: Vec<OutputResponse>,
+        warnings: Vec<WarningDto>,
+        transaction_id: Option<String>,
+        files_changed: Vec<String>,
+        preserved_permission_modes: BTreeMap<String, u32>,
+    ) -> Self {
+        let transaction_state = if transaction_id.is_some() {
+            "committed"
+        } else {
+            "no_op"
+        };
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            plan_hash_version: PLAN_HASH_VERSION,
+            plan_sha256: plan_sha256.to_prefixed_hex(),
+            workspace_identity_hash: workspace_identity_hash.to_prefixed_hex(),
+            resolved_operations,
+            outputs,
+            diff: DiffResponse::omitted(),
+            warnings,
+            transaction_id,
+            transaction_state,
+            files_changed,
+            preserved_permission_modes,
+            recoverability_status: "complete",
         }
     }
 }
@@ -827,6 +897,32 @@ impl CapabilitiesResponse {
                 workspace_inspection: true,
                 preview: true,
                 commit: false,
+                recovery: true,
+            },
+        }
+    }
+
+    /// Returns the capabilities truthfully available at the Phase 7 checkpoint.
+    #[must_use]
+    pub const fn phase_seven() -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            implementation_phase: 7,
+            operations: ["move", "copy"],
+            selectors: ["lines", "bytes"],
+            anchors: [
+                "file_start",
+                "file_end",
+                "before_line",
+                "after_line",
+                "byte_offset",
+            ],
+            preconditions: ["sha256", "must_not_exist"],
+            features: FeatureAvailability {
+                request_parsing: true,
+                workspace_inspection: true,
+                preview: true,
+                commit: true,
                 recovery: true,
             },
         }

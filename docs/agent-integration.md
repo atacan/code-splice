@@ -19,5 +19,6 @@ agent inspects and previews again rather than bypassing the digest precondition.
 It treats recovery-required and conflict outcomes as failures needing explicit
 inspection; it does not reproduce selected source bytes by hand as a fallback.
 
-Through Phase 6, inspect and preview are available and read-only. Commit becomes
-available in Phase 7 and remains disabled until then.
+Through Phase 7, this workflow is available for plans with exactly one changed
+target. Cross-file moves and other multi-target plans remain unavailable until
+Phase 8.

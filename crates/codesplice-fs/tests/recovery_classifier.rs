@@ -54,6 +54,13 @@ fn recovery_classifier_should_accept_exactly_the_documented_existing_target_tabl
     let backup_staged = observation(L::Absent, L::Candidate, L::Original);
     let installed = observation(L::Candidate, L::Absent, L::Original);
     let restored = observation(L::Original, L::Absent, L::Absent);
+    let rolling_back = vec![
+        restored,
+        original_staged,
+        observation(L::Absent, L::Absent, L::Original),
+        backup_staged,
+        installed,
+    ];
     let rows = [
         (
             GlobalState::Preparing,
@@ -91,15 +98,12 @@ fn recovery_classifier_should_accept_exactly_the_documented_existing_target_tabl
         (
             GlobalState::RollingBack,
             preparing_recorded(),
-            vec![
-                observation(L::Original, L::Absent, L::Absent),
-                original_staged,
-            ],
+            rolling_back.clone(),
         ),
         (
             GlobalState::RollingBack,
             recorded(CommitKind::Installed, RollbackKind::None),
-            vec![installed],
+            rolling_back,
         ),
         (
             GlobalState::RollingBack,
@@ -123,6 +127,7 @@ fn recovery_classifier_should_accept_exactly_the_documented_absent_target_table(
     let staged = observation(L::Absent, L::Candidate, L::Absent);
     let installed = observation(L::Candidate, L::Absent, L::Absent);
     let restored = observation(L::Absent, L::Absent, L::Absent);
+    let rolling_back = vec![restored, staged, installed];
     let rows = [
         (
             GlobalState::Preparing,
@@ -152,12 +157,12 @@ fn recovery_classifier_should_accept_exactly_the_documented_absent_target_table(
         (
             GlobalState::RollingBack,
             preparing_recorded(),
-            vec![restored, staged],
+            rolling_back.clone(),
         ),
         (
             GlobalState::RollingBack,
             recorded(CommitKind::Installed, RollbackKind::None),
-            vec![installed],
+            rolling_back,
         ),
         (
             GlobalState::RollingBack,
