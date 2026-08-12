@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+pub use codesplice_core::PLAN_HASH_VERSION;
 use codesplice_core::{
     Anchor, BatchSpecification, Destination, Operation, OperationSpecification, Precondition,
     Selector, Sha256Digest, SourceSelection, WorkspaceRelativePath,
@@ -19,8 +20,6 @@ use serde_json::{Value, json};
 
 /// The only request protocol version supported by this release.
 pub const PROTOCOL_VERSION: u64 = 1;
-/// The deterministic plan-hash format supported by this release.
-pub const PLAN_HASH_VERSION: u64 = 1;
 /// Maximum accepted JSON request size in bytes.
 pub const MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 /// Maximum accepted JSON array/object nesting depth.

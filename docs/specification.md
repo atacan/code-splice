@@ -51,6 +51,78 @@ physical aliases, incompatible preconditions, and mixed absent/existing use are
 conflicts. Commit revalidates all inputs, absences, parent identities, target link
 counts, and the workspace root before the first mutation.
 
-The exact version-1 deterministic CBOR plan-record schema remains authoritative
-in Section 7.4 of the implementation plan until Phase 4 copies its finalized
-discriminant table and golden vectors here.
+## Plan-hash version 1
+
+The plan digest is:
+
+```text
+SHA256(ASCII "CODESPLICE-PLAN-V1\0" || deterministic_cbor(plan_record))
+```
+
+Encoding follows RFC 8949 deterministic CBOR. All containers have definite
+lengths. Maps, tags, floats, negative integers, and indefinite-length items are
+forbidden. Unsigned integers use their shortest representation. SHA-256 values
+are 32-byte CBOR byte strings, not hexadecimal text.
+
+The positional record is unchanged from the implementation plan:
+
+```text
+plan_record = [
+  1, 1, workspace_identity, input_records, resolved_operations, output_records
+]
+
+workspace_identity = [device_u64, inode_u64]
+input_record = [normalized_path, state]
+state = [0, parent_device_u64, parent_inode_u64]
+      | [1, parent_device_u64, parent_inode_u64,
+           file_device_u64, file_inode_u64, length_u64, sha256_bytes]
+
+resolved_operation = [
+  operation_index_u64, kind_u64, source_path, selector_record,
+  source_precondition_record, source_start_u64, source_end_u64,
+  selected_sha256_bytes, destination_path, anchor_record,
+  destination_precondition_record, destination_offset_u64, effect_u64
+]
+
+output_record = [
+  normalized_path, original_sha256_or_null, resulting_sha256_bytes,
+  resulting_length_u64, change_kind_u64, segments
+]
+
+segment = [1, snapshot_input_index_u64, start_u64, end_u64]
+        | [2, operation_index_u64, snapshot_input_index_u64, start_u64,
+             end_u64, payload_sha256_bytes]
+```
+
+Input and output records sort by normalized-path UTF-8 bytes. Operations remain
+in request order. Segment snapshot indices refer to positions in the sorted input
+record array.
+
+### Discriminants
+
+| Record | Value | Meaning |
+|---|---:|---|
+| input state | `0` | absent path |
+| input state | `1` | existing file |
+| operation kind | `1` | move |
+| operation kind | `2` | copy |
+| selector | `1` | `[1, first_line, last_line]` |
+| selector | `2` | `[2, start_byte, end_byte_exclusive]` |
+| anchor | `1` | `[1]` file start |
+| anchor | `2` | `[2]` file end |
+| anchor | `3` | `[3, line]` before line |
+| anchor | `4` | `[4, line]` after line |
+| anchor | `5` | `[5, offset]` byte offset |
+| precondition | `1` | `[1, sha256_bytes]` existing digest |
+| precondition | `2` | `[2]` must not exist |
+| operation effect | `1` | changed event stream |
+| operation effect | `2` | same-file move no-op |
+| output change | `1` | unchanged existing |
+| output change | `2` | modified existing |
+| output change | `3` | created new |
+| output change | `4` | emptied existing |
+| segment | `1` | original snapshot slice |
+| segment | `2` | operation payload slice |
+
+The annotated version-1 golden bytes and domain-separated digest are stored under
+`tests/golden/plan-hash-v1/`.

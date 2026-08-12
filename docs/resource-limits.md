@@ -32,3 +32,12 @@ knows the value and uses checked arithmetic before allocation or I/O.
 
 Detailed diff input is limited to 8 MiB per side and 10,000,000 explicitly
 counted work units. Diff truncation never changes the plan digest or commit.
+
+Phase 4 charges every resulting output byte and retained segment. Changed-target
+count uses byte classification, so an effectful but byte-identical output is not a
+target. Planning memory excludes immutable snapshot storage and charges retained
+operation/output records, segment enums, and owned path bytes. The projected
+response charge is a conservative structural bound of 1,024 base bytes, 1,024
+bytes plus paths per resolved operation, 512 bytes plus path per output, and 512
+bytes per segment; Phase 6 additionally enforces the exact serialized response
+limit.

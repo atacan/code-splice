@@ -3,8 +3,14 @@
 //! Immutable domain contracts for CodeSplice.
 //!
 //! This crate owns the filesystem-independent vocabulary used by snapshotting,
-//! planning, protocol conversion, and execution. Phase 1 defines shapes only;
-//! indexing and planning behavior are introduced by later phases.
+//! planning, protocol conversion, and execution. Planning is a pure transform
+//! from an immutable snapshot and batch specification to segment recipes.
+
+mod plan_hash;
+mod planner;
+
+pub use plan_hash::{PLAN_HASH_VERSION, encode_plan_record, plan_digest};
+pub use planner::plan;
 
 use std::error::Error;
 use std::fmt;
@@ -327,12 +333,37 @@ fn enforce_core_limit(resource: &'static str, actual: u64, limit: u64) -> Result
 pub struct ResolvedOperation {
     /// Zero-based request-order index.
     pub operation_index: u64,
+    /// Move or copy discriminant.
+    pub kind: OperationKind,
+    /// Normalized source path.
+    pub source_path: WorkspaceRelativePath,
+    /// Original selector retained for reports and plan hashing.
+    pub selector: Selector,
+    /// Source precondition retained in the resolved record.
+    pub source_precondition: Precondition,
     /// Source byte range in the initial snapshot.
     pub source_range: ByteRange,
+    /// Digest of the exact selected payload bytes.
+    pub selected_digest: Sha256Digest,
+    /// Normalized destination path.
+    pub destination_path: WorkspaceRelativePath,
+    /// Original anchor retained for reports and plan hashing.
+    pub anchor: Anchor,
+    /// Destination precondition retained in the resolved record.
+    pub destination_precondition: Precondition,
     /// Destination byte offset in the initial snapshot.
     pub destination_offset: u64,
     /// Whether this operation contributes edit events.
     pub effect: OperationEffect,
+}
+
+/// Stable operation discriminant used by resolved plans.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperationKind {
+    /// Remove from the source and insert at the destination.
+    Move,
+    /// Insert at the destination without deleting the source.
+    Copy,
 }
 
 /// A half-open byte range.
@@ -360,6 +391,8 @@ pub struct EditPlan {
     pub operations: Arc<[ResolvedOperation]>,
     /// Output recipes in normalized path order.
     pub outputs: Arc<[PlannedOutput]>,
+    /// Deterministic accounting charged while retaining the plan.
+    pub usage: PlanningUsage,
     /// Versioned deterministic plan digest.
     pub digest: PlanDigest,
 }
@@ -369,6 +402,8 @@ pub struct EditPlan {
 pub struct PlannedOutput {
     /// Normalized output path.
     pub path: WorkspaceRelativePath,
+    /// Original digest, or `None` when the destination was absent.
+    pub original_digest: Option<Sha256Digest>,
     /// Classification based on actual resulting bytes.
     pub change: OutputChange,
     /// Resulting byte length.
@@ -384,7 +419,7 @@ pub struct PlannedOutput {
 pub enum OutputChange {
     /// Resulting bytes equal the existing snapshot.
     Unchanged,
-    /// Resulting bytes differ from a nonempty existing snapshot.
+    /// Resulting bytes differ from an existing snapshot and are nonempty.
     ModifiedExisting,
     /// Resulting bytes create an absent path.
     CreatedNew,
@@ -428,12 +463,56 @@ pub struct ResourceBudget {
     pub operation_paths: u64,
     /// Maximum aggregate immutable snapshot bytes.
     pub snapshot_bytes: u64,
+    /// Maximum resulting bytes for one output.
+    pub resulting_bytes_per_output: u64,
     /// Maximum aggregate planned output bytes.
     pub planned_output_bytes: u64,
+    /// Maximum segments retained by one output.
+    pub segments_per_output: u64,
     /// Maximum aggregate output segments.
     pub segments: u64,
     /// Maximum changed transaction targets.
     pub changed_targets: u64,
+    /// Maximum conservative serialized response projection.
+    pub projected_response_bytes: u64,
+    /// Maximum charged memory retained by planning records.
+    pub planning_memory_bytes: u64,
+}
+
+impl Default for ResourceBudget {
+    fn default() -> Self {
+        Self {
+            operations: 1_000,
+            operation_paths: 1_000,
+            snapshot_bytes: 1024 * 1024 * 1024,
+            resulting_bytes_per_output: 512 * 1024 * 1024,
+            planned_output_bytes: 1024 * 1024 * 1024,
+            segments_per_output: 100_000,
+            segments: 250_000,
+            changed_targets: 100,
+            projected_response_bytes: 16 * 1024 * 1024,
+            planning_memory_bytes: 2 * 1024 * 1024 * 1024,
+        }
+    }
+}
+
+/// Deterministic resource usage retained or projected by one plan.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PlanningUsage {
+    /// Largest resulting output length.
+    pub maximum_output_bytes: u64,
+    /// Aggregate resulting output length.
+    pub total_output_bytes: u64,
+    /// Largest segment count in one output.
+    pub maximum_output_segments: u64,
+    /// Aggregate segment count.
+    pub total_segments: u64,
+    /// Number of non-byte-identical outputs.
+    pub changed_targets: u64,
+    /// Conservative size of the future serialized plan response.
+    pub projected_response_bytes: u64,
+    /// Charged bytes retained by planning records, excluding snapshot storage.
+    pub planning_memory_bytes: u64,
 }
 
 /// Typed failures owned by the pure domain layer.
@@ -444,6 +523,20 @@ pub enum CoreError {
     InvalidDomainValue {
         /// Stable field or concept name.
         field: &'static str,
+    },
+    /// Requested edits conflict under immutable-snapshot semantics.
+    EditConflict {
+        /// Stable machine-readable reason.
+        reason: &'static str,
+        /// Request-order operation when one operation owns the conflict.
+        operation_index: Option<u64>,
+    },
+    /// A changing existing output has multiple hard links.
+    HardLinkNotSupported {
+        /// Normalized output path.
+        path: WorkspaceRelativePath,
+        /// Link count captured in the immutable snapshot.
+        link_count: u64,
     },
     /// A configured resource budget was exceeded.
     ResourceLimitExceeded {
@@ -462,6 +555,18 @@ impl fmt::Display for CoreError {
             Self::InvalidDomainValue { field } => {
                 write!(formatter, "invalid domain value for {field}")
             }
+            Self::EditConflict {
+                reason,
+                operation_index,
+            } => match operation_index {
+                Some(index) => write!(formatter, "edit conflict ({reason}) at operation {index}"),
+                None => write!(formatter, "edit conflict ({reason})"),
+            },
+            Self::HardLinkNotSupported { path, link_count } => write!(
+                formatter,
+                "changing hard-linked output {} with link count {link_count} is unsupported",
+                path.value
+            ),
             Self::ResourceLimitExceeded {
                 resource,
                 actual,
