@@ -1,0 +1,56 @@
+# CLI and protocol reference
+
+## Availability
+
+```bash
+codesplice --version
+codesplice capabilities --json
+codesplice protocol-version --json
+```
+
+Release v0.1.0 implements protocol version 1 and plan-hash version 1. Query capabilities instead of assuming a newer installation has the same surface.
+
+## Command grammar
+
+```text
+codesplice [--workspace PATH] inspect --path RELATIVE [--path RELATIVE ...] --json
+codesplice [--workspace PATH] apply --request FILE_OR_DASH --preview [--json] [--no-diff]
+codesplice [--workspace PATH] apply --request FILE_OR_DASH --commit --expect-plan DIGEST [--json] [--no-diff]
+codesplice [--workspace PATH] recover --list [--json]
+codesplice [--workspace PATH] recover ID --status [--json]
+codesplice [--workspace PATH] recover ID --complete [--json]
+codesplice [--workspace PATH] recover ID --rollback [--json]
+codesplice capabilities --json
+codesplice protocol-version --json
+```
+
+`--request -` reads one request from stdin. Prefer `--json` for agent use: stdout is exactly one UTF-8 JSON value followed by LF. Human diagnostics use stderr.
+
+## Response fields
+
+`inspect` returns each path's existence, regular/absent type, content digest, byte length, line count, and physical identity hash.
+
+Preview returns:
+
+- `protocol_version`, `plan_hash_version`, `plan_sha256`, and `workspace_identity_hash`.
+- `resolved_operations` with byte coordinates, destination offsets, effects, and selected payload digests.
+- `outputs` with change kinds and before/after lengths and digests.
+- A text diff, bounded binary summary, or omitted diff.
+- Structured warnings.
+
+Commit adds `transaction_id`, `transaction_state`, `files_changed`, preserved permission modes, recoverability status, and visibility. Each effectful resolved operation reports `inserted_payload_sha256`; a same-file no-op reports `null`.
+
+## Exit categories
+
+| Exit | Category | Representative codes |
+|---:|---|---|
+| 2 | Request | `INVALID_CLI`, `INVALID_JSON`, `UNSUPPORTED_PROTOCOL_VERSION`, `INVALID_REQUEST`, `INVALID_DIGEST` |
+| 3 | Conflict | `PRECONDITION_FAILED`, `FILE_CHANGED`, `EXPECTED_PLAN_MISMATCH`, `PLAN_CHANGED_DURING_COMMIT`, `EDIT_CONFLICT`, `RECOVERY_CONFLICT` |
+| 4 | Limit/support | `RESOURCE_LIMIT_EXCEEDED`, `UNSUPPORTED_PLATFORM`, `UNSUPPORTED_FILESYSTEM`, `SYMLINK_NOT_ALLOWED`, `HARD_LINK_NOT_SUPPORTED`, `CROSS_DEVICE_TRANSACTION` |
+| 5 | Transaction | `TRANSACTION_BUSY`, `TRANSACTION_RECOVERY_REQUIRED`, `TRANSACTION_NOT_FOUND`, `RECOVERY_ACTION_NOT_ALLOWED` |
+| 6 | Corruption | `CONTROL_DIRECTORY_INVALID`, `TRANSACTION_RECORD_CORRUPT` |
+| 8 | Internal | `IO_ERROR`, `INTERNAL_ERROR` |
+
+Every JSON error includes `code`, `category`, `retryable`, `message`, and `context`. Interpret the code and context; do not retry solely because `retryable` is true without re-establishing current workspace state.
+
+Protocol-v1 request and response objects reject unknown fields. Integers are nonnegative `u64` values, and existing-file digests must be lowercase SHA-256 strings. The v0.1.0 protocol, plan-hash format, error/warning registry, and transaction-record version are frozen; do not invent fields or commands.

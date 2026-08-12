@@ -1,0 +1,4 @@
+interface:
+  display_name: "CodeSplice"
+  short_description: "Safely move and copy exact workspace bytes"
+  default_prompt: "Use $codesplice to move an existing code block safely between workspace files."
