@@ -1,0 +1,245 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            system: Linux
+            architecture: x86_64
+            filesystem: ext4
+            target: x86_64-unknown-linux-gnu
+          - os: macos-15
+            system: Darwin
+            architecture: arm64
+            filesystem: apfs
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Validate version tag and immutable source identity
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --locked --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
+          )"
+          test "${GITHUB_REF_TYPE}" = tag
+          [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "${GITHUB_REF_NAME}" = "v${version}"
+          test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = tag
+          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          printf 'VERSION=%s\n' "$version" >>"${GITHUB_ENV}"
+          printf 'version=%s\n' "$version" >>"${GITHUB_OUTPUT}"
+
+      - name: Verify qualified native runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "${{ matrix.system }}"
+          test "$(uname -m)" = "${{ matrix.architecture }}"
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "${{ matrix.target }}"
+
+          case "${{ matrix.system }}" in
+            Linux)
+              filesystem="$(findmnt -n -o FSTYPE --target "${GITHUB_WORKSPACE}")"
+              ;;
+            Darwin)
+              device="$(df "${GITHUB_WORKSPACE}" | tail -n 1 | awk '{print $1}')"
+              filesystem="$(
+                mount | awk -v device="$device" \
+                  '$1 == device { value=$4; sub(/^\(/, "", value); sub(/,$/, "", value); print value }'
+              )"
+              ;;
+          esac
+
+          test "$filesystem" = "${{ matrix.filesystem }}"
+          printf 'Building on %s/%s with %s. This verifies the qualified build row;\n' \
+            "${{ matrix.system }}" "${{ matrix.architecture }}" "$filesystem"
+          printf 'publishing an archive does not extend the filesystem support contract.\n'
+
+      - name: Check formatting and lints
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --workspace --all-targets --all-features \
+            -- -D warnings -D clippy::perf
+
+      - name: Test workspace
+        run: cargo test --locked --workspace --all-features
+
+      - name: Check user-facing examples
+        run: scripts/check-examples.sh
+
+      - name: Build release binary
+        run: cargo build --locked --release --package codesplice-cli --target "${{ matrix.target }}"
+
+      - name: Verify binary architecture and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/codesplice"
+          test "$("$binary" --version)" = "codesplice ${VERSION}"
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-gnu)
+              file "$binary" | grep -Eq 'ELF 64-bit.*x86-64'
+              ;;
+            aarch64-apple-darwin)
+              file "$binary" | grep -Eq 'Mach-O 64-bit executable arm64'
+              ;;
+          esac
+
+      - name: Package release archive
+        run: |
+          scripts/package-release.sh \
+            "${{ matrix.target }}" \
+            "target/${{ matrix.target }}/release/codesplice" \
+            dist
+
+      - name: Stage native archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/codesplice-v${{ steps.release.outputs.version }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download native archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Validate staged release and write checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --locked --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
+          )"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+          test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = tag
+          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "${GITHUB_SHA}"
+
+          cd dist
+          macos="codesplice-v${version}-aarch64-apple-darwin.tar.gz"
+          linux="codesplice-v${version}-x86_64-unknown-linux-gnu.tar.gz"
+          test -f "$macos"
+          test -f "$linux"
+          test "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l | tr -d ' ')" = 2
+          sha256sum "$macos" "$linux" >SHA256SUMS
+          printf 'VERSION=%s\n' "$version" >>"${GITHUB_ENV}"
+
+      - name: Create, verify, and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+
+          resolve_remote_tag() {
+            local tag_object
+            tag_object="$(
+              gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" \
+                --jq 'select(.object.type == "tag") | .object.sha'
+            )"
+            test -n "$tag_object"
+            gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object}" \
+              --jq 'select(.object.type == "commit") | .object.sha'
+          }
+
+          remote_commit="$(resolve_remote_tag)"
+          test -n "$remote_commit"
+          test "$remote_commit" = "${GITHUB_SHA}"
+
+          existing="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
+              --jq .draft 2>/dev/null || true
+          )"
+          case "$existing" in
+            false)
+              printf 'release %s is already published; refusing to replace it\n' "$tag" >&2
+              exit 1
+              ;;
+            true)
+              # A failed prior run may leave a private draft. Recreate only that
+              # draft; never replace a published release or delete its tag.
+              gh release delete "$tag" --yes
+              ;;
+            "") ;;
+            *)
+              printf 'unexpected existing release state: %s\n' "$existing" >&2
+              exit 1
+              ;;
+          esac
+
+          gh release create "$tag" \
+            dist/codesplice-v${VERSION}-aarch64-apple-darwin.tar.gz \
+            dist/codesplice-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz \
+            dist/SHA256SUMS \
+            --draft \
+            --notes-from-tag \
+            --title "CodeSplice ${tag}" \
+            --verify-tag
+
+          actual_assets="$(
+            gh release view "$tag" --json assets --jq '.assets[].name' | LC_ALL=C sort
+          )"
+          expected_assets="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              "codesplice-v${VERSION}-aarch64-apple-darwin.tar.gz" \
+              "codesplice-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              | LC_ALL=C sort
+          )"
+          test "$actual_assets" = "$expected_assets"
+
+          remote_commit="$(resolve_remote_tag)"
+          test "$remote_commit" = "${GITHUB_SHA}"
+          gh release edit "$tag" --draft=false
