@@ -849,7 +849,14 @@ pub fn capture_startup_umask() -> u32 {
 
     let previous = umask(Mode::empty());
     umask(previous);
-    u32::from(previous.bits())
+    #[cfg(target_os = "linux")]
+    {
+        previous.bits()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        u32::from(previous.bits())
+    }
 }
 
 #[cfg(debug_assertions)]

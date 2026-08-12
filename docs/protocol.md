@@ -19,7 +19,7 @@ interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
 
-At the Phase 8 checkpoint, `inspect`, preview, multi-target commit, recovery list
+In `v0.1.0`, `inspect`, preview, multi-target commit, recovery list
 and status, and explicit transaction-wide completion/rollback are implemented.
 Read-only commands create nothing and retain the existing shared control lock
 through their scan, workspace observation, and report when it exists. Commit uses
@@ -63,3 +63,10 @@ message, and structured context.
 Absolute request-file paths are redacted from structured I/O errors. Human error
 messages visibly escape terminal controls and Unicode bidirectional-formatting
 characters.
+
+## Version freeze
+
+The `v0.1.0` tag closes protocol version 1. The request and response schemas,
+error and warning registries above, plan-hash version 1, and transaction-record
+version 1 are the frozen release contract. A breaking wire-format change requires
+a new protocol version.

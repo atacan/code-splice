@@ -72,7 +72,7 @@ an implementation decision, not an open product question.
 | 7 | Single-target commit and recovery | Complete |
 | 8 | Multi-target commit and recovery | Complete |
 | 9 | Hardening and platform qualification | Complete |
-| 10 | Codex pilot and v0.1.0 release | Not started |
+| 10 | Codex pilot and v0.1.0 release | Complete |
 
 Allowed status values are `Not started`, `In progress`, `Complete`, and `Blocked`.
 Only the current phase may be `In progress`.

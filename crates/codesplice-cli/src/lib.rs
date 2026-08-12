@@ -190,7 +190,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read, startup_umask: u32) -> Result<String,
     match cli.command {
         Command::Capabilities(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
-            serialize_success(&CapabilitiesResponse::phase_eight(), arguments.json)
+            serialize_success(&CapabilitiesResponse::v0_1_0(), arguments.json)
         }
         Command::ProtocolVersion(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;

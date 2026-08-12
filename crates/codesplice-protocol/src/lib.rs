@@ -955,6 +955,32 @@ impl CapabilitiesResponse {
             },
         }
     }
+
+    /// Returns the protocol-v1 capabilities frozen for the `v0.1.0` release.
+    #[must_use]
+    pub const fn v0_1_0() -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            implementation_phase: 10,
+            operations: ["move", "copy"],
+            selectors: ["lines", "bytes"],
+            anchors: [
+                "file_start",
+                "file_end",
+                "before_line",
+                "after_line",
+                "byte_offset",
+            ],
+            preconditions: ["sha256", "must_not_exist"],
+            features: FeatureAvailability {
+                request_parsing: true,
+                workspace_inspection: true,
+                preview: true,
+                commit: true,
+                recovery: true,
+            },
+        }
+    }
 }
 
 /// One validated transaction shown by recovery list or status.
