@@ -203,7 +203,7 @@ fn all_registered_warnings_should_match_the_golden_registry() {
 #[test]
 fn implemented_query_responses_should_match_golden_json_lines() {
     assert_eq!(
-        to_json_line(&CapabilitiesResponse::phase_five()).expect("capabilities must serialize"),
+        to_json_line(&CapabilitiesResponse::phase_six()).expect("capabilities must serialize"),
         golden("capabilities.json")
     );
     assert_eq!(

@@ -12,8 +12,9 @@ use std::fmt;
 
 pub use codesplice_core::PLAN_HASH_VERSION;
 use codesplice_core::{
-    Anchor, BatchSpecification, Destination, Operation, OperationSpecification, Precondition,
-    Selector, Sha256Digest, SourceSelection, WorkspaceRelativePath,
+    Anchor, BatchSpecification, Destination, Operation, OperationEffect, OperationKind,
+    OperationSpecification, OutputChange, Precondition, ResolvedOperation, Selector, Sha256Digest,
+    SourceSelection, WorkspaceRelativePath,
 };
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Value, json};
@@ -22,6 +23,8 @@ use serde_json::{Value, json};
 pub const PROTOCOL_VERSION: u64 = 1;
 /// Maximum accepted JSON request size in bytes.
 pub const MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
+/// Maximum serialized JSON response size, including the required trailing LF.
+pub const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 /// Maximum accepted JSON array/object nesting depth.
 pub const MAX_JSON_DEPTH: u64 = 64;
 /// Maximum number of operations in one request.
@@ -473,6 +476,171 @@ impl WarningDto {
             context,
         }
     }
+
+    /// Returns the stable warning identifier.
+    #[must_use]
+    pub const fn code(&self) -> WarningCode {
+        self.code
+    }
+
+    /// Returns the human-readable warning message before terminal escaping.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// One operation resolved against the immutable planning snapshot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ResolvedOperationResponse {
+    operation_index: u64,
+    kind: &'static str,
+    source_path: String,
+    source_start: u64,
+    source_end: u64,
+    destination_path: String,
+    destination_offset: u64,
+    effect: &'static str,
+    selected_payload_sha256: String,
+}
+
+impl ResolvedOperationResponse {
+    /// Converts a core resolved operation into its protocol-v1 preview record.
+    #[must_use]
+    pub fn from_resolved(operation: &ResolvedOperation) -> Self {
+        Self {
+            operation_index: operation.operation_index,
+            kind: match operation.kind {
+                OperationKind::Move => "move",
+                OperationKind::Copy => "copy",
+            },
+            source_path: operation.source_path.value.clone(),
+            source_start: operation.source_range.start,
+            source_end: operation.source_range.end,
+            destination_path: operation.destination_path.value.clone(),
+            destination_offset: operation.destination_offset,
+            effect: match operation.effect {
+                OperationEffect::Changed => "changed",
+                OperationEffect::NoOp => "no_op",
+            },
+            selected_payload_sha256: operation.selected_digest.to_prefixed_hex(),
+        }
+    }
+}
+
+/// One output recipe summarized for a preview response.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct OutputResponse {
+    path: String,
+    change_kind: &'static str,
+    before_length: Option<u64>,
+    before_sha256: Option<String>,
+    after_length: u64,
+    after_sha256: String,
+}
+
+impl OutputResponse {
+    /// Creates a protocol-v1 output summary from trusted planning values.
+    #[must_use]
+    pub fn new(
+        path: impl Into<String>,
+        change: OutputChange,
+        before_length: Option<u64>,
+        before_digest: Option<Sha256Digest>,
+        after_length: u64,
+        after_digest: Sha256Digest,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            change_kind: match change {
+                OutputChange::Unchanged => "unchanged",
+                OutputChange::ModifiedExisting => "modified_existing",
+                OutputChange::CreatedNew => "created_new",
+                OutputChange::EmptiedExisting => "emptied_existing",
+            },
+            before_length,
+            before_sha256: before_digest.map(Sha256Digest::to_prefixed_hex),
+            after_length,
+            after_sha256: after_digest.to_prefixed_hex(),
+        }
+    }
+}
+
+/// Bounded preview diff or summary.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DiffResponse {
+    kind: &'static str,
+    text: Option<String>,
+    summary: Option<Value>,
+}
+
+impl DiffResponse {
+    /// Creates a detailed or summary-only text diff.
+    #[must_use]
+    pub fn text(text: Option<String>, summary: Option<Value>) -> Self {
+        Self {
+            kind: "text",
+            text,
+            summary,
+        }
+    }
+
+    /// Creates a binary digest and sample summary.
+    #[must_use]
+    pub fn binary(summary: Value) -> Self {
+        Self {
+            kind: "binary",
+            text: None,
+            summary: Some(summary),
+        }
+    }
+
+    /// Creates the explicit `--no-diff` representation.
+    #[must_use]
+    pub const fn omitted() -> Self {
+        Self {
+            kind: "omitted",
+            text: None,
+            summary: None,
+        }
+    }
+}
+
+/// Successful response for `apply --preview --json`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PreviewResponse {
+    protocol_version: u64,
+    plan_hash_version: u64,
+    plan_sha256: String,
+    workspace_identity_hash: String,
+    resolved_operations: Vec<ResolvedOperationResponse>,
+    outputs: Vec<OutputResponse>,
+    diff: DiffResponse,
+    warnings: Vec<WarningDto>,
+}
+
+impl PreviewResponse {
+    /// Creates a complete protocol-v1 preview report.
+    #[must_use]
+    pub fn new(
+        plan_sha256: Sha256Digest,
+        workspace_identity_hash: Sha256Digest,
+        resolved_operations: Vec<ResolvedOperationResponse>,
+        outputs: Vec<OutputResponse>,
+        diff: DiffResponse,
+        warnings: Vec<WarningDto>,
+    ) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            plan_hash_version: PLAN_HASH_VERSION,
+            plan_sha256: plan_sha256.to_prefixed_hex(),
+            workspace_identity_hash: workspace_identity_hash.to_prefixed_hex(),
+            resolved_operations,
+            outputs,
+            diff,
+            warnings,
+        }
+    }
 }
 
 /// Successful response for `inspect --json`.
@@ -632,6 +800,32 @@ impl CapabilitiesResponse {
                 request_parsing: true,
                 workspace_inspection: true,
                 preview: false,
+                commit: false,
+                recovery: true,
+            },
+        }
+    }
+
+    /// Returns the capabilities truthfully available at the Phase 6 checkpoint.
+    #[must_use]
+    pub const fn phase_six() -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            implementation_phase: 6,
+            operations: ["move", "copy"],
+            selectors: ["lines", "bytes"],
+            anchors: [
+                "file_start",
+                "file_end",
+                "before_line",
+                "after_line",
+                "byte_offset",
+            ],
+            preconditions: ["sha256", "must_not_exist"],
+            features: FeatureAvailability {
+                request_parsing: true,
+                workspace_inspection: true,
+                preview: true,
                 commit: false,
                 recovery: true,
             },

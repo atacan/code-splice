@@ -68,7 +68,7 @@ an implementation decision, not an open product question.
 | 3 | Workspace inspection and immutable snapshots | Complete |
 | 4 | Pure planner and plan digest | Complete |
 | 5 | Lock, journal, and recovery classifier | Complete |
-| 6 | Preview and reporting | Not started |
+| 6 | Preview and reporting | Complete |
 | 7 | Single-target commit and recovery | Not started |
 | 8 | Multi-target commit and recovery | Not started |
 | 9 | Hardening and platform qualification | Not started |

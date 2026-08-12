@@ -31,7 +31,11 @@ knows the value and uses checked arithmetic before allocation or I/O.
 | Human or JSON diff bytes | 4 MiB |
 
 Detailed diff input is limited to 8 MiB per side and 10,000,000 explicitly
-counted work units. Diff truncation never changes the plan digest or commit.
+counted input-and-render work units. The linear-memory text comparison removes a
+common exact prefix and suffix and reports the changed middle with original
+terminator labels; it never allocates a quadratic matrix. Both human text and the
+JSON-encoded diff string are capped at 4 MiB. Diff truncation never changes the
+plan digest or commit.
 
 Phase 4 charges every resulting output byte and retained segment. Changed-target
 count uses byte classification, so an effectful but byte-identical output is not a

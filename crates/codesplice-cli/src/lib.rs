@@ -2,9 +2,9 @@
 #![deny(missing_docs)]
 //! Command grammar, protocol orchestration, and output discipline for CodeSplice.
 //!
-//! Phase 2 fully implements target-independent capability queries and validates
-//! every other command before returning an explicit development-only error. No
-//! command in this phase inspects or mutates a workspace.
+//! Preview and inspection use immutable workspace snapshots coordinated by the
+//! existing diagnostic lock when present. Commit and target-mutating recovery
+//! remain explicit development-only routes.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -16,20 +16,26 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, Parser, Subcommand};
-use codesplice_fs::{FsError, InspectedState, SnapshotLimits, Workspace};
+use codesplice_core::{Operation, Precondition, ResourceBudget, plan};
+use codesplice_fs::{
+    DiagnosticLock, FsError, InspectedState, RecoveryEntryKind, RequiredPathState, SnapshotLimits,
+    SnapshotRequirement, Workspace,
+};
 use codesplice_protocol::{
     CapabilitiesResponse, ErrorCode, ErrorDto, InspectPathResponse, InspectResponse,
-    MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, ProtocolVersionResponse,
-    RecoveryEntryResponse, RecoveryListResponse, RecoveryStatusResponse, WarningCode, WarningDto,
-    escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
+    MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
+    ProtocolVersionResponse, RecoveryEntryResponse, RecoveryListResponse, RecoveryStatusResponse,
+    WarningCode, WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path,
+    to_json_line,
 };
 use serde_json::json;
+
+mod preview;
 
 /// Parses process arguments, runs the selected command, and returns its exit status.
 ///
 /// Output is written according to the command's JSON or human-mode contract. This
-/// Inspection uses read-only Phase 3 workspace acquisition. Other execution
-/// routes read only an explicitly supplied request file or standard input and
+/// Inspection and preview are read-only. Commit and target-mutating recovery
 /// remain development-only stubs.
 #[must_use]
 pub fn run() -> ExitCode {
@@ -180,7 +186,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
     match cli.command {
         Command::Capabilities(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
-            serialize_success(&CapabilitiesResponse::phase_five(), arguments.json)
+            serialize_success(&CapabilitiesResponse::phase_six(), arguments.json)
         }
         Command::ProtocolVersion(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
@@ -190,7 +196,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
             validate_inspect_paths(&arguments.paths).map_err(|report| (report, arguments.json))?;
             execute_inspect(cli.workspace.as_deref(), arguments)
         }
-        Command::Apply(arguments) => execute_apply(arguments, stdin),
+        Command::Apply(arguments) => execute_apply(cli.workspace.as_deref(), arguments, stdin),
         Command::Recover(arguments) => execute_recovery(cli.workspace.as_deref(), arguments),
     }
 }
@@ -200,6 +206,8 @@ fn execute_inspect(
     arguments: InspectArgs,
 ) -> Result<String, (ErrorDto, bool)> {
     let workspace = Workspace::open(workspace_path.unwrap_or_else(|| std::path::Path::new(".")))
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let (diagnostic_lock, warnings) = diagnostic_context(&workspace)
         .map_err(|error| (filesystem_error(error), arguments.json))?;
     let inspections = workspace
         .inspect(&arguments.paths, SnapshotLimits::default())
@@ -222,12 +230,36 @@ fn execute_inspect(
             InspectedState::Absent => InspectPathResponse::absent(inspection.path.value),
         })
         .collect();
-    let warning = WarningDto::new(
-        WarningCode::ObservationMayBeStale,
-        "inspection is read-only and is not coordinated by a Phase 5 workspace lock",
-        BTreeMap::new(),
-    );
-    serialize_success(&InspectResponse::new(paths, vec![warning]), arguments.json)
+    let result = serialize_success(&InspectResponse::new(paths, warnings), arguments.json);
+    drop(diagnostic_lock);
+    result
+}
+
+fn diagnostic_context(
+    workspace: &Workspace,
+) -> Result<(Option<DiagnosticLock>, Vec<WarningDto>), FsError> {
+    let lock = workspace.diagnostic_lock()?;
+    let Some(lock) = lock else {
+        return Ok((
+            None,
+            vec![WarningDto::new(
+                WarningCode::ObservationMayBeStale,
+                "no existing CodeSplice lock coordinated this read-only observation",
+                BTreeMap::new(),
+            )],
+        ));
+    };
+    let observation = lock.scan()?;
+    let transaction_ids = observation
+        .entries()
+        .iter()
+        .filter(|entry| entry.kind() != RecoveryEntryKind::CleanupOnly)
+        .map(|entry| entry.transaction_id().to_owned())
+        .collect::<Vec<_>>();
+    if !transaction_ids.is_empty() {
+        return Err(FsError::TransactionRecoveryRequired { transaction_ids });
+    }
+    Ok((Some(lock), Vec::new()))
 }
 
 fn filesystem_error(error: FsError) -> ErrorDto {
@@ -379,11 +411,32 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             if let Some(path) = path {
                 context.insert("path".to_string(), json!(path));
             }
-            ErrorDto::new(ErrorCode::IoError, "workspace inspection failed", context)
+            ErrorDto::new(ErrorCode::IoError, "workspace operation failed", context)
+        }
+        FsError::Core(codesplice_core::CoreError::EditConflict {
+            reason,
+            operation_index,
+        }) => ErrorDto::new(
+            ErrorCode::EditConflict,
+            "the requested edits conflict under immutable-snapshot semantics",
+            BTreeMap::from([
+                ("operation_index".to_string(), json!(operation_index)),
+                ("reason".to_string(), json!(reason)),
+            ]),
+        ),
+        FsError::Core(codesplice_core::CoreError::HardLinkNotSupported { path, link_count }) => {
+            ErrorDto::new(
+                ErrorCode::HardLinkNotSupported,
+                "a changing output has multiple hard links",
+                BTreeMap::from([
+                    ("link_count".to_string(), json!(link_count)),
+                    ("path".to_string(), json!(path.value)),
+                ]),
+            )
         }
         FsError::Core(error) => ErrorDto::new(
             ErrorCode::InternalError,
-            "the core snapshot model rejected acquired data",
+            "the core planning model rejected acquired data",
             BTreeMap::from([("reason".to_string(), json!(error.to_string()))]),
         ),
         FsError::InternalInvariant { invariant } => ErrorDto::new(
@@ -472,7 +525,7 @@ fn execute_recovery(
         return Ok(format!("{transaction_id} rolled_back_control_only\n"));
     }
     Err((
-        development_unimplemented("recovery_complete"),
+        development_unimplemented("recovery_complete", 7),
         arguments.json,
     ))
 }
@@ -501,7 +554,11 @@ fn validate_transaction_id_argument(transaction_id: &str) -> Result<(), ErrorDto
     }
 }
 
-fn execute_apply(arguments: ApplyArgs, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
+fn execute_apply(
+    workspace_path: Option<&std::path::Path>,
+    arguments: ApplyArgs,
+    stdin: &mut dyn Read,
+) -> Result<String, (ErrorDto, bool)> {
     if arguments.mode.commit && arguments.expect_plan.is_none() && !arguments.accept_current_plan {
         return Err((
             ErrorDto::new(
@@ -520,18 +577,76 @@ fn execute_apply(arguments: ApplyArgs, stdin: &mut dyn Read) -> Result<String, (
 
     let request =
         read_request(&arguments.request, stdin).map_err(|report| (report, arguments.json))?;
-    parse_request(&request).map_err(|error| (error.into_report(), arguments.json))?;
+    let batch = parse_request(&request).map_err(|error| (error.into_report(), arguments.json))?;
 
-    let route = if arguments.mode.preview {
-        if arguments.no_diff {
-            "preview_without_diff"
-        } else {
-            "preview"
-        }
+    if arguments.mode.commit {
+        return Err((development_unimplemented("commit", 7), arguments.json));
+    }
+
+    let workspace = Workspace::open(workspace_path.unwrap_or_else(|| std::path::Path::new(".")))
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let (diagnostic_lock, warnings) = diagnostic_context(&workspace)
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let requirements = snapshot_requirements(&batch);
+    let snapshot = workspace
+        .acquire_snapshot(&requirements, SnapshotLimits::default())
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let edit_plan = plan(&snapshot, &batch, ResourceBudget::default())
+        .map_err(|error| (filesystem_error(error.into()), arguments.json))?;
+    let report = preview::build_preview(
+        &snapshot,
+        &edit_plan,
+        workspace.identity_hash(),
+        arguments.no_diff,
+        warnings,
+    )
+    .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let result = if arguments.json {
+        serialize_preview(&report.response)
     } else {
-        "commit"
+        Ok(report.human)
     };
-    Err((development_unimplemented(route), arguments.json))
+    drop(diagnostic_lock);
+    result
+}
+
+fn serialize_preview(
+    response: &codesplice_protocol::PreviewResponse,
+) -> Result<String, (ErrorDto, bool)> {
+    let line = to_json_line(response).map_err(|error| (error.into_report(), true))?;
+    let actual = u64::try_from(line.len()).unwrap_or(u64::MAX);
+    if actual > MAX_RESPONSE_BYTES {
+        return Err((
+            limit_error("serialized_json_response", actual, MAX_RESPONSE_BYTES),
+            true,
+        ));
+    }
+    Ok(line)
+}
+
+fn snapshot_requirements(batch: &codesplice_core::BatchSpecification) -> Vec<SnapshotRequirement> {
+    let mut requirements = Vec::with_capacity(batch.operations.len().saturating_mul(2));
+    for operation in batch.operations.iter() {
+        let specification = match operation {
+            Operation::Move(specification) | Operation::Copy(specification) => specification,
+        };
+        requirements.push(SnapshotRequirement {
+            path: specification.source.path.clone(),
+            state: required_state(&specification.source.precondition),
+        });
+        requirements.push(SnapshotRequirement {
+            path: specification.destination.path.clone(),
+            state: required_state(&specification.destination.precondition),
+        });
+    }
+    requirements
+}
+
+fn required_state(precondition: &Precondition) -> RequiredPathState {
+    match precondition {
+        Precondition::Sha256(digest) => RequiredPathState::Existing(*digest),
+        Precondition::MustNotExist => RequiredPathState::Absent,
+    }
 }
 
 fn read_request(path: &str, stdin: &mut dyn Read) -> Result<Vec<u8>, ErrorDto> {
@@ -619,14 +734,17 @@ fn reject_workspace_for_target_independent(
     Ok(())
 }
 
-fn development_unimplemented(capability: &'static str) -> ErrorDto {
+fn development_unimplemented(capability: &'static str, implementation_phase: u64) -> ErrorDto {
     ErrorDto::new(
         ErrorCode::InternalError,
-        "the command is validated but execution is not implemented in Phase 2",
+        "the command is validated but execution is not implemented in this phase",
         BTreeMap::from([
             ("capability".to_string(), json!(capability)),
             ("development_only".to_string(), json!(true)),
-            ("implementation_phase".to_string(), json!(2)),
+            (
+                "implementation_phase".to_string(),
+                json!(implementation_phase),
+            ),
         ]),
     )
 }

@@ -19,5 +19,5 @@ agent inspects and previews again rather than bypassing the digest precondition.
 It treats recovery-required and conflict outcomes as failures needing explicit
 inspection; it does not reproduce selected source bytes by hand as a fallback.
 
-The CLI shown here becomes available in later phases. Phase 1 provides no command
-behavior.
+Through Phase 6, inspect and preview are available and read-only. Commit becomes
+available in Phase 7 and remains disabled until then.

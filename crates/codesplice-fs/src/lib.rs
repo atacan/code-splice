@@ -3,8 +3,8 @@
 //! Workspace inspection, immutable snapshots, and persistent transaction control.
 //!
 //! This crate owns canonical workspace resolution, strict relative-path walks,
-//! POSIX physical identities, bounded stable reads, and snapshot accounting. It
-//! performs no filesystem writes.
+//! POSIX physical identities, bounded stable reads, snapshot accounting, and the
+//! persistent transaction control tree.
 
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
@@ -189,6 +189,12 @@ impl Workspace {
     #[must_use]
     pub const fn identity(&self) -> FileIdentity {
         self.identity
+    }
+
+    /// Returns the opaque protocol hash of the canonical root's physical identity.
+    #[must_use]
+    pub fn identity_hash(&self) -> Sha256Digest {
+        hash_identity(self.identity)
     }
 
     /// Inspects paths using the same path walk, stable read, index, and limit logic

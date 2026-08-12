@@ -79,28 +79,11 @@ fn protocol_version_command_should_match_golden_output() {
 }
 
 #[test]
-fn every_execution_command_should_validate_then_match_its_golden_stub() {
+fn disabled_execution_commands_should_validate_then_match_their_golden_stubs() {
     let expected: Value = serde_json::from_str(&golden("cli-command-results.json"))
         .expect("CLI command golden must be JSON");
     let transaction_id = "0123456789abcdef0123456789abcdef";
     let cases: Vec<(&str, Vec<&str>, Vec<u8>)> = vec![
-        (
-            "preview",
-            vec!["apply", "--request", "-", "--preview", "--json"],
-            valid_request(),
-        ),
-        (
-            "preview_without_diff",
-            vec![
-                "apply",
-                "--request",
-                "-",
-                "--preview",
-                "--no-diff",
-                "--json",
-            ],
-            valid_request(),
-        ),
         (
             "commit",
             vec![
@@ -150,7 +133,8 @@ fn apply_should_read_and_validate_a_request_file() {
             request_path
                 .to_str()
                 .expect("repository path must be UTF-8"),
-            "--preview",
+            "--commit",
+            "--accept-current-plan",
             "--json",
         ],
         b"",
@@ -159,7 +143,7 @@ fn apply_should_read_and_validate_a_request_file() {
         .expect("CLI command golden must be JSON");
 
     assert_eq!(output.status.code(), Some(8));
-    assert_eq!(json_stdout(&output), expected["preview"]);
+    assert_eq!(json_stdout(&output), expected["commit"]);
 }
 
 #[test]

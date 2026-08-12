@@ -4,10 +4,11 @@ CodeSplice is a Rust command-line tool for moving or copying exact byte ranges
 already present in workspace files. The `v0.1.0` pilot targets Linux x86_64 on
 local ext4 and macOS arm64 on local APFS.
 
-The implementation is organized as a phased build. Through Phase 3, the binary
-exposes the complete command grammar, strict protocol-v1 request validation,
-read-only workspace inspection, immutable snapshot acquisition, and
-capability/version queries. Planning and execution remain explicitly unavailable.
+The implementation is organized as a phased build. Through Phase 6, the binary
+exposes strict protocol-v1 request validation, read-only workspace inspection,
+immutable planning, bounded preview diffs, diagnostic locking, and complete human
+or JSON preview reports. Commit and target-mutating recovery remain explicitly
+unavailable.
 
 ## Workspace
 
