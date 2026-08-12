@@ -1,0 +1,25 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/source.rs",
+        "selector": { "kind": "lines", "start": 3, "end": 5 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:357fa43924a6d96bb452772cd5016b55e79c498ff5fd6e2e22c2aaea2ca81574"
+        }
+      },
+      "destination": {
+        "path": "src/destination.rs",
+        "anchor": { "kind": "file_end" },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:2d378f8901070fdee7dddac6db9f92c1fd9b7b44b2cc8adecb33cb11ca767d28"
+        }
+      }
+    }
+  ]
+}
+

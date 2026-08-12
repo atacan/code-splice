@@ -1,0 +1,32 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/mixed.txt",
+        "selector": { "kind": "lines", "start": 1, "end": 2 },
+        "precondition": { "kind": "sha256", "value": "sha256:39f4089f56b4853733ed86388933f0eead5562beff8635a6b063201cabeb35af" }
+      },
+      "destination": {
+        "path": "src/mixed-destination.txt",
+        "anchor": { "kind": "file_end" },
+        "precondition": { "kind": "sha256", "value": "sha256:b263846272cb907adb112bc2c09c8b206c78d35dfa5e51c7e4bc2145ee61f4d3" }
+      }
+    },
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/source.bin",
+        "selector": { "kind": "bytes", "start": 1, "end": 4 },
+        "precondition": { "kind": "sha256", "value": "sha256:d82c8a4ea59381d8ab4c79ab74a577402c3fe1e02607f1ad7015bd60b27d0fd1" }
+      },
+      "destination": {
+        "path": "src/destination.bin",
+        "anchor": { "kind": "file_end" },
+        "precondition": { "kind": "sha256", "value": "sha256:77d616cf0f6ce40171f97e291fc4031e4aba7cc9f097b8e76b981b9d52da059c" }
+      }
+    }
+  ]
+}
+

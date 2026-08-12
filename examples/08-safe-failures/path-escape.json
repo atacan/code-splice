@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "copy",
+      "source": {
+        "path": "../outside.txt",
+        "selector": { "kind": "bytes", "start": 0, "end": 1 },
+        "precondition": { "kind": "sha256", "value": "sha256:d4e4877bac978b7952f0d544fc52ebff5411d351d129f1f056fa43f11da9af2b" }
+      },
+      "destination": {
+        "path": "target.txt",
+        "anchor": { "kind": "file_end" },
+        "precondition": { "kind": "sha256", "value": "sha256:c97ecfda4d205190b973232dcfdb0c29748521c2534dd866bcc782f30b086738" }
+      }
+    }
+  ]
+}
+

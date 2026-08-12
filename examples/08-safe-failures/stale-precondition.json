@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "copy",
+      "source": {
+        "path": "source.txt",
+        "selector": { "kind": "lines", "start": 1, "end": 1 },
+        "precondition": { "kind": "sha256", "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
+      },
+      "destination": {
+        "path": "target.txt",
+        "anchor": { "kind": "file_end" },
+        "precondition": { "kind": "sha256", "value": "sha256:c97ecfda4d205190b973232dcfdb0c29748521c2534dd866bcc782f30b086738" }
+      }
+    }
+  ]
+}
+

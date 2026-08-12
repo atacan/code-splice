@@ -1,0 +1,32 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/source.rs",
+        "selector": { "kind": "lines", "start": 2, "end": 2 },
+        "precondition": { "kind": "sha256", "value": "sha256:a63d15dc814c84609c4b76983bfe5c8a0fba5062e6b161460015d7197f14bb6c" }
+      },
+      "destination": {
+        "path": "src/one.rs",
+        "anchor": { "kind": "file_start" },
+        "precondition": { "kind": "must_not_exist" }
+      }
+    },
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/source.rs",
+        "selector": { "kind": "lines", "start": 3, "end": 3 },
+        "precondition": { "kind": "sha256", "value": "sha256:a63d15dc814c84609c4b76983bfe5c8a0fba5062e6b161460015d7197f14bb6c" }
+      },
+      "destination": {
+        "path": "src/two.rs",
+        "anchor": { "kind": "file_start" },
+        "precondition": { "kind": "must_not_exist" }
+      }
+    }
+  ]
+}
+

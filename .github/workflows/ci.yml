@@ -36,5 +36,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Phase 9 platform qualification
         run: scripts/qualify-platform.sh
+      - name: Check user-facing examples
+        run: scripts/check-examples.sh
       - name: Build
         run: cargo build --workspace --all-features

@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/order.txt",
+        "selector": { "kind": "lines", "start": 2, "end": 2 },
+        "precondition": { "kind": "sha256", "value": "sha256:4fdbc441ea7b546100e086ac1e4fc5ae6749b7314311c99db05be450eca12996" }
+      },
+      "destination": {
+        "path": "src/order.txt",
+        "anchor": { "kind": "before_line", "line": 2 },
+        "precondition": { "kind": "sha256", "value": "sha256:4fdbc441ea7b546100e086ac1e4fc5ae6749b7314311c99db05be450eca12996" }
+      }
+    }
+  ]
+}
+

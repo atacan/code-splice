@@ -1,0 +1,70 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/source.txt",
+        "selector": { "kind": "bytes", "start": 0, "end": 3 },
+        "precondition": { "kind": "sha256", "value": "sha256:1e3ec227afa107626b94ff37746e1e3bb52b1944fff927b8fcd7bdb0c65062a0" }
+      },
+      "destination": {
+        "path": "src/start.txt",
+        "anchor": { "kind": "file_start" },
+        "precondition": { "kind": "sha256", "value": "sha256:ae66b56de7f246402ca90af69034fc9d67190b5e6868351a3943b093e5445008" }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/source.txt",
+        "selector": { "kind": "bytes", "start": 0, "end": 3 },
+        "precondition": { "kind": "sha256", "value": "sha256:1e3ec227afa107626b94ff37746e1e3bb52b1944fff927b8fcd7bdb0c65062a0" }
+      },
+      "destination": {
+        "path": "src/end.txt",
+        "anchor": { "kind": "file_end" },
+        "precondition": { "kind": "sha256", "value": "sha256:ae66b56de7f246402ca90af69034fc9d67190b5e6868351a3943b093e5445008" }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/source.txt",
+        "selector": { "kind": "bytes", "start": 3, "end": 6 },
+        "precondition": { "kind": "sha256", "value": "sha256:1e3ec227afa107626b94ff37746e1e3bb52b1944fff927b8fcd7bdb0c65062a0" }
+      },
+      "destination": {
+        "path": "src/before.txt",
+        "anchor": { "kind": "before_line", "line": 2 },
+        "precondition": { "kind": "sha256", "value": "sha256:c3f9c8c283a2b1f2f1896f27a01cbe3cddc0c9d93f752e4639035a0f5b36f6e8" }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/source.txt",
+        "selector": { "kind": "bytes", "start": 6, "end": 9 },
+        "precondition": { "kind": "sha256", "value": "sha256:1e3ec227afa107626b94ff37746e1e3bb52b1944fff927b8fcd7bdb0c65062a0" }
+      },
+      "destination": {
+        "path": "src/after.txt",
+        "anchor": { "kind": "after_line", "line": 1 },
+        "precondition": { "kind": "sha256", "value": "sha256:c3f9c8c283a2b1f2f1896f27a01cbe3cddc0c9d93f752e4639035a0f5b36f6e8" }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/source.txt",
+        "selector": { "kind": "bytes", "start": 9, "end": 12 },
+        "precondition": { "kind": "sha256", "value": "sha256:1e3ec227afa107626b94ff37746e1e3bb52b1944fff927b8fcd7bdb0c65062a0" }
+      },
+      "destination": {
+        "path": "src/offset.txt",
+        "anchor": { "kind": "byte_offset", "offset": 1 },
+        "precondition": { "kind": "sha256", "value": "sha256:c297dc29728d50fd786c7303124d325f850a12d98776cf36683a90039ebca3b6" }
+      }
+    }
+  ]
+}
