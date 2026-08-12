@@ -9,6 +9,7 @@ description = "Filesystem boundary for CodeSplice"
 
 [dependencies]
 codesplice-core = { path = "../codesplice-core" }
+sha2.workspace = true
 
 [lints]
 workspace = true

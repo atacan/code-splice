@@ -19,8 +19,9 @@ interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
 
-At the Phase 2 checkpoint, `capabilities --json` and `protocol-version --json`
-are fully implemented. Commands that require workspace inspection, planning, or
+At the Phase 3 checkpoint, `inspect --json`, `capabilities --json`, and
+`protocol-version --json` are fully implemented. Inspection uses bounded immutable
+reads and never writes to the workspace. Commands that require planning or
 transactions validate their arguments and request, then return `INTERNAL_ERROR`
 with `development_only: true`; they never report simulated success.
 

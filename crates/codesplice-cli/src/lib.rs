@@ -16,18 +16,20 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, Parser, Subcommand};
+use codesplice_fs::{FsError, InspectedState, SnapshotLimits, Workspace};
 use codesplice_protocol::{
-    CapabilitiesResponse, ErrorCode, ErrorDto, MAX_OPERATION_PATHS, MAX_PATH_BYTES,
-    MAX_REQUEST_BYTES, ProtocolVersionResponse, escape_terminal_text, parse_request, parse_sha256,
-    redact_path, to_json_line,
+    CapabilitiesResponse, ErrorCode, ErrorDto, InspectPathResponse, InspectResponse,
+    MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, ProtocolVersionResponse, WarningCode,
+    WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
 };
 use serde_json::json;
 
 /// Parses process arguments, runs the selected command, and returns its exit status.
 ///
 /// Output is written according to the command's JSON or human-mode contract. This
-/// Phase 2 entry point reads only an explicitly supplied request file or standard
-/// input; it does not inspect or mutate the selected workspace.
+/// Inspection uses read-only Phase 3 workspace acquisition. Other execution
+/// routes read only an explicitly supplied request file or standard input and
+/// remain development-only stubs.
 #[must_use]
 pub fn run() -> ExitCode {
     let mut stdin = io::stdin().lock();
@@ -177,7 +179,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
     match cli.command {
         Command::Capabilities(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
-            serialize_success(&CapabilitiesResponse::phase_two(), arguments.json)
+            serialize_success(&CapabilitiesResponse::phase_three(), arguments.json)
         }
         Command::ProtocolVersion(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
@@ -185,10 +187,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
         }
         Command::Inspect(arguments) => {
             validate_inspect_paths(&arguments.paths).map_err(|report| (report, arguments.json))?;
-            Err((
-                development_unimplemented("workspace_inspection"),
-                arguments.json,
-            ))
+            execute_inspect(cli.workspace.as_deref(), arguments)
         }
         Command::Apply(arguments) => execute_apply(arguments, stdin),
         Command::Recover(arguments) => {
@@ -206,6 +205,160 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
             let _transaction_id = arguments.id;
             Err((development_unimplemented(route), arguments.json))
         }
+    }
+}
+
+fn execute_inspect(
+    workspace_path: Option<&std::path::Path>,
+    arguments: InspectArgs,
+) -> Result<String, (ErrorDto, bool)> {
+    let workspace = Workspace::open(workspace_path.unwrap_or_else(|| std::path::Path::new(".")))
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let inspections = workspace
+        .inspect(&arguments.paths, SnapshotLimits::default())
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    let paths = inspections
+        .into_iter()
+        .map(|inspection| match inspection.state {
+            InspectedState::Existing {
+                digest,
+                byte_length,
+                line_count,
+                identity_hash,
+            } => InspectPathResponse::existing(
+                inspection.path.value,
+                digest,
+                byte_length,
+                line_count,
+                identity_hash,
+            ),
+            InspectedState::Absent => InspectPathResponse::absent(inspection.path.value),
+        })
+        .collect();
+    let warning = WarningDto::new(
+        WarningCode::ObservationMayBeStale,
+        "inspection is read-only and is not coordinated by a Phase 5 workspace lock",
+        BTreeMap::new(),
+    );
+    serialize_success(&InspectResponse::new(paths, vec![warning]), arguments.json)
+}
+
+fn filesystem_error(error: FsError) -> ErrorDto {
+    match error {
+        FsError::UnsupportedPlatform => ErrorDto::new(
+            ErrorCode::UnsupportedPlatform,
+            "workspace inspection requires Linux or macOS",
+            BTreeMap::new(),
+        ),
+        FsError::WorkspaceRootNotDirectory => ErrorDto::new(
+            ErrorCode::InvalidRequest,
+            "the selected workspace root is not a directory",
+            BTreeMap::from([("reason".to_string(), json!("workspace_not_directory"))]),
+        ),
+        FsError::InvalidPath { path, reason } => ErrorDto::new(
+            ErrorCode::InvalidRequest,
+            "an inspection path is invalid",
+            BTreeMap::from([
+                ("path".to_string(), json!(redact_path(&path))),
+                ("reason".to_string(), json!(reason)),
+            ]),
+        ),
+        FsError::SymlinkNotAllowed { path } => ErrorDto::new(
+            ErrorCode::SymlinkNotAllowed,
+            "an inspection path traverses or names a symbolic link",
+            BTreeMap::from([("path".to_string(), json!(path))]),
+        ),
+        FsError::UnsupportedFileType { path } => ErrorDto::new(
+            ErrorCode::UnsupportedFileType,
+            "an inspection path is not a regular file",
+            BTreeMap::from([("path".to_string(), json!(path))]),
+        ),
+        FsError::PreconditionFailed {
+            path,
+            expected,
+            actual,
+        } => {
+            let mut context = BTreeMap::from([("path".to_string(), json!(path))]);
+            context.insert(
+                "expected".to_string(),
+                json!(expected.map(codesplice_core::Sha256Digest::to_prefixed_hex)),
+            );
+            context.insert(
+                "actual".to_string(),
+                json!(actual.map(codesplice_core::Sha256Digest::to_prefixed_hex)),
+            );
+            ErrorDto::new(
+                ErrorCode::PreconditionFailed,
+                "a path precondition does not match the stable workspace state",
+                context,
+            )
+        }
+        FsError::IncompatiblePrecondition { path } => ErrorDto::new(
+            ErrorCode::EditConflict,
+            "one path has incompatible preconditions",
+            BTreeMap::from([
+                ("path".to_string(), json!(path)),
+                ("reason".to_string(), json!("incompatible_preconditions")),
+            ]),
+        ),
+        FsError::FileAlias {
+            first_path,
+            second_path,
+        } => ErrorDto::new(
+            ErrorCode::FileAlias,
+            "distinct paths identify the same existing file",
+            BTreeMap::from([
+                ("first_path".to_string(), json!(first_path)),
+                ("second_path".to_string(), json!(second_path)),
+            ]),
+        ),
+        FsError::FileChanged { path, attempts } => ErrorDto::new(
+            ErrorCode::FileChanged,
+            "a file remained unstable during bounded snapshot acquisition",
+            BTreeMap::from([
+                ("attempts".to_string(), json!(attempts)),
+                ("path".to_string(), json!(path)),
+            ]),
+        ),
+        FsError::ResourceLimitExceeded {
+            resource,
+            actual,
+            limit,
+        }
+        | FsError::Core(codesplice_core::CoreError::ResourceLimitExceeded {
+            resource,
+            actual,
+            limit,
+        }) => limit_error(resource, actual, limit),
+        FsError::Io {
+            operation,
+            path,
+            kind,
+        } => {
+            let mut context = BTreeMap::from([
+                ("io_kind".to_string(), json!(format!("{kind:?}"))),
+                ("operation".to_string(), json!(operation)),
+            ]);
+            if let Some(path) = path {
+                context.insert("path".to_string(), json!(path));
+            }
+            ErrorDto::new(ErrorCode::IoError, "workspace inspection failed", context)
+        }
+        FsError::Core(error) => ErrorDto::new(
+            ErrorCode::InternalError,
+            "the core snapshot model rejected acquired data",
+            BTreeMap::from([("reason".to_string(), json!(error.to_string()))]),
+        ),
+        FsError::InternalInvariant { invariant } => ErrorDto::new(
+            ErrorCode::InternalError,
+            "an internal workspace inspection invariant failed",
+            BTreeMap::from([("invariant".to_string(), json!(invariant))]),
+        ),
+        _ => ErrorDto::new(
+            ErrorCode::InternalError,
+            "an unrecognized workspace inspection error occurred",
+            BTreeMap::new(),
+        ),
     }
 }
 

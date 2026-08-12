@@ -85,11 +85,6 @@ fn every_execution_command_should_validate_then_match_its_golden_stub() {
     let transaction_id = "0123456789abcdef0123456789abcdef";
     let cases: Vec<(&str, Vec<&str>, Vec<u8>)> = vec![
         (
-            "inspect",
-            vec!["inspect", "--path", "src/a.rs", "--json"],
-            Vec::new(),
-        ),
-        (
             "preview",
             vec!["apply", "--request", "-", "--preview", "--json"],
             valid_request(),

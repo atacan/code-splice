@@ -476,6 +476,74 @@ impl WarningDto {
     }
 }
 
+/// Successful response for `inspect --json`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InspectResponse {
+    protocol_version: u64,
+    paths: Vec<InspectPathResponse>,
+    warnings: Vec<WarningDto>,
+}
+
+impl InspectResponse {
+    /// Creates a protocol-v1 inspection report in request path order.
+    #[must_use]
+    pub fn new(paths: Vec<InspectPathResponse>, warnings: Vec<WarningDto>) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            paths,
+            warnings,
+        }
+    }
+}
+
+/// One existing or absent path in an inspection response.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InspectPathResponse {
+    path: String,
+    exists: bool,
+    file_type: &'static str,
+    sha256: Option<String>,
+    byte_length: Option<u64>,
+    line_count: Option<u64>,
+    identity_hash: Option<String>,
+}
+
+impl InspectPathResponse {
+    /// Creates a regular-file inspection entry.
+    #[must_use]
+    pub fn existing(
+        path: String,
+        digest: Sha256Digest,
+        byte_length: u64,
+        line_count: u64,
+        identity_hash: Sha256Digest,
+    ) -> Self {
+        Self {
+            path,
+            exists: true,
+            file_type: "regular",
+            sha256: Some(digest.to_prefixed_hex()),
+            byte_length: Some(byte_length),
+            line_count: Some(line_count),
+            identity_hash: Some(identity_hash.to_prefixed_hex()),
+        }
+    }
+
+    /// Creates an absent-path inspection entry.
+    #[must_use]
+    pub fn absent(path: String) -> Self {
+        Self {
+            path,
+            exists: false,
+            file_type: "absent",
+            sha256: None,
+            byte_length: None,
+            line_count: None,
+            identity_hash: None,
+        }
+    }
+}
+
 /// Successful response for `protocol-version --json`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct ProtocolVersionResponse {
@@ -519,12 +587,12 @@ pub struct CapabilitiesResponse {
 }
 
 impl CapabilitiesResponse {
-    /// Returns the capabilities truthfully available at the Phase 2 checkpoint.
+    /// Returns the capabilities truthfully available at the Phase 3 checkpoint.
     #[must_use]
-    pub const fn phase_two() -> Self {
+    pub const fn phase_three() -> Self {
         Self {
             protocol_version: PROTOCOL_VERSION,
-            implementation_phase: 2,
+            implementation_phase: 3,
             operations: ["move", "copy"],
             selectors: ["lines", "bytes"],
             anchors: [
@@ -537,7 +605,7 @@ impl CapabilitiesResponse {
             preconditions: ["sha256", "must_not_exist"],
             features: FeatureAvailability {
                 request_parsing: true,
-                workspace_inspection: false,
+                workspace_inspection: true,
                 preview: false,
                 commit: false,
                 recovery: false,

@@ -111,6 +111,21 @@ pub struct WorkspaceRelativePath {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Sha256Digest(pub [u8; 32]);
 
+impl Sha256Digest {
+    /// Returns the exact lowercase protocol spelling for this digest.
+    #[must_use]
+    pub fn to_prefixed_hex(self) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut value = String::with_capacity(71);
+        value.push_str("sha256:");
+        for byte in self.0 {
+            value.push(char::from(HEX[usize::from(byte >> 4)]));
+            value.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+        value
+    }
+}
+
 /// POSIX physical identity of a file or directory.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FileIdentity {
@@ -131,6 +146,8 @@ pub struct WorkspaceSnapshot {
     pub workspace_identity: FileIdentity,
     /// Existing files in normalized path order.
     pub files: Arc<[FileSnapshot]>,
+    /// Required-absent paths in normalized path order.
+    pub absent_paths: Arc<[AbsentPathSnapshot]>,
 }
 
 /// Immutable bytes and identity information for one existing file.
@@ -142,21 +159,167 @@ pub struct FileSnapshot {
     pub path: WorkspaceRelativePath,
     /// Physical identity of the file's parent directory.
     pub parent_identity: FileIdentity,
+    /// Root-to-parent physical identities captured during the no-symlink walk.
+    pub parent_identities: Arc<[FileIdentity]>,
     /// Physical identity of the file.
     pub identity: FileIdentity,
     /// Link count observed during acquisition.
     pub link_count: u64,
     /// Exact immutable file bytes shared by all segment references.
     pub bytes: Arc<[u8]>,
+    /// SHA-256 digest of the immutable bytes.
+    pub digest: Sha256Digest,
     /// Line boundaries derived from the immutable bytes.
     pub line_index: LineIndex,
+}
+
+/// A validated absent destination in an immutable workspace snapshot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbsentPathSnapshot {
+    /// Normalized workspace-relative path.
+    pub path: WorkspaceRelativePath,
+    /// Physical identity of the existing parent directory.
+    pub parent_identity: FileIdentity,
+    /// Root-to-parent physical identities captured during the no-symlink walk.
+    pub parent_identities: Arc<[FileIdentity]>,
+    /// Final path component whose absence was observed.
+    pub basename: String,
 }
 
 /// Compact line-boundary data derived from one immutable file snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LineIndex {
-    /// Implementation-owned compact boundary representation.
-    pub boundaries: Arc<[u64]>,
+    /// Exclusive byte end of each logical line, including its terminator.
+    boundaries: Arc<[u64]>,
+}
+
+impl LineIndex {
+    /// Builds a line index for immutable bytes while enforcing representation limits.
+    ///
+    /// LF, CRLF, and lone CR are terminators. A nonempty unterminated suffix is a
+    /// line, while an empty file and the suffix after a final terminator are not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::ResourceLimitExceeded`] when adding a boundary would
+    /// exceed `maximum_lines` or `maximum_memory_bytes`.
+    pub fn from_bytes_with_limits(
+        bytes: &[u8],
+        maximum_lines: u64,
+        maximum_memory_bytes: u64,
+    ) -> Result<Self, CoreError> {
+        let byte_length =
+            u64::try_from(bytes.len()).map_err(|_| CoreError::ResourceLimitExceeded {
+                resource: "snapshot_file_bytes",
+                actual: u64::MAX,
+                limit: u64::MAX - 1,
+            })?;
+        let mut boundaries = Vec::new();
+        let mut offset = 0_usize;
+
+        while offset < bytes.len() {
+            let boundary = match bytes[offset] {
+                b'\n' => Some(offset + 1),
+                b'\r' if bytes.get(offset + 1) == Some(&b'\n') => {
+                    offset += 1;
+                    Some(offset + 1)
+                }
+                b'\r' => Some(offset + 1),
+                _ => None,
+            };
+            if let Some(boundary) = boundary {
+                push_line_boundary(
+                    &mut boundaries,
+                    boundary,
+                    maximum_lines,
+                    maximum_memory_bytes,
+                )?;
+            }
+            offset += 1;
+        }
+
+        if boundaries.last().copied() != Some(byte_length) && !bytes.is_empty() {
+            push_line_boundary(
+                &mut boundaries,
+                bytes.len(),
+                maximum_lines,
+                maximum_memory_bytes,
+            )?;
+        }
+
+        Ok(Self {
+            boundaries: boundaries.into(),
+        })
+    }
+
+    /// Returns the number of logical lines.
+    #[must_use]
+    pub fn line_count(&self) -> u64 {
+        u64::try_from(self.boundaries.len()).unwrap_or(u64::MAX)
+    }
+
+    /// Returns the byte offset before a one-based line number.
+    #[must_use]
+    pub fn line_start(&self, line: u64) -> Option<u64> {
+        if line == 0 || line > self.line_count() {
+            return None;
+        }
+        match line {
+            1 => Some(0),
+            2.. => usize::try_from(line - 2)
+                .ok()
+                .and_then(|index| self.boundaries.get(index))
+                .copied(),
+            _ => None,
+        }
+    }
+
+    /// Returns the exclusive byte end of a one-based line, including its terminator.
+    #[must_use]
+    pub fn line_end(&self, line: u64) -> Option<u64> {
+        line.checked_sub(1)
+            .and_then(|index| usize::try_from(index).ok())
+            .and_then(|index| self.boundaries.get(index))
+            .copied()
+    }
+
+    /// Returns the exact bytes used by the compact boundary representation.
+    #[must_use]
+    pub fn memory_bytes(&self) -> u64 {
+        self.line_count().saturating_mul(8)
+    }
+}
+
+fn push_line_boundary(
+    boundaries: &mut Vec<u64>,
+    boundary: usize,
+    maximum_lines: u64,
+    maximum_memory_bytes: u64,
+) -> Result<(), CoreError> {
+    let next_line_count = u64::try_from(boundaries.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    enforce_core_limit("line_count", next_line_count, maximum_lines)?;
+    let next_memory = next_line_count.saturating_mul(8);
+    enforce_core_limit("line_index_memory", next_memory, maximum_memory_bytes)?;
+    let boundary = u64::try_from(boundary).map_err(|_| CoreError::ResourceLimitExceeded {
+        resource: "snapshot_file_bytes",
+        actual: u64::MAX,
+        limit: u64::MAX,
+    })?;
+    boundaries.push(boundary);
+    Ok(())
+}
+
+fn enforce_core_limit(resource: &'static str, actual: u64, limit: u64) -> Result<(), CoreError> {
+    if actual > limit {
+        return Err(CoreError::ResourceLimitExceeded {
+            resource,
+            actual,
+            limit,
+        });
+    }
+    Ok(())
 }
 
 /// A selector and anchor resolved against the initial snapshot.
@@ -286,6 +449,10 @@ pub enum CoreError {
     ResourceLimitExceeded {
         /// Stable resource name.
         resource: &'static str,
+        /// Observed or projected usage.
+        actual: u64,
+        /// Configured maximum.
+        limit: u64,
     },
 }
 
@@ -295,11 +462,98 @@ impl fmt::Display for CoreError {
             Self::InvalidDomainValue { field } => {
                 write!(formatter, "invalid domain value for {field}")
             }
-            Self::ResourceLimitExceeded { resource } => {
-                write!(formatter, "resource limit exceeded for {resource}")
+            Self::ResourceLimitExceeded {
+                resource,
+                actual,
+                limit,
+            } => {
+                write!(
+                    formatter,
+                    "resource limit exceeded for {resource}: {actual} > {limit}"
+                )
             }
         }
     }
 }
 
 impl Error for CoreError {}
+
+#[cfg(test)]
+mod line_index_tests {
+    use super::{CoreError, LineIndex};
+
+    fn index(bytes: &[u8]) -> LineIndex {
+        LineIndex::from_bytes_with_limits(bytes, u64::MAX, u64::MAX)
+            .expect("unlimited test index should build")
+    }
+
+    #[test]
+    fn line_index_should_handle_empty_and_unterminated_bytes() {
+        let empty = index(b"");
+        let unterminated = index(b"abc");
+
+        assert_eq!(empty.line_count(), 0);
+        assert_eq!(unterminated.line_count(), 1);
+        assert_eq!(unterminated.line_start(1), Some(0));
+        assert_eq!(unterminated.line_end(1), Some(3));
+        assert_eq!(unterminated.line_start(2), None);
+    }
+
+    #[test]
+    fn line_index_should_recognize_lf_crlf_lone_cr_and_mixed_terminators() {
+        let line_index = index(b"a\nb\r\nc\rd");
+
+        assert_eq!(line_index.line_count(), 4);
+        assert_eq!(line_index.line_start(1), Some(0));
+        assert_eq!(line_index.line_end(1), Some(2));
+        assert_eq!(line_index.line_start(2), Some(2));
+        assert_eq!(line_index.line_end(2), Some(5));
+        assert_eq!(line_index.line_start(3), Some(5));
+        assert_eq!(line_index.line_end(3), Some(7));
+        assert_eq!(line_index.line_start(4), Some(7));
+        assert_eq!(line_index.line_end(4), Some(8));
+    }
+
+    #[test]
+    fn line_index_should_not_create_a_phantom_line_after_a_terminator() {
+        assert_eq!(index(b"a\n").line_count(), 1);
+        assert_eq!(index(b"a\r\n").line_count(), 1);
+        assert_eq!(index(b"a\r").line_count(), 1);
+    }
+
+    #[test]
+    fn line_index_should_treat_non_utf8_and_long_lines_as_bytes() {
+        let mut bytes = vec![b'x'; 128 * 1024];
+        bytes.extend_from_slice(&[0xff, b'\n']);
+        let line_index = index(&bytes);
+
+        assert_eq!(line_index.line_count(), 1);
+        assert_eq!(line_index.line_end(1), Some(131_074));
+        assert_eq!(line_index.memory_bytes(), 8);
+    }
+
+    #[test]
+    fn line_index_should_enforce_line_and_memory_limits_before_a_boundary() {
+        let line_error = LineIndex::from_bytes_with_limits(b"a\nb\n", 1, u64::MAX)
+            .expect_err("second line should exceed limit");
+        let memory_error = LineIndex::from_bytes_with_limits(b"a\n", u64::MAX, 7)
+            .expect_err("one boundary needs eight bytes");
+
+        assert!(matches!(
+            line_error,
+            CoreError::ResourceLimitExceeded {
+                resource: "line_count",
+                actual: 2,
+                limit: 1
+            }
+        ));
+        assert!(matches!(
+            memory_error,
+            CoreError::ResourceLimitExceeded {
+                resource: "line_index_memory",
+                actual: 8,
+                limit: 7
+            }
+        ));
+    }
+}
