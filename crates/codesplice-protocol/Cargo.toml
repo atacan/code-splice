@@ -9,6 +9,8 @@ description = "Protocol boundary for CodeSplice"
 
 [dependencies]
 codesplice-core = { path = "../codesplice-core" }
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

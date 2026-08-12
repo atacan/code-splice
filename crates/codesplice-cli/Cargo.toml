@@ -15,6 +15,9 @@ path = "src/main.rs"
 codesplice-core = { path = "../codesplice-core" }
 codesplice-fs = { path = "../codesplice-fs" }
 codesplice-protocol = { path = "../codesplice-protocol" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

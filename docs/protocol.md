@@ -6,16 +6,23 @@ plus a destination path, anchor, and existing-file digest or `must_not_exist`
 precondition. The request never contains the workspace root.
 
 Objects reject unknown fields and duplicate keys. Integers are nonnegative and
-must fit the domain type. Existing-file digests use exactly `sha256:` followed by
-64 lowercase hexadecimal digits. The normative request and response JSON Schemas
-are created in Phase 2 under `docs/schema/v1/`.
+must fit `u64`. Existing-file digests use exactly `sha256:` followed by 64
+lowercase hexadecimal digits. The normative Draft 2020-12 request and response
+schemas are `docs/schema/v1/request.schema.json` and
+`docs/schema/v1/response.schema.json`.
 
 ## Command surface
 
-The `codesplice` binary will provide `inspect`, `apply`, `recover`, `capabilities`,
-and `protocol-version`. `apply` is the only mutation interface. A commit must use
+The `codesplice` binary provides the complete grammar for `inspect`, `apply`,
+`recover`, `capabilities`, and `protocol-version`. `apply` is the only mutation
+interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
+
+At the Phase 2 checkpoint, `capabilities --json` and `protocol-version --json`
+are fully implemented. Commands that require workspace inspection, planning, or
+transactions validate their arguments and request, then return `INTERNAL_ERROR`
+with `development_only: true`; they never report simulated success.
 
 JSON mode writes exactly one UTF-8 JSON value followed by LF to stdout. Human
 diagnostics use stderr and visibly escape terminal control and bidi characters.
@@ -36,3 +43,7 @@ Version 1 reserves the error identifiers and exit categories below.
 Warnings are `OBSERVATION_MAY_BE_STALE`, `METADATA_NOT_PRESERVED`, and
 `DIFF_TRUNCATED`. Every error report includes its code, category, retryability,
 message, and structured context.
+
+Absolute request-file paths are redacted from structured I/O errors. Human error
+messages visibly escape terminal controls and Unicode bidirectional-formatting
+characters.

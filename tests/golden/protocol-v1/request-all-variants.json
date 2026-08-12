@@ -1,0 +1,91 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/one.rs",
+        "selector": { "kind": "lines", "start": 1, "end": 2 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "destination": {
+        "path": "src/two.rs",
+        "anchor": { "kind": "before_line", "line": 3 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/three.rs",
+        "selector": { "kind": "bytes", "start": 0, "end": 8 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "destination": {
+        "path": "src/four.rs",
+        "anchor": { "kind": "after_line", "line": 4 },
+        "precondition": { "kind": "must_not_exist" }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/five.rs",
+        "selector": { "kind": "lines", "start": 9, "end": 9 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      },
+      "destination": {
+        "path": "src/six.rs",
+        "anchor": { "kind": "file_start" },
+        "precondition": { "kind": "must_not_exist" }
+      }
+    },
+    {
+      "kind": "move",
+      "source": {
+        "path": "src/seven.rs",
+        "selector": { "kind": "bytes", "start": 7, "end": 12 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        }
+      },
+      "destination": {
+        "path": "src/eight.rs",
+        "anchor": { "kind": "file_end" },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      }
+    },
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/nine.rs",
+        "selector": { "kind": "bytes", "start": 1, "end": 2 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      },
+      "destination": {
+        "path": "src/ten.rs",
+        "anchor": { "kind": "byte_offset", "offset": 18446744073709551615 },
+        "precondition": { "kind": "must_not_exist" }
+      }
+    }
+  ]
+}

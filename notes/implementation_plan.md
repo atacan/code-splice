@@ -64,7 +64,7 @@ an implementation decision, not an open product question.
 |---|---|---|
 | Planning gate | Scope and decisions | Complete |
 | 1 | Workspace, contracts, and test foundation | Complete |
-| 2 | Protocol v1 and CLI shell | Not started |
+| 2 | Protocol v1 and CLI shell | Complete |
 | 3 | Workspace inspection and immutable snapshots | Not started |
 | 4 | Pure planner and plan digest | Not started |
 | 5 | Lock, journal, and recovery classifier | Not started |

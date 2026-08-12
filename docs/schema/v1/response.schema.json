@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codesplice.dev/schema/v1/response.schema.json",
+  "title": "CodeSplice protocol v1 response",
+  "oneOf": [
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/protocol_version" },
+    { "$ref": "#/$defs/capabilities" },
+    { "$ref": "#/$defs/inspect" },
+    { "$ref": "#/$defs/preview" },
+    { "$ref": "#/$defs/commit" },
+    { "$ref": "#/$defs/recovery_list" },
+    { "$ref": "#/$defs/recovery_status" }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": { "type": "string" },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "context"],
+      "properties": {
+        "code": {
+          "enum": [
+            "OBSERVATION_MAY_BE_STALE",
+            "METADATA_NOT_PRESERVED",
+            "DIFF_TRUNCATED"
+          ]
+        },
+        "message": { "type": "string" },
+        "context": { "type": "object" }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/warning" }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "category", "retryable", "message", "context"],
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_CLI",
+            "INVALID_JSON",
+            "UNSUPPORTED_PROTOCOL_VERSION",
+            "INVALID_REQUEST",
+            "INVALID_DIGEST",
+            "PRECONDITION_FAILED",
+            "FILE_CHANGED",
+            "FILE_ALIAS",
+            "EXPECTED_PLAN_REQUIRED",
+            "EXPECTED_PLAN_MISMATCH",
+            "PLAN_CHANGED_DURING_COMMIT",
+            "EDIT_CONFLICT",
+            "RECOVERY_CONFLICT",
+            "RESOURCE_LIMIT_EXCEEDED",
+            "UNSUPPORTED_PLATFORM",
+            "UNSUPPORTED_FILESYSTEM",
+            "UNSUPPORTED_FILE_TYPE",
+            "SYMLINK_NOT_ALLOWED",
+            "HARD_LINK_NOT_SUPPORTED",
+            "CROSS_DEVICE_TRANSACTION",
+            "NO_REPLACE_UNAVAILABLE",
+            "TRANSACTION_BUSY",
+            "TRANSACTION_RECOVERY_REQUIRED",
+            "TRANSACTION_NOT_FOUND",
+            "RECOVERY_ACTION_NOT_ALLOWED",
+            "CONTROL_DIRECTORY_INVALID",
+            "TRANSACTION_RECORD_CORRUPT",
+            "IO_ERROR",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "category": {
+          "enum": [
+            "request",
+            "conflict",
+            "limit_or_support",
+            "transaction",
+            "corruption",
+            "internal"
+          ]
+        },
+        "retryable": { "type": "boolean" },
+        "message": { "type": "string" },
+        "context": { "type": "object" }
+      }
+    },
+    "protocol_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "supported_protocol_versions",
+        "plan_hash_versions"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "supported_protocol_versions": {
+          "type": "array",
+          "prefixItems": [{ "const": 1 }],
+          "items": false
+        },
+        "plan_hash_versions": {
+          "type": "array",
+          "prefixItems": [{ "const": 1 }],
+          "items": false
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "implementation_phase",
+        "operations",
+        "selectors",
+        "anchors",
+        "preconditions",
+        "features"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "implementation_phase": { "type": "integer", "minimum": 1 },
+        "operations": {
+          "type": "array",
+          "items": { "enum": ["move", "copy"] },
+          "uniqueItems": true
+        },
+        "selectors": {
+          "type": "array",
+          "items": { "enum": ["lines", "bytes"] },
+          "uniqueItems": true
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "enum": ["file_start", "file_end", "before_line", "after_line", "byte_offset"]
+          },
+          "uniqueItems": true
+        },
+        "preconditions": {
+          "type": "array",
+          "items": { "enum": ["sha256", "must_not_exist"] },
+          "uniqueItems": true
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_parsing",
+            "workspace_inspection",
+            "preview",
+            "commit",
+            "recovery"
+          ],
+          "properties": {
+            "request_parsing": { "type": "boolean" },
+            "workspace_inspection": { "type": "boolean" },
+            "preview": { "type": "boolean" },
+            "commit": { "type": "boolean" },
+            "recovery": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "resolved_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_index",
+        "kind",
+        "source_path",
+        "source_start",
+        "source_end",
+        "destination_path",
+        "destination_offset",
+        "effect",
+        "selected_payload_sha256"
+      ],
+      "properties": {
+        "operation_index": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["move", "copy"] },
+        "source_path": { "$ref": "#/$defs/path" },
+        "source_start": { "type": "integer", "minimum": 0 },
+        "source_end": { "type": "integer", "minimum": 1 },
+        "destination_path": { "$ref": "#/$defs/path" },
+        "destination_offset": { "type": "integer", "minimum": 0 },
+        "effect": { "enum": ["changed", "no_op"] },
+        "selected_payload_sha256": { "$ref": "#/$defs/digest" },
+        "inserted_payload_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "change_kind",
+        "before_length",
+        "before_sha256",
+        "after_length",
+        "after_sha256"
+      ],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "change_kind": {
+          "enum": ["unchanged", "modified_existing", "created_new", "emptied_existing"]
+        },
+        "before_length": { "type": ["integer", "null"], "minimum": 0 },
+        "before_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "after_length": { "type": "integer", "minimum": 0 },
+        "after_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "summary"],
+      "properties": {
+        "kind": { "enum": ["text", "binary", "omitted"] },
+        "text": { "type": ["string", "null"] },
+        "summary": { "type": ["object", "null"] }
+      }
+    },
+    "plan_report": {
+      "type": "object",
+      "required": [
+        "protocol_version",
+        "plan_hash_version",
+        "plan_sha256",
+        "workspace_identity_hash",
+        "resolved_operations",
+        "outputs",
+        "diff",
+        "warnings"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "plan_hash_version": { "const": 1 },
+        "plan_sha256": { "$ref": "#/$defs/digest" },
+        "workspace_identity_hash": { "$ref": "#/$defs/digest" },
+        "resolved_operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/resolved_operation" }
+        },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/output" } },
+        "diff": { "$ref": "#/$defs/diff" },
+        "warnings": { "$ref": "#/$defs/warnings" }
+      }
+    },
+    "preview": {
+      "allOf": [{ "$ref": "#/$defs/plan_report" }],
+      "unevaluatedProperties": false
+    },
+    "commit": {
+      "allOf": [
+        { "$ref": "#/$defs/plan_report" },
+        {
+          "type": "object",
+          "required": [
+            "transaction_id",
+            "transaction_state",
+            "files_changed",
+            "recoverability_status"
+          ],
+          "properties": {
+            "transaction_id": { "type": ["string", "null"], "pattern": "^[0-9a-f]{32}$" },
+            "transaction_state": { "enum": ["committed", "no_op"] },
+            "files_changed": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+            "recoverability_status": { "enum": ["complete", "recovery_required"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "inspect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "paths", "warnings"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "exists",
+              "file_type",
+              "sha256",
+              "byte_length",
+              "line_count",
+              "identity_hash"
+            ],
+            "properties": {
+              "path": { "$ref": "#/$defs/path" },
+              "exists": { "type": "boolean" },
+              "file_type": { "enum": ["regular", "absent"] },
+              "sha256": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+              "byte_length": { "type": ["integer", "null"], "minimum": 0 },
+              "line_count": { "type": ["integer", "null"], "minimum": 0 },
+              "identity_hash": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }
+            }
+          }
+        },
+        "warnings": { "$ref": "#/$defs/warnings" }
+      }
+    },
+    "recovery_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transaction_id", "classification", "actions"],
+      "properties": {
+        "transaction_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "classification": {
+          "enum": ["orphan_record", "manifest_only", "active", "cleanup_only"]
+        },
+        "actions": {
+          "type": "array",
+          "items": { "enum": ["status", "complete", "rollback", "cleanup"] },
+          "uniqueItems": true
+        }
+      }
+    },
+    "recovery_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "transactions"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "transactions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/recovery_entry" }
+        }
+      }
+    },
+    "recovery_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "transaction"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "transaction": { "$ref": "#/$defs/recovery_entry" }
+      }
+    }
+  }
+}

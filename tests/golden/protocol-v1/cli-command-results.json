@@ -1,0 +1,10 @@
+{
+  "inspect": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"workspace_inspection","development_only":true,"implementation_phase":2}},
+  "preview": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"preview","development_only":true,"implementation_phase":2}},
+  "preview_without_diff": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"preview_without_diff","development_only":true,"implementation_phase":2}},
+  "commit": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"commit","development_only":true,"implementation_phase":2}},
+  "recovery_list": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"recovery_list","development_only":true,"implementation_phase":2}},
+  "recovery_status": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"recovery_status","development_only":true,"implementation_phase":2}},
+  "recovery_complete": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"recovery_complete","development_only":true,"implementation_phase":2}},
+  "recovery_rollback": {"code":"INTERNAL_ERROR","category":"internal","retryable":false,"message":"the command is validated but execution is not implemented in Phase 2","context":{"capability":"recovery_rollback","development_only":true,"implementation_phase":2}}
+}

@@ -1,0 +1,5 @@
+[
+  {"code":"OBSERVATION_MAY_BE_STALE","message":"golden OBSERVATION_MAY_BE_STALE","context":{}},
+  {"code":"METADATA_NOT_PRESERVED","message":"golden METADATA_NOT_PRESERVED","context":{}},
+  {"code":"DIFF_TRUNCATED","message":"golden DIFF_TRUNCATED","context":{}}
+]
