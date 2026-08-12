@@ -674,6 +674,7 @@ pub struct CommitResponse {
     files_changed: Vec<String>,
     preserved_permission_modes: BTreeMap<String, u32>,
     recoverability_status: &'static str,
+    visibility: &'static str,
 }
 
 impl CommitResponse {
@@ -709,6 +710,7 @@ impl CommitResponse {
             files_changed,
             preserved_permission_modes,
             recoverability_status: "complete",
+            visibility: "recoverable_not_atomic",
         }
     }
 }
@@ -927,6 +929,32 @@ impl CapabilitiesResponse {
             },
         }
     }
+
+    /// Returns the capabilities truthfully available at the Phase 8 checkpoint.
+    #[must_use]
+    pub const fn phase_eight() -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            implementation_phase: 8,
+            operations: ["move", "copy"],
+            selectors: ["lines", "bytes"],
+            anchors: [
+                "file_start",
+                "file_end",
+                "before_line",
+                "after_line",
+                "byte_offset",
+            ],
+            preconditions: ["sha256", "must_not_exist"],
+            features: FeatureAvailability {
+                request_parsing: true,
+                workspace_inspection: true,
+                preview: true,
+                commit: true,
+                recovery: true,
+            },
+        }
+    }
 }
 
 /// One validated transaction shown by recovery list or status.
@@ -935,6 +963,7 @@ pub struct RecoveryEntryResponse {
     transaction_id: String,
     classification: String,
     actions: Vec<String>,
+    visibility: String,
 }
 
 impl RecoveryEntryResponse {
@@ -944,11 +973,13 @@ impl RecoveryEntryResponse {
         transaction_id: impl Into<String>,
         classification: impl Into<String>,
         actions: impl IntoIterator<Item = impl Into<String>>,
+        visibility: impl Into<String>,
     ) -> Self {
         Self {
             transaction_id: transaction_id.into(),
             classification: classification.into(),
             actions: actions.into_iter().map(Into::into).collect(),
+            visibility: visibility.into(),
         }
     }
 }

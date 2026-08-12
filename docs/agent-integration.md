@@ -19,6 +19,7 @@ agent inspects and previews again rather than bypassing the digest precondition.
 It treats recovery-required and conflict outcomes as failures needing explicit
 inspection; it does not reproduce selected source bytes by hand as a fallback.
 
-Through Phase 7, this workflow is available for plans with exactly one changed
-target. Cross-file moves and other multi-target plans remain unavailable until
-Phase 8.
+Through Phase 8, this workflow is available for plans with up to 100 changed
+targets. Every candidate is prepared before mutation, targets commit in normalized
+path order, and explicit recovery completes forward or rolls back in reverse order.
+The commit is recoverable but not atomically visible across files.

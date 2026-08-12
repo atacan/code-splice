@@ -3,8 +3,8 @@
 //! Command grammar, protocol orchestration, and output discipline for CodeSplice.
 //!
 //! Preview and inspection use immutable workspace snapshots coordinated by the
-//! existing diagnostic lock when present. Single-target commit and recovery use
-//! the persistent transaction engine; multi-target admission waits for Phase 8.
+//! existing diagnostic lock when present. Multi-target commit and recovery use
+//! the persistent transaction engine.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -190,7 +190,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read, startup_umask: u32) -> Result<String,
     match cli.command {
         Command::Capabilities(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
-            serialize_success(&CapabilitiesResponse::phase_seven(), arguments.json)
+            serialize_success(&CapabilitiesResponse::phase_eight(), arguments.json)
         }
         Command::ProtocolVersion(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
@@ -498,9 +498,10 @@ fn execute_recovery(
         let mut output = String::new();
         for entry in observation.entries() {
             output.push_str(&format!(
-                "{} {} [{}]\n",
+                "{} {} visibility={} [{}]\n",
                 entry.transaction_id(),
                 entry.kind().as_str(),
+                entry.visibility(),
                 entry.actions().join(",")
             ));
         }
@@ -528,9 +529,10 @@ fn execute_recovery(
             );
         }
         return Ok(format!(
-            "{} {} [{}]\n",
+            "{} {} visibility={} [{}]\n",
             entry.transaction_id(),
             entry.kind().as_str(),
+            entry.visibility(),
             entry.actions().join(",")
         ));
     }
@@ -538,8 +540,12 @@ fn execute_recovery(
         let outcome = workspace
             .recovery_rollback(transaction_id)
             .map_err(|error| (filesystem_error(error), arguments.json))?;
-        let completed =
-            RecoveryEntryResponse::new(transaction_id, "cleanup_only", std::iter::empty::<&str>());
+        let completed = RecoveryEntryResponse::new(
+            transaction_id,
+            "cleanup_only",
+            std::iter::empty::<&str>(),
+            "all_original",
+        );
         if arguments.json {
             return serialize_success(&RecoveryStatusResponse::new(completed), true);
         }
@@ -552,8 +558,12 @@ fn execute_recovery(
     let outcome = workspace
         .recovery_complete(transaction_id)
         .map_err(|error| (filesystem_error(error), arguments.json))?;
-    let completed =
-        RecoveryEntryResponse::new(transaction_id, "cleanup_only", std::iter::empty::<&str>());
+    let completed = RecoveryEntryResponse::new(
+        transaction_id,
+        "cleanup_only",
+        std::iter::empty::<&str>(),
+        "all_planned",
+    );
     if arguments.json {
         return serialize_success(&RecoveryStatusResponse::new(completed), true);
     }
@@ -569,6 +579,7 @@ fn recovery_entry_response(entry: &codesplice_fs::RecoveryEntry) -> RecoveryEntr
         entry.transaction_id(),
         entry.kind().as_str(),
         entry.actions().iter().copied(),
+        entry.visibility(),
     )
 }
 
@@ -660,10 +671,7 @@ fn execute_commit(
     json: bool,
 ) -> Result<String, (ErrorDto, bool)> {
     let requirements = snapshot_requirements(batch);
-    let commit_budget = ResourceBudget {
-        changed_targets: 1,
-        ..ResourceBudget::default()
-    };
+    let commit_budget = ResourceBudget::default();
     let prelock_snapshot = workspace
         .acquire_snapshot(&requirements, SnapshotLimits::default())
         .map_err(|error| (filesystem_error(error), json))?;
@@ -675,7 +683,7 @@ fn execute_commit(
             json,
         ));
     }
-    phase_seven_test_hook("after_prelock_plan").map_err(|error| (error, json))?;
+    commit_test_hook("after_prelock_plan").map_err(|error| (error, json))?;
 
     if prelock_plan.usage.changed_targets == 0 {
         let (diagnostic_lock, warnings) =
@@ -686,7 +694,7 @@ fn execute_commit(
             workspace,
             warnings,
             None,
-            None,
+            BTreeMap::new(),
         );
         let result = serialize_commit_response(&response, json);
         drop(diagnostic_lock);
@@ -730,7 +738,7 @@ fn execute_commit(
     }
     let new_file_mode = 0o666 & !startup_umask;
     let outcome = workspace
-        .commit_single_target(&lock, &locked_snapshot, &locked_plan, new_file_mode)
+        .commit(&lock, &locked_snapshot, &locked_plan, new_file_mode)
         .map_err(|error| (filesystem_error(error), json))?;
     let warning = WarningDto::new(
         WarningCode::MetadataNotPreserved,
@@ -743,15 +751,13 @@ fn execute_commit(
         workspace,
         vec![warning],
         Some(outcome.transaction_id().to_owned()),
-        outcome
-            .preserved_mode()
-            .map(|mode| (outcome.changed_path(), mode)),
+        outcome.preserved_permission_modes().clone(),
     );
     serialize_commit_response(&response, json)
 }
 
 #[cfg(debug_assertions)]
-fn phase_seven_test_hook(name: &str) -> Result<(), ErrorDto> {
+fn commit_test_hook(name: &str) -> Result<(), ErrorDto> {
     use std::time::{Duration, Instant};
 
     if std::env::var_os("CODESPLICE_TEST_HOOK").is_none_or(|value| value != name) {
@@ -760,21 +766,21 @@ fn phase_seven_test_hook(name: &str) -> Result<(), ErrorDto> {
     let ready = std::env::var_os("CODESPLICE_TEST_READY").ok_or_else(|| {
         ErrorDto::new(
             ErrorCode::InternalError,
-            "the Phase 7 test hook is missing its ready marker",
+            "the commit test hook is missing its ready marker",
             BTreeMap::new(),
         )
     })?;
     let resume = std::env::var_os("CODESPLICE_TEST_CONTINUE").ok_or_else(|| {
         ErrorDto::new(
             ErrorCode::InternalError,
-            "the Phase 7 test hook is missing its continue marker",
+            "the commit test hook is missing its continue marker",
             BTreeMap::new(),
         )
     })?;
     File::create(&ready).map_err(|_| {
         ErrorDto::new(
             ErrorCode::InternalError,
-            "the Phase 7 test hook could not publish its ready marker",
+            "the commit test hook could not publish its ready marker",
             BTreeMap::new(),
         )
     })?;
@@ -783,7 +789,7 @@ fn phase_seven_test_hook(name: &str) -> Result<(), ErrorDto> {
         if started.elapsed() > Duration::from_secs(10) {
             return Err(ErrorDto::new(
                 ErrorCode::InternalError,
-                "the Phase 7 test hook timed out",
+                "the commit test hook timed out",
                 BTreeMap::new(),
             ));
         }
@@ -793,7 +799,7 @@ fn phase_seven_test_hook(name: &str) -> Result<(), ErrorDto> {
 }
 
 #[cfg(not(debug_assertions))]
-const fn phase_seven_test_hook(_name: &str) -> Result<(), ErrorDto> {
+const fn commit_test_hook(_name: &str) -> Result<(), ErrorDto> {
     Ok(())
 }
 
@@ -823,7 +829,7 @@ fn build_commit_response(
     workspace: &Workspace,
     warnings: Vec<WarningDto>,
     transaction_id: Option<String>,
-    preserved_mode: Option<(&str, u32)>,
+    preserved_permission_modes: BTreeMap<String, u32>,
 ) -> CommitResponse {
     let operations = plan
         .operations
@@ -855,9 +861,6 @@ fn build_commit_response(
         .filter(|output| output.change != OutputChange::Unchanged)
         .map(|output| output.path.value.clone())
         .collect();
-    let preserved_permission_modes = preserved_mode
-        .map(|(path, mode)| BTreeMap::from([(path.to_owned(), mode)]))
-        .unwrap_or_default();
     CommitResponse::new(
         plan.digest.0,
         workspace.identity_hash(),

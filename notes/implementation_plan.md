@@ -70,7 +70,7 @@ an implementation decision, not an open product question.
 | 5 | Lock, journal, and recovery classifier | Complete |
 | 6 | Preview and reporting | Complete |
 | 7 | Single-target commit and recovery | Complete |
-| 8 | Multi-target commit and recovery | Not started |
+| 8 | Multi-target commit and recovery | Complete |
 | 9 | Hardening and platform qualification | Not started |
 | 10 | Codex pilot and v0.1.0 release | Not started |
 

@@ -19,12 +19,12 @@ interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
 
-At the Phase 7 checkpoint, `inspect`, preview, single-target commit, recovery list
-and status, and explicit single-target completion/rollback are implemented.
+At the Phase 8 checkpoint, `inspect`, preview, multi-target commit, recovery list
+and status, and explicit transaction-wide completion/rollback are implemented.
 Read-only commands create nothing and retain the existing shared control lock
 through their scan, workspace observation, and report when it exists. Commit uses
-two planning passes, requires explicit plan intent, and temporarily rejects plans
-with more than one changed target until Phase 8.
+two planning passes, requires explicit plan intent, prepares every candidate before
+mutation, and commits changed targets in normalized UTF-8 path order.
 
 Preview reports resolved byte coordinates, selected payload digests, output
 before/after lengths and digests, plan-hash version 1, the plan digest, and an
@@ -34,7 +34,11 @@ uses digest, length, and bounded base64 head/tail samples.
 
 Commit reports include a transaction ID (or `null` for a no-op), terminal state,
 changed paths, preserved existing-target permission modes, and an inserted payload
-digest for every effectful operation (`null` for a reported same-file no-op).
+digest for every effectful operation (`null` for a reported same-file no-op). The
+`visibility` field states `recoverable_not_atomic`: unrelated readers can observe
+mixed old/new targets during commit or rollback. Recovery list/status reports use
+`mixed_old_new_possible` for those in-progress states, and `all_original` or
+`all_planned` when the journal proves a uniform view.
 
 JSON mode writes exactly one UTF-8 JSON value followed by LF to stdout. Human
 diagnostics use stderr and visibly escape terminal control and bidi characters.

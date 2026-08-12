@@ -854,7 +854,12 @@ pub fn capture_startup_umask() -> u32 {
 
 #[cfg(debug_assertions)]
 pub(crate) fn test_failpoint(name: &str) -> Result<(), FsError> {
-    if std::env::var_os("CODESPLICE_TEST_FAILPOINT").is_some_and(|value| value == name) {
+    if std::env::var_os("CODESPLICE_TEST_FAILPOINT").is_some_and(|value| {
+        value
+            .to_string_lossy()
+            .split(',')
+            .any(|configured| configured == name)
+    }) {
         if std::env::var_os("CODESPLICE_TEST_FAILPOINT_ACTION").is_some_and(|value| value == "exit")
         {
             std::process::exit(86);

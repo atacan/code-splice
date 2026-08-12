@@ -1,5 +1,6 @@
-//! Single-target transaction execution and conservative recovery.
+//! Multi-target transaction execution and conservative recovery.
 
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -34,12 +35,12 @@ const METADATA_LIMITATIONS: [&str; 7] = [
     "hard_link_relationships",
 ];
 
-/// Successful result of one changing single-target commit.
+/// Successful result of one changing commit.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommitOutcome {
     transaction_id: String,
-    changed_path: String,
-    preserved_mode: Option<u32>,
+    changed_paths: Vec<String>,
+    preserved_permission_modes: BTreeMap<String, u32>,
 }
 
 impl CommitOutcome {
@@ -49,16 +50,28 @@ impl CommitOutcome {
         &self.transaction_id
     }
 
-    /// The single changed workspace-relative path.
+    /// Changed workspace-relative paths in deterministic transaction order.
     #[must_use]
-    pub fn changed_path(&self) -> &str {
-        &self.changed_path
+    pub fn changed_paths(&self) -> &[String] {
+        &self.changed_paths
     }
 
-    /// Permission bits preserved from an existing target, when applicable.
+    /// Permission bits preserved from existing targets, keyed by normalized path.
     #[must_use]
-    pub const fn preserved_mode(&self) -> Option<u32> {
-        self.preserved_mode
+    pub const fn preserved_permission_modes(&self) -> &BTreeMap<String, u32> {
+        &self.preserved_permission_modes
+    }
+
+    /// The changed path for a single-target outcome.
+    #[must_use]
+    pub fn changed_path(&self) -> &str {
+        self.changed_paths.first().map_or("", String::as_str)
+    }
+
+    /// Permission bits preserved for a single-target outcome, when applicable.
+    #[must_use]
+    pub fn preserved_mode(&self) -> Option<u32> {
+        self.preserved_permission_modes.values().next().copied()
     }
 }
 
@@ -84,7 +97,7 @@ impl RecoveryOutcome {
 }
 
 impl Workspace {
-    /// Executes one changed target through the persistent transaction engine.
+    /// Executes all changed targets through the persistent transaction engine.
     ///
     /// The caller must hold `lock`, must have repeated planning while locked, and
     /// must pass the startup-umask-derived new-file mode.
@@ -92,8 +105,8 @@ impl Workspace {
     /// # Errors
     ///
     /// Returns a validation, journal, collision, recovery, or I/O error. Plans
-    /// with zero or more than one changed target are rejected by this boundary.
-    pub fn commit_single_target(
+    /// with no changed targets are rejected by this boundary.
+    pub fn commit(
         &self,
         lock: &MutationLock,
         snapshot: &WorkspaceSnapshot,
@@ -101,23 +114,24 @@ impl Workspace {
         new_file_mode: u32,
     ) -> Result<CommitOutcome, FsError> {
         ensure_qualified_filesystem(self.canonical_root())?;
-        let changed = plan
+        let mut changed = plan
             .outputs
             .iter()
             .filter(|output| output.change != OutputChange::Unchanged)
             .collect::<Vec<_>>();
-        if changed.len() != 1 {
+        if changed.is_empty() {
             return Err(FsError::ResourceLimitExceeded {
-                resource: "single_target_commit_targets",
-                actual: u64::try_from(changed.len()).unwrap_or(u64::MAX),
-                limit: 1,
+                resource: "transaction_targets",
+                actual: 0,
+                limit: crate::journal::MAX_TRANSACTION_TARGETS,
             });
         }
+        changed.sort_by(|left, right| left.path.value.as_bytes().cmp(right.path.value.as_bytes()));
         let directory = lock.create_transaction_directory()?;
         let transaction_id = directory.transaction_id().to_owned();
         let active_path = directory.path().to_path_buf();
         let manifest =
-            match build_manifest(snapshot, plan, changed[0], &transaction_id, new_file_mode) {
+            match build_manifest(snapshot, plan, &changed, &transaction_id, new_file_mode) {
                 Ok(manifest) => manifest,
                 Err(error) => {
                     lock.rollback_control_only(&transaction_id)?;
@@ -140,7 +154,38 @@ impl Workspace {
         }
     }
 
-    /// Completes a validated single-target transaction or committed cleanup entry.
+    /// Executes exactly one changed target through the shared transaction engine.
+    ///
+    /// This compatibility boundary retains the Phase 7 filesystem-layer API while
+    /// delegating all mutation and recovery behavior to [`Workspace::commit`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a resource error unless the plan changes exactly one target, or any
+    /// error returned by the shared transaction engine.
+    pub fn commit_single_target(
+        &self,
+        lock: &MutationLock,
+        snapshot: &WorkspaceSnapshot,
+        plan: &EditPlan,
+        new_file_mode: u32,
+    ) -> Result<CommitOutcome, FsError> {
+        let changed_targets = plan
+            .outputs
+            .iter()
+            .filter(|output| output.change != OutputChange::Unchanged)
+            .count();
+        if changed_targets != 1 {
+            return Err(FsError::ResourceLimitExceeded {
+                resource: "single_target_commit_targets",
+                actual: u64::try_from(changed_targets).unwrap_or(u64::MAX),
+                limit: 1,
+            });
+        }
+        self.commit(lock, snapshot, plan, new_file_mode)
+    }
+
+    /// Completes a validated transaction or committed cleanup entry.
     ///
     /// # Errors
     ///
@@ -156,7 +201,7 @@ impl Workspace {
         recover_locked(self, &lock, transaction_id, RecoveryMode::Complete)
     }
 
-    /// Rolls back a validated single-target transaction or rolled-back cleanup entry.
+    /// Rolls back a validated transaction or rolled-back cleanup entry.
     ///
     /// # Errors
     ///
@@ -176,7 +221,7 @@ impl Workspace {
 fn build_manifest(
     snapshot: &WorkspaceSnapshot,
     plan: &EditPlan,
-    output: &codesplice_core::PlannedOutput,
+    outputs: &[&codesplice_core::PlannedOutput],
     transaction_id: &str,
     new_file_mode: u32,
 ) -> Result<Manifest, FsError> {
@@ -204,73 +249,78 @@ fn build_manifest(
         });
     }
 
-    let original = snapshot.files.iter().find(|file| file.path == output.path);
-    let absent = snapshot
-        .absent_paths
-        .iter()
-        .find(|path| path.path == output.path);
-    let parent_identity = original
-        .map(|file| file.parent_identity)
-        .or_else(|| absent.map(|path| path.parent_identity))
-        .ok_or(FsError::InternalInvariant {
-            invariant: "changed_output_has_snapshot_input",
-        })?;
-    if parent_identity.device != snapshot.workspace_identity.device {
-        return Err(FsError::CrossDeviceTransaction);
+    let mut targets = Vec::with_capacity(outputs.len());
+    for (index, output) in outputs.iter().enumerate() {
+        let original = snapshot.files.iter().find(|file| file.path == output.path);
+        let absent = snapshot
+            .absent_paths
+            .iter()
+            .find(|path| path.path == output.path);
+        let parent_identity = original
+            .map(|file| file.parent_identity)
+            .or_else(|| absent.map(|path| path.parent_identity))
+            .ok_or(FsError::InternalInvariant {
+                invariant: "changed_output_has_snapshot_input",
+            })?;
+        if parent_identity.device != snapshot.workspace_identity.device {
+            return Err(FsError::CrossDeviceTransaction);
+        }
+        let segments = output
+            .segments
+            .iter()
+            .map(|segment| match segment {
+                OutputSegment::OriginalSlice {
+                    snapshot_file_id,
+                    range,
+                } => ManifestSegment {
+                    input_index: snapshot_file_id.0,
+                    start: range.start,
+                    end: range.end,
+                    operation_index: None,
+                },
+                OutputSegment::PayloadSlice {
+                    operation_index,
+                    snapshot_file_id,
+                    range,
+                    ..
+                } => ManifestSegment {
+                    input_index: snapshot_file_id.0,
+                    start: range.start,
+                    end: range.end,
+                    operation_index: Some(*operation_index),
+                },
+            })
+            .collect();
+        let target_index = u64::try_from(index).unwrap_or(u64::MAX);
+        targets.push(ManifestTarget {
+            target_index,
+            path: output.path.value.clone(),
+            parent_identity: parent_identity.into(),
+            original_existed: original.is_some(),
+            original_identity: original.map(|file| file.identity.into()),
+            original_sha256: original.map(|file| file.digest.to_prefixed_hex()),
+            original_length: original
+                .map(|file| u64::try_from(file.bytes.len()).unwrap_or(u64::MAX)),
+            candidate_name: format!("candidate-{target_index:08}"),
+            backup_name: format!("backup-{target_index:08}"),
+            candidate_sha256: output.resulting_digest.to_prefixed_hex(),
+            candidate_length: output.resulting_length,
+            metadata_policy: if original.is_some() {
+                MetadataPolicy::PreserveExistingMode
+            } else {
+                MetadataPolicy::NewFileMode
+            },
+            new_file_mode: original.is_none().then_some(new_file_mode & 0o666),
+            segments,
+        });
     }
-    let segments = output
-        .segments
-        .iter()
-        .map(|segment| match segment {
-            OutputSegment::OriginalSlice {
-                snapshot_file_id,
-                range,
-            } => ManifestSegment {
-                input_index: snapshot_file_id.0,
-                start: range.start,
-                end: range.end,
-                operation_index: None,
-            },
-            OutputSegment::PayloadSlice {
-                operation_index,
-                snapshot_file_id,
-                range,
-                ..
-            } => ManifestSegment {
-                input_index: snapshot_file_id.0,
-                start: range.start,
-                end: range.end,
-                operation_index: Some(*operation_index),
-            },
-        })
-        .collect();
-    let target = ManifestTarget {
-        target_index: 0,
-        path: output.path.value.clone(),
-        parent_identity: parent_identity.into(),
-        original_existed: original.is_some(),
-        original_identity: original.map(|file| file.identity.into()),
-        original_sha256: original.map(|file| file.digest.to_prefixed_hex()),
-        original_length: original.map(|file| u64::try_from(file.bytes.len()).unwrap_or(u64::MAX)),
-        candidate_name: "candidate-00000000".to_owned(),
-        backup_name: "backup-00000000".to_owned(),
-        candidate_sha256: output.resulting_digest.to_prefixed_hex(),
-        candidate_length: output.resulting_length,
-        metadata_policy: if original.is_some() {
-            MetadataPolicy::PreserveExistingMode
-        } else {
-            MetadataPolicy::NewFileMode
-        },
-        new_file_mode: original.is_none().then_some(new_file_mode & 0o666),
-        segments,
-    };
     Ok(Manifest {
         transaction_version: 1,
         transaction_id: transaction_id.to_owned(),
         workspace_identity: snapshot.workspace_identity.into(),
         plan_sha256: plan.digest.0.to_prefixed_hex(),
         inputs,
-        targets: vec![target],
+        targets,
         metadata_limitations: METADATA_LIMITATIONS
             .iter()
             .map(ToString::to_string)
@@ -294,26 +344,32 @@ fn execute_new_transaction(
             manifest_checksum: journal.manifest_checksum().to_owned(),
             prior_state_checksum: None,
             global_state: GlobalState::Preparing,
-            targets: vec![untouched_target_state()],
+            targets: manifest
+                .targets
+                .iter()
+                .map(|target| untouched_target_state(target.target_index))
+                .collect(),
         },
         checksum: String::new(),
     };
     progress.checksum = journal.publish_state(&progress.state)?;
-    let candidate_identity = create_candidate(&active_path, &manifest.targets[0], snapshot)?;
-    publish_transition(
-        &mut journal,
-        &mut progress,
-        GlobalState::Prepared,
-        |target| {
+    for (index, target) in manifest.targets.iter().enumerate() {
+        let candidate_identity = create_candidate(&active_path, target, snapshot, index)?;
+        let global_state = if index + 1 == manifest.targets.len() {
+            GlobalState::Prepared
+        } else {
+            GlobalState::Preparing
+        };
+        publish_target_transition(&mut journal, &mut progress, global_state, index, |target| {
             target.candidate = CandidateState {
                 kind: CandidateKind::Ready,
                 identity: Some(candidate_identity),
             };
-        },
-    )?;
+        })?;
+    }
     revalidate_manifest_inputs(workspace, manifest)?;
     lock.revalidate_control_identities()?;
-    publish_transition(&mut journal, &mut progress, GlobalState::Committing, |_| {})?;
+    publish_global_transition(&mut journal, &mut progress, GlobalState::Committing)?;
     complete_commit_steps(
         workspace,
         lock,
@@ -322,12 +378,26 @@ fn execute_new_transaction(
         &mut journal,
         &mut progress,
     )?;
-    let preserved_mode = progress.state.targets[0].commit.preserved_mode;
+    let preserved_permission_modes = manifest
+        .targets
+        .iter()
+        .zip(&progress.state.targets)
+        .filter_map(|(target, state)| {
+            state
+                .commit
+                .preserved_mode
+                .map(|mode| (target.path.clone(), mode))
+        })
+        .collect();
     lock.finish_transaction(&manifest.transaction_id, &active_path, true)?;
     Ok(CommitOutcome {
         transaction_id: manifest.transaction_id.clone(),
-        changed_path: manifest.targets[0].path.clone(),
-        preserved_mode,
+        changed_paths: manifest
+            .targets
+            .iter()
+            .map(|target| target.path.clone())
+            .collect(),
+        preserved_permission_modes,
     })
 }
 
@@ -335,19 +405,20 @@ fn create_candidate(
     transaction_path: &Path,
     target: &ManifestTarget,
     snapshot: &WorkspaceSnapshot,
+    target_index: usize,
 ) -> Result<PersistedIdentity, FsError> {
     let path = transaction_path.join(&target.candidate_name);
-    crate::test_failpoint("before_candidate_create")?;
+    target_failpoint("before_candidate_create", target_index)?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&path)
         .map_err(|error| transaction_io("create_candidate", Some(&target.path), error))?;
-    crate::test_failpoint("after_candidate_create")?;
+    target_failpoint("after_candidate_create", target_index)?;
     let mut hasher = Sha256::new();
     let mut length = 0_u64;
-    crate::test_failpoint("before_candidate_write")?;
+    target_failpoint("before_candidate_write", target_index)?;
     for segment in &target.segments {
         let input = usize::try_from(segment.input_index)
             .ok()
@@ -376,13 +447,13 @@ fn create_candidate(
                 invariant: "candidate_length_checked",
             })?;
     }
-    crate::test_failpoint("after_candidate_write")?;
+    target_failpoint("after_candidate_write", target_index)?;
     file.flush()
         .map_err(|error| transaction_io("flush_candidate", Some(&target.path), error))?;
-    crate::test_failpoint("before_candidate_sync")?;
+    target_failpoint("before_candidate_sync", target_index)?;
     file.sync_all()
         .map_err(|error| transaction_io("sync_candidate", Some(&target.path), error))?;
-    crate::test_failpoint("after_candidate_sync")?;
+    target_failpoint("after_candidate_sync", target_index)?;
     drop(file);
     let digest = Sha256Digest(hasher.finalize().into());
     if length != target.candidate_length || digest.to_prefixed_hex() != target.candidate_sha256 {
@@ -390,7 +461,7 @@ fn create_candidate(
             invariant: "candidate_matches_planned_output",
         });
     }
-    crate::test_failpoint("before_candidate_verification")?;
+    target_failpoint("before_candidate_verification", target_index)?;
     let fingerprint = fingerprint(&path, Some(&target.path))?.ok_or(FsError::RecoveryConflict {
         reason: "candidate_missing_after_creation",
     })?;
@@ -399,7 +470,7 @@ fn create_candidate(
             reason: "candidate_verification_mismatch",
         });
     }
-    crate::test_failpoint("after_candidate_verification")?;
+    target_failpoint("after_candidate_verification", target_index)?;
     sync_directory(transaction_path)?;
     Ok(fingerprint.identity.into())
 }
@@ -412,83 +483,111 @@ fn complete_commit_steps(
     journal: &mut TransactionJournal,
     progress: &mut Progress,
 ) -> Result<(), FsError> {
-    let target = &manifest.targets[0];
-    let paths = target_paths(workspace, active_path, target)?;
-    let observed = observe_target(target, &paths, &progress.state)?;
-    let disposition = classify_recovery(
-        progress.state.global_state,
-        target.original_existed,
-        progress.state.targets[0],
-        observed,
+    classify_all_targets(
+        workspace,
+        manifest,
+        active_path,
+        &progress.state,
+        RecoveryMode::Complete,
     )?;
-    if !disposition.complete {
-        return Err(FsError::RecoveryActionNotAllowed {
-            transaction_id: manifest.transaction_id.clone(),
-            reason: "transaction_cannot_be_completed",
-        });
-    }
     lock.revalidate_control_identities()?;
+    for (index, target) in manifest.targets.iter().enumerate() {
+        complete_target(workspace, target, index, active_path, journal, progress)?;
+    }
+    for (index, target) in manifest.targets.iter().enumerate() {
+        let paths = target_paths(workspace, active_path, target)?;
+        target_failpoint("before_final_verification", index)?;
+        verify_candidate_location(&paths.target, target, progress.state.targets[index])?;
+        target_failpoint("after_final_verification", index)?;
+    }
+    publish_global_transition(journal, progress, GlobalState::Committed)?;
+    Ok(())
+}
 
+fn complete_target(
+    workspace: &Workspace,
+    target: &ManifestTarget,
+    target_index: usize,
+    active_path: &Path,
+    journal: &mut TransactionJournal,
+    progress: &mut Progress,
+) -> Result<(), FsError> {
+    let paths = target_paths(workspace, active_path, target)?;
+    let observed = observe_target(
+        target,
+        &paths,
+        progress.state.targets[target_index],
+        progress.state.global_state,
+    )?;
     if observed.target == LocationObservation::Candidate {
         let final_file =
-            verify_candidate_location(&paths.target, target, progress.state.targets[0])?;
-        publish_installed(journal, progress, final_file.identity.into())?;
-    } else {
-        if target.original_existed {
-            let preserved_mode = if observed.backup == LocationObservation::Original {
-                mode_of(&paths.backup, &target.path)?
-            } else {
-                crate::test_failpoint("before_backup_rename")?;
-                no_replace_rename(&paths.target, &paths.backup, "backup_target")?;
-                sync_directory(&paths.parent)?;
-                sync_directory(active_path)?;
-                crate::test_failpoint("after_backup_rename")?;
-                verify_original_location(&paths.backup, target)?;
-                mode_of(&paths.backup, &target.path)?
-            };
-            set_mode(&paths.candidate, preserved_mode, &target.path)?;
-            if progress.state.targets[0].commit.kind == CommitKind::Untouched {
-                let backup = verify_original_location(&paths.backup, target)?;
-                publish_transition(journal, progress, GlobalState::Committing, |state| {
+            verify_candidate_location(&paths.target, target, progress.state.targets[target_index])?;
+        publish_installed(journal, progress, target_index, final_file.identity.into())?;
+        return Ok(());
+    }
+
+    if target.original_existed {
+        let preserved_mode = if observed.backup == LocationObservation::Original {
+            mode_of(&paths.backup, &target.path)?
+        } else {
+            target_failpoint("before_backup_rename", target_index)?;
+            no_replace_rename(&paths.target, &paths.backup, "backup_target")?;
+            sync_directory(&paths.parent)?;
+            sync_directory(active_path)?;
+            target_failpoint("after_backup_rename", target_index)?;
+            verify_original_location(&paths.backup, target)?;
+            mode_of(&paths.backup, &target.path)?
+        };
+        set_mode(&paths.candidate, preserved_mode, &target.path)?;
+        if progress.state.targets[target_index].commit.kind == CommitKind::Untouched {
+            let backup = verify_original_location(&paths.backup, target)?;
+            publish_target_transition(
+                journal,
+                progress,
+                GlobalState::Committing,
+                target_index,
+                |state| {
                     state.commit = CommitState {
                         kind: CommitKind::BackedUp,
                         identity: Some(backup.identity.into()),
                         preserved_mode: Some(preserved_mode),
                     };
-                })?;
-            }
-        } else {
-            let mode = target.new_file_mode.ok_or(FsError::InternalInvariant {
-                invariant: "new_target_has_recorded_mode",
-            })?;
-            set_mode(&paths.candidate, mode, &target.path)?;
+                },
+            )?;
         }
-        crate::test_failpoint("before_install_rename")?;
-        no_replace_rename(&paths.candidate, &paths.target, "install_candidate")?;
-        sync_directory(&paths.parent)?;
-        sync_directory(active_path)?;
-        crate::test_failpoint("after_install_rename")?;
-        let final_file =
-            verify_candidate_location(&paths.target, target, progress.state.targets[0])?;
-        publish_installed(journal, progress, final_file.identity.into())?;
+    } else {
+        let mode = target.new_file_mode.ok_or(FsError::InternalInvariant {
+            invariant: "new_target_has_recorded_mode",
+        })?;
+        set_mode(&paths.candidate, mode, &target.path)?;
     }
-    crate::test_failpoint("before_final_verification")?;
-    verify_candidate_location(&paths.target, target, progress.state.targets[0])?;
-    crate::test_failpoint("after_final_verification")?;
-    publish_transition(journal, progress, GlobalState::Committed, |_| {})?;
-    Ok(())
+    target_failpoint("before_install_rename", target_index)?;
+    no_replace_rename(&paths.candidate, &paths.target, "install_candidate")?;
+    sync_directory(&paths.parent)?;
+    sync_directory(active_path)?;
+    target_failpoint("after_install_rename", target_index)?;
+    let final_file =
+        verify_candidate_location(&paths.target, target, progress.state.targets[target_index])?;
+    publish_installed(journal, progress, target_index, final_file.identity.into())
 }
 
 fn publish_installed(
     journal: &mut TransactionJournal,
     progress: &mut Progress,
+    target_index: usize,
     identity: PersistedIdentity,
 ) -> Result<(), FsError> {
-    if progress.state.targets[0].commit.kind != CommitKind::Installed {
-        publish_transition(journal, progress, GlobalState::Committing, |target| {
-            target.commit.kind = CommitKind::Installed;
-            target.commit.identity = Some(identity);
-        })?;
+    if progress.state.targets[target_index].commit.kind != CommitKind::Installed {
+        publish_target_transition(
+            journal,
+            progress,
+            GlobalState::Committing,
+            target_index,
+            |target| {
+                target.commit.kind = CommitKind::Installed;
+                target.commit.identity = Some(identity);
+            },
+        )?;
     }
     Ok(())
 }
@@ -556,12 +655,6 @@ fn recover_locked(
         })?
         .to_path_buf();
     let mut loaded = load_active_transaction(transaction_id, active_path.clone())?;
-    if loaded.manifest.targets.len() != 1 {
-        return Err(FsError::RecoveryActionNotAllowed {
-            transaction_id: transaction_id.to_owned(),
-            reason: "phase_7_requires_single_target_transaction",
-        });
-    }
     match mode {
         RecoveryMode::Complete => {
             recover_complete_active(workspace, lock, &active_path, &mut loaded)?;
@@ -594,24 +687,28 @@ fn recover_complete_active(
             });
         }
         GlobalState::Committed => {
-            let target = &loaded.manifest.targets[0];
-            let paths = target_paths(workspace, active_path, target)?;
-            let observed = observe_target(target, &paths, &loaded.progress.state)?;
-            classify_recovery(
-                GlobalState::Committed,
-                target.original_existed,
-                loaded.progress.state.targets[0],
-                observed,
+            classify_all_targets(
+                workspace,
+                &loaded.manifest,
+                active_path,
+                &loaded.progress.state,
+                RecoveryMode::Complete,
             )?;
         }
         GlobalState::Prepared => {
             revalidate_manifest_inputs(workspace, &loaded.manifest)?;
+            classify_all_targets(
+                workspace,
+                &loaded.manifest,
+                active_path,
+                &loaded.progress.state,
+                RecoveryMode::Complete,
+            )?;
             lock.revalidate_control_identities()?;
-            publish_transition(
+            publish_global_transition(
                 &mut loaded.journal,
                 &mut loaded.progress,
                 GlobalState::Committing,
-                |_| {},
             )?;
             complete_commit_steps(
                 workspace,
@@ -657,51 +754,85 @@ fn recover_rollback_active(
         | GlobalState::Committing
         | GlobalState::RollingBack => {}
     }
-    let target = &loaded.manifest.targets[0];
-    let paths = target_paths(workspace, active_path, target)?;
-    let observed = observe_target(target, &paths, &loaded.progress.state)?;
-    let disposition = classify_recovery(
-        loaded.progress.state.global_state,
-        target.original_existed,
-        loaded.progress.state.targets[0],
-        observed,
+    classify_all_targets(
+        workspace,
+        &loaded.manifest,
+        active_path,
+        &loaded.progress.state,
+        RecoveryMode::Rollback,
     )?;
-    if !disposition.rollback {
-        return Err(FsError::RecoveryActionNotAllowed {
-            transaction_id: loaded.manifest.transaction_id.clone(),
-            reason: "transaction_cannot_be_rolled_back",
-        });
-    }
     if loaded.progress.state.global_state != GlobalState::RollingBack {
-        publish_transition(
+        publish_global_transition(
             &mut loaded.journal,
             &mut loaded.progress,
             GlobalState::RollingBack,
-            |_| {},
         )?;
     }
     lock.revalidate_control_identities()?;
-    crate::test_failpoint("before_rollback_target_step")?;
+    let rollback_result = rollback_all_targets(workspace, active_path, loaded).and_then(|()| {
+        publish_global_transition(
+            &mut loaded.journal,
+            &mut loaded.progress,
+            GlobalState::RolledBack,
+        )
+    });
+    if rollback_result.is_err() {
+        return Err(FsError::TransactionRecoveryRequired {
+            transaction_ids: vec![loaded.manifest.transaction_id.clone()],
+        });
+    }
+    lock.finish_transaction(&loaded.manifest.transaction_id, active_path, false)
+}
+
+fn rollback_all_targets(
+    workspace: &Workspace,
+    active_path: &Path,
+    loaded: &mut LoadedTransaction,
+) -> Result<(), FsError> {
+    for target_index in (0..loaded.manifest.targets.len()).rev() {
+        rollback_target(workspace, active_path, loaded, target_index)?;
+    }
+    classify_all_targets(
+        workspace,
+        &loaded.manifest,
+        active_path,
+        &loaded.progress.state,
+        RecoveryMode::Rollback,
+    )?;
+    Ok(())
+}
+
+fn rollback_target(
+    workspace: &Workspace,
+    active_path: &Path,
+    loaded: &mut LoadedTransaction,
+    target_index: usize,
+) -> Result<(), FsError> {
+    let target = &loaded.manifest.targets[target_index];
+    let paths = target_paths(workspace, active_path, target)?;
+    let state = loaded.progress.state.targets[target_index];
+    let observed = observe_target(target, &paths, state, loaded.progress.state.global_state)?;
+    target_failpoint("before_rollback_target_step", target_index)?;
     if observed.target == LocationObservation::Candidate {
-        verify_candidate_location(&paths.target, target, loaded.progress.state.targets[0])?;
+        verify_candidate_location(&paths.target, target, state)?;
         fs::remove_file(&paths.target).map_err(|error| {
             transaction_io("remove_installed_candidate", Some(&target.path), error)
         })?;
         sync_directory(&paths.parent)?;
     }
-    crate::test_failpoint("after_rollback_target_step")?;
-    crate::test_failpoint("before_rollback_restore_step")?;
+    target_failpoint("after_rollback_target_step", target_index)?;
+    target_failpoint("before_rollback_restore_step", target_index)?;
     if target.original_existed && paths.backup.exists() {
         verify_original_location(&paths.backup, target)?;
         no_replace_rename(&paths.backup, &paths.target, "restore_backup")?;
         sync_directory(&paths.parent)?;
         sync_directory(active_path)?;
     }
-    crate::test_failpoint("after_rollback_restore_step")?;
-    crate::test_failpoint("before_rollback_candidate_cleanup")?;
+    target_failpoint("after_rollback_restore_step", target_index)?;
+    target_failpoint("before_rollback_candidate_cleanup", target_index)?;
     if paths.candidate.exists() {
-        if loaded.progress.state.targets[0].candidate.kind == CandidateKind::Ready {
-            verify_candidate_location(&paths.candidate, target, loaded.progress.state.targets[0])?;
+        if state.candidate.kind == CandidateKind::Ready {
+            verify_candidate_location(&paths.candidate, target, state)?;
         } else {
             validate_partial_candidate(&paths.candidate)?;
         }
@@ -710,7 +841,7 @@ fn recover_rollback_active(
         })?;
         sync_directory(active_path)?;
     }
-    crate::test_failpoint("after_rollback_candidate_cleanup")?;
+    target_failpoint("after_rollback_candidate_cleanup", target_index)?;
 
     let restored = if target.original_existed {
         let original = verify_original_location(&paths.target, target)?;
@@ -734,23 +865,18 @@ fn recover_rollback_active(
             identity: None,
         }
     };
-    crate::test_failpoint("before_rollback_verification")?;
-    crate::test_failpoint("after_rollback_verification")?;
-    if loaded.progress.state.targets[0].rollback.kind == RollbackKind::None {
-        publish_transition(
+    target_failpoint("before_rollback_verification", target_index)?;
+    target_failpoint("after_rollback_verification", target_index)?;
+    if loaded.progress.state.targets[target_index].rollback.kind == RollbackKind::None {
+        publish_target_transition(
             &mut loaded.journal,
             &mut loaded.progress,
             GlobalState::RollingBack,
+            target_index,
             |state| state.rollback = restored,
         )?;
     }
-    publish_transition(
-        &mut loaded.journal,
-        &mut loaded.progress,
-        GlobalState::RolledBack,
-        |_| {},
-    )?;
-    lock.finish_transaction(&loaded.manifest.transaction_id, active_path, false)
+    Ok(())
 }
 
 fn revalidate_manifest_inputs(workspace: &Workspace, manifest: &Manifest) -> Result<(), FsError> {
@@ -831,11 +957,37 @@ struct Progress {
     checksum: String,
 }
 
+fn publish_global_transition(
+    journal: &mut TransactionJournal,
+    progress: &mut Progress,
+    global_state: GlobalState,
+) -> Result<(), FsError> {
+    publish_transition(journal, progress, global_state, |_| Ok(()))
+}
+
+fn publish_target_transition(
+    journal: &mut TransactionJournal,
+    progress: &mut Progress,
+    global_state: GlobalState,
+    target_index: usize,
+    update: impl FnOnce(&mut TargetState),
+) -> Result<(), FsError> {
+    publish_transition(journal, progress, global_state, |targets| {
+        let target = targets
+            .get_mut(target_index)
+            .ok_or(FsError::InternalInvariant {
+                invariant: "state_target_index_exists",
+            })?;
+        update(target);
+        Ok(())
+    })
+}
+
 fn publish_transition(
     journal: &mut TransactionJournal,
     progress: &mut Progress,
     global_state: GlobalState,
-    update: impl FnOnce(&mut TargetState),
+    update: impl FnOnce(&mut [TargetState]) -> Result<(), FsError>,
 ) -> Result<(), FsError> {
     let mut next = progress.state.clone();
     next.sequence = next
@@ -846,16 +998,16 @@ fn publish_transition(
         })?;
     next.prior_state_checksum = Some(progress.checksum.clone());
     next.global_state = global_state;
-    update(&mut next.targets[0]);
+    update(&mut next.targets)?;
     let checksum = journal.publish_state(&next)?;
     progress.state = next;
     progress.checksum = checksum;
     Ok(())
 }
 
-const fn untouched_target_state() -> TargetState {
+const fn untouched_target_state(target_index: u64) -> TargetState {
     TargetState {
-        target_index: 0,
+        target_index,
         candidate: CandidateState {
             kind: CandidateKind::Missing,
             identity: None,
@@ -1002,15 +1154,55 @@ fn target_paths(
 fn observe_target(
     target: &ManifestTarget,
     paths: &TargetPaths,
-    state: &StateSnapshot,
+    recorded: TargetState,
+    global_state: GlobalState,
 ) -> Result<SyntheticTargetObservation, FsError> {
-    let recorded = state.targets[0];
     Ok(SyntheticTargetObservation {
         parent_matches: true,
-        target: classify_location(&paths.target, target, recorded, false, state.global_state)?,
-        candidate: classify_location(&paths.candidate, target, recorded, true, state.global_state)?,
+        target: classify_location(&paths.target, target, recorded, false, global_state)?,
+        candidate: classify_location(&paths.candidate, target, recorded, true, global_state)?,
         backup: classify_backup(&paths.backup, target)?,
     })
+}
+
+fn classify_all_targets(
+    workspace: &Workspace,
+    manifest: &Manifest,
+    active_path: &Path,
+    state: &StateSnapshot,
+    mode: RecoveryMode,
+) -> Result<(), FsError> {
+    for (index, target) in manifest.targets.iter().enumerate() {
+        let recorded = state
+            .targets
+            .get(index)
+            .copied()
+            .ok_or(FsError::InternalInvariant {
+                invariant: "manifest_and_state_target_counts_match",
+            })?;
+        let paths = target_paths(workspace, active_path, target)?;
+        let observed = observe_target(target, &paths, recorded, state.global_state)?;
+        let disposition = classify_recovery(
+            state.global_state,
+            target.original_existed,
+            recorded,
+            observed,
+        )?;
+        let allowed = match mode {
+            RecoveryMode::Complete => disposition.complete || disposition.cleanup_only,
+            RecoveryMode::Rollback => disposition.rollback || disposition.cleanup_only,
+        };
+        if !allowed {
+            return Err(FsError::RecoveryActionNotAllowed {
+                transaction_id: manifest.transaction_id.clone(),
+                reason: match mode {
+                    RecoveryMode::Complete => "transaction_cannot_be_completed",
+                    RecoveryMode::Rollback => "transaction_cannot_be_rolled_back",
+                },
+            });
+        }
+    }
+    Ok(())
 }
 
 fn classify_location(
@@ -1215,6 +1407,11 @@ fn no_replace_rename(
             ),
         },
     )
+}
+
+fn target_failpoint(name: &str, target_index: usize) -> Result<(), FsError> {
+    crate::test_failpoint(name)?;
+    crate::test_failpoint(&format!("{name}_target-{target_index:08}"))
 }
 
 fn ensure_qualified_filesystem(path: &Path) -> Result<(), FsError> {

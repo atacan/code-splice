@@ -273,7 +273,8 @@
             "transaction_state",
             "files_changed",
             "preserved_permission_modes",
-            "recoverability_status"
+            "recoverability_status",
+            "visibility"
           ],
           "properties": {
             "transaction_id": { "type": ["string", "null"], "pattern": "^[0-9a-f]{32}$" },
@@ -283,7 +284,8 @@
               "type": "object",
               "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 4095 }
             },
-            "recoverability_status": { "enum": ["complete", "recovery_required"] }
+            "recoverability_status": { "enum": ["complete", "recovery_required"] },
+            "visibility": { "const": "recoverable_not_atomic" }
           }
         }
       ],
@@ -326,7 +328,7 @@
     "recovery_entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["transaction_id", "classification", "actions"],
+      "required": ["transaction_id", "classification", "actions", "visibility"],
       "properties": {
         "transaction_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
         "classification": {
@@ -336,6 +338,9 @@
           "type": "array",
           "items": { "enum": ["status", "complete", "rollback", "cleanup"] },
           "uniqueItems": true
+        },
+        "visibility": {
+          "enum": ["all_original", "mixed_old_new_possible", "all_planned"]
         }
       }
     },

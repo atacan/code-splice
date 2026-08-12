@@ -297,40 +297,6 @@ fn single_target_commit_should_keep_mismatch_and_noop_noncreating() {
 }
 
 #[test]
-fn single_target_commit_should_reject_cross_file_move_before_transaction_creation() {
-    let workspace = TempDir::new().expect("workspace should be created");
-    fs::write(workspace.path().join("source"), b"abc").expect("source should be written");
-    fs::write(workspace.path().join("target"), b"xyz").expect("target should be written");
-    let request = json!({
-        "protocol_version":1,
-        "operations":[{
-            "kind":"move",
-            "source":{"path":"source","selector":{"kind":"bytes","start":0,"end":1},"precondition":{"kind":"sha256","value":digest(b"abc")}},
-            "destination":{"path":"target","anchor":{"kind":"file_end"},"precondition":{"kind":"sha256","value":digest(b"xyz")}}
-        }]
-    });
-
-    let output = invoke(
-        &workspace,
-        &[
-            "apply",
-            "--request",
-            "-",
-            "--commit",
-            "--accept-current-plan",
-            "--json",
-        ],
-        &request,
-    );
-    let error = report(&output);
-
-    assert_eq!(output.status.code(), Some(4));
-    assert_eq!(error["code"], "RESOURCE_LIMIT_EXCEEDED");
-    assert_eq!(error["context"]["resource"], "changed_targets");
-    assert!(!workspace.path().join(".codesplice").exists());
-}
-
-#[test]
 fn single_target_commit_should_reject_a_prelock_plan_identity_change_without_transaction() {
     let workspace = TempDir::new().expect("workspace should be created");
     fs::write(workspace.path().join("source"), b"payload").expect("source should be written");

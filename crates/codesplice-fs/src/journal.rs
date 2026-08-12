@@ -119,7 +119,7 @@ pub struct ManifestInput {
     pub link_count: Option<u64>,
 }
 
-/// A source segment retained for Phase 7 candidate streaming.
+/// A source segment retained for candidate streaming.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestSegment {

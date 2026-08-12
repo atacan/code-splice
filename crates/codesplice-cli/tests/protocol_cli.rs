@@ -79,7 +79,7 @@ fn protocol_version_command_should_match_golden_output() {
 }
 
 #[test]
-fn phase_seven_execution_commands_should_reach_workspace_validation() {
+fn phase_eight_execution_commands_should_reach_workspace_validation() {
     let transaction_id = "0123456789abcdef0123456789abcdef";
     let cases = vec![
         (

@@ -52,13 +52,18 @@ The private payload schemas are
 `docs/schema/transaction-v1/state.schema.json`; golden JSON and complete envelope
 bytes are under `tests/golden/transaction-v1/`.
 
-## Phase 7 single-target boundary
+## Phase 8 multi-target execution
 
 `recover --list` and `recover ID --status` are read-only and create nothing. They
 take a nonblocking shared lock when a valid control tree exists. Explicit recovery
-can complete or roll back every valid single-target state, including filesystem
-lag after candidate, backup, install, rollback, terminal rename, and cleanup steps.
-Candidate identity is authoritative even when replacement bytes are equal. A
+classifies every target before changing any of them, then completes in normalized
+UTF-8 path order or rolls back in reverse order. Candidate identity is authoritative
+even when replacement bytes are equal. Each candidate readiness, target backup,
+install, and rollback restoration publishes a full indexed state snapshot. A
 new-transaction gate rejects every active transaction and may delete only fully
-validated suffix-classified cleanup-only directories. Phase 8 removes the temporary
-one-changed-target admission guard without introducing a second engine.
+validated suffix-classified cleanup-only directories.
+
+Commit responses state that visibility is `recoverable_not_atomic`. Recovery
+reports classify visibility as `all_original`, `mixed_old_new_possible`, or
+`all_planned`; the mixed classification is expected during `Committing` and
+`RollingBack` and does not weaken transaction-wide recovery.

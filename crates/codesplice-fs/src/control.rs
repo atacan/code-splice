@@ -60,6 +60,7 @@ pub struct RecoveryEntry {
     transaction_id: String,
     kind: RecoveryEntryKind,
     actions: Vec<&'static str>,
+    visibility: &'static str,
     active_path: Option<PathBuf>,
     completed_path: Option<PathBuf>,
 }
@@ -81,6 +82,12 @@ impl RecoveryEntry {
     #[must_use]
     pub fn actions(&self) -> &[&'static str] {
         &self.actions
+    }
+
+    /// Current target-visibility classification for recovery reporting.
+    #[must_use]
+    pub const fn visibility(&self) -> &'static str {
+        self.visibility
     }
 
     pub(crate) fn active_path(&self) -> Option<&Path> {
@@ -178,7 +185,7 @@ impl MutationLock {
     /// Revalidates the root, control directories, and lock entry against the
     /// identities captured immediately after lock acquisition.
     ///
-    /// Phase 7 calls this immediately before its first user-target mutation.
+    /// Commit and recovery call this immediately before user-target mutation.
     ///
     /// # Errors
     ///
@@ -676,7 +683,7 @@ fn scan_control(
     for entry in read_directory_sorted(&paths.completed)? {
         scanned = charge_directory(scanned, limits)?;
         let name = utf8_name(&entry)?;
-        let (id, _) =
+        let (id, terminal_state) =
             parse_completed_name(&name).ok_or_else(|| corrupt(None, "completed_name_invalid"))?;
         validate_transaction_directory(&entry.path())?;
         validate_completed_contents(&entry.path(), &id, &mut cumulative_bytes, limits)?;
@@ -684,6 +691,11 @@ fn scan_control(
             transaction_id: id.clone(),
             kind: RecoveryEntryKind::CleanupOnly,
             actions: vec!["status", "cleanup"],
+            visibility: if terminal_state == "committed" {
+                "all_planned"
+            } else {
+                "all_original"
+            },
             active_path: None,
             completed_path: Some(entry.path()),
         };
@@ -722,6 +734,7 @@ fn inspect_active_transaction(
             transaction_id: id.to_owned(),
             kind: RecoveryEntryKind::OrphanRecord,
             actions: vec!["status", "rollback"],
+            visibility: "all_original",
             active_path: Some(path.to_path_buf()),
             completed_path: None,
         });
@@ -750,6 +763,7 @@ fn inspect_active_transaction(
             transaction_id: id.to_owned(),
             kind: RecoveryEntryKind::ManifestOnly,
             actions: vec!["status", "rollback"],
+            visibility: "all_original",
             active_path: Some(path.to_path_buf()),
             completed_path: None,
         });
@@ -782,6 +796,7 @@ fn inspect_active_transaction(
         transaction_id: id.to_owned(),
         kind: RecoveryEntryKind::Active,
         actions,
+        visibility: visibility_for_state(last_state.global_state),
         active_path: Some(path.to_path_buf()),
         completed_path: None,
     })
@@ -967,6 +982,14 @@ fn actions_for_state(state: GlobalState) -> Vec<&'static str> {
         GlobalState::Prepared | GlobalState::Committing => vec!["status", "complete", "rollback"],
         GlobalState::Committed | GlobalState::RolledBack => vec!["status", "cleanup"],
         GlobalState::RollingBack => vec!["status", "rollback"],
+    }
+}
+
+const fn visibility_for_state(state: GlobalState) -> &'static str {
+    match state {
+        GlobalState::Preparing | GlobalState::Prepared | GlobalState::RolledBack => "all_original",
+        GlobalState::Committing | GlobalState::RollingBack => "mixed_old_new_possible",
+        GlobalState::Committed => "all_planned",
     }
 }
 
