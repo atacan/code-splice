@@ -41,3 +41,11 @@ response charge is a conservative structural bound of 1,024 base bytes, 1,024
 bytes plus paths per resolved operation, 512 bytes plus path per output, and 512
 bytes per segment; Phase 6 additionally enforces the exact serialized response
 limit.
+
+Phase 5 bounds the complete binary envelope for each manifest or state record at
+16 MiB, validates no more than 100 targets and 512 contiguous state snapshots,
+and caps cumulative state records at 128 MiB. A diagnostic scan visits at most 100
+active-plus-completed transaction directories and reads at most 256 MiB across
+records and authorized artifacts. Checked arithmetic precedes every cumulative
+charge. Persisted data beyond a structural bound is rejected rather than partially
+interpreted or guessed through.

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codesplice.dev/schema/transaction-v1/state.schema.json",
+  "title": "CodeSplice transaction state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["transaction_version", "sequence", "manifest_checksum", "prior_state_checksum", "global_state", "targets"],
+  "properties": {
+    "transaction_version": { "const": 1 },
+    "sequence": { "type": "integer", "minimum": 0, "maximum": 511 },
+    "manifest_checksum": { "$ref": "#/$defs/digest" },
+    "prior_state_checksum": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "global_state": { "enum": ["preparing", "prepared", "committing", "committed", "rolling_back", "rolled_back"] },
+    "targets": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/target_state" } }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "inode"],
+      "properties": {
+        "device": { "type": "integer", "minimum": 0 },
+        "inode": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity"],
+      "properties": {
+        "kind": { "enum": ["missing", "ready"] },
+        "identity": { "oneOf": [{ "$ref": "#/$defs/identity" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "missing" } } },
+          "then": { "properties": { "identity": { "type": "null" } } },
+          "else": { "properties": { "identity": { "$ref": "#/$defs/identity" } } }
+        }
+      ]
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity", "preserved_mode"],
+      "properties": {
+        "kind": { "enum": ["untouched", "backed_up", "installed"] },
+        "identity": { "oneOf": [{ "$ref": "#/$defs/identity" }, { "type": "null" }] },
+        "preserved_mode": { "type": ["integer", "null"], "minimum": 0, "maximum": 4095 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "untouched" } } },
+          "then": { "properties": { "identity": { "type": "null" }, "preserved_mode": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "backed_up" } } },
+          "then": { "properties": { "identity": { "$ref": "#/$defs/identity" }, "preserved_mode": { "type": "integer", "minimum": 0, "maximum": 4095 } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "installed" } } },
+          "then": { "properties": { "identity": { "$ref": "#/$defs/identity" } } }
+        }
+      ]
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity"],
+      "properties": {
+        "kind": { "enum": ["none", "original_restored", "absence_restored"] },
+        "identity": { "oneOf": [{ "$ref": "#/$defs/identity" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "original_restored" } } },
+          "then": { "properties": { "identity": { "$ref": "#/$defs/identity" } } },
+          "else": { "properties": { "identity": { "type": "null" } } }
+        }
+      ]
+    },
+    "target_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_index", "candidate", "commit", "rollback"],
+      "properties": {
+        "target_index": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "candidate": { "$ref": "#/$defs/candidate" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "rollback": { "$ref": "#/$defs/rollback" }
+      }
+    }
+  }
+}

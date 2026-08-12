@@ -1,0 +1,15 @@
+{
+  "transaction_version": 1,
+  "sequence": 0,
+  "manifest_checksum": "sha256:9ecc21f85fb879aa36a28a32b4228cef2376e026b6dd0230b377426aec721e9f",
+  "prior_state_checksum": null,
+  "global_state": "preparing",
+  "targets": [
+    {
+      "target_index": 0,
+      "candidate": { "kind": "missing", "identity": null },
+      "commit": { "kind": "untouched", "identity": null, "preserved_mode": null },
+      "rollback": { "kind": "none", "identity": null }
+    }
+  ]
+}

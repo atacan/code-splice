@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Read-only workspace inspection and immutable snapshot acquisition.
+//! Workspace inspection, immutable snapshots, and persistent transaction control.
 //!
 //! This crate owns canonical workspace resolution, strict relative-path walks,
 //! POSIX physical identities, bounded stable reads, and snapshot accounting. It
@@ -20,6 +20,26 @@ use codesplice_core::{
     SnapshotFileId, WorkspaceRelativePath, WorkspaceSnapshot,
 };
 use sha2::{Digest, Sha256};
+
+mod control;
+mod journal;
+mod recovery_classifier;
+
+pub use control::{
+    ControlObservation, DiagnosticLock, MutationLock, RecoveryEntry, RecoveryEntryKind,
+    TransactionDirectory,
+};
+pub use journal::{
+    CandidateKind, CandidateState, CommitKind, CommitState, GlobalState, Manifest, ManifestInput,
+    ManifestSegment, ManifestTarget, MetadataPolicy, PersistedIdentity, RollbackKind,
+    RollbackState, StateSnapshot, TargetState, TransactionJournal, TransactionLimits,
+    decode_manifest_record, decode_manifest_record_with_limits, decode_state_record,
+    decode_state_record_with_limits, encode_manifest_record, encode_manifest_record_with_limits,
+    encode_state_record, encode_state_record_with_limits, validate_state_transition,
+};
+pub use recovery_classifier::{
+    LocationObservation, RecoveryDisposition, SyntheticTargetObservation, classify_recovery,
+};
 
 /// Maximum bytes in one immutable file snapshot.
 pub const MAX_SNAPSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -642,6 +662,42 @@ pub enum FsError {
         /// Configured maximum.
         limit: u64,
     },
+    /// Another process holds an incompatible workspace control lock.
+    TransactionBusy,
+    /// One or more active transaction directories require explicit recovery.
+    TransactionRecoveryRequired {
+        /// Canonical active transaction identifiers, sorted lexicographically.
+        transaction_ids: Vec<String>,
+    },
+    /// A requested canonical transaction identifier does not exist.
+    TransactionNotFound {
+        /// Requested identifier.
+        transaction_id: String,
+    },
+    /// The requested recovery action is not safe for the current journal state.
+    RecoveryActionNotAllowed {
+        /// Canonical transaction identifier.
+        transaction_id: String,
+        /// Stable reason for refusing the action.
+        reason: &'static str,
+    },
+    /// The control tree violates its ownership, type, naming, or permission rules.
+    ControlDirectoryInvalid {
+        /// Stable validation reason.
+        reason: &'static str,
+    },
+    /// A persistent transaction record or directory is corrupt.
+    TransactionRecordCorrupt {
+        /// Canonical transaction identifier when one could be established.
+        transaction_id: Option<String>,
+        /// Stable corruption reason.
+        reason: &'static str,
+    },
+    /// Filesystem observations cannot be reconciled with the journal.
+    RecoveryConflict {
+        /// Stable classification reason.
+        reason: &'static str,
+    },
     /// A filesystem read or metadata operation failed.
     Io {
         /// Stable operation name.
@@ -698,6 +754,39 @@ impl fmt::Display for FsError {
                 formatter,
                 "resource limit exceeded for {resource}: {actual} > {limit}"
             ),
+            Self::TransactionBusy => write!(formatter, "workspace transaction lock is busy"),
+            Self::TransactionRecoveryRequired { transaction_ids } => write!(
+                formatter,
+                "unfinished transactions require recovery: {}",
+                transaction_ids.join(", ")
+            ),
+            Self::TransactionNotFound { transaction_id } => {
+                write!(formatter, "transaction not found: {transaction_id}")
+            }
+            Self::RecoveryActionNotAllowed {
+                transaction_id,
+                reason,
+            } => write!(
+                formatter,
+                "recovery action is not allowed for {transaction_id}: {reason}"
+            ),
+            Self::ControlDirectoryInvalid { reason } => {
+                write!(formatter, "invalid control directory: {reason}")
+            }
+            Self::TransactionRecordCorrupt {
+                transaction_id,
+                reason,
+            } => write!(
+                formatter,
+                "transaction record is corrupt{}: {reason}",
+                transaction_id
+                    .as_deref()
+                    .map(|id| format!(" ({id})"))
+                    .unwrap_or_default()
+            ),
+            Self::RecoveryConflict { reason } => {
+                write!(formatter, "recovery classification conflict: {reason}")
+            }
             Self::Io {
                 operation, kind, ..
             } => write!(formatter, "I/O failure during {operation}: {kind:?}"),

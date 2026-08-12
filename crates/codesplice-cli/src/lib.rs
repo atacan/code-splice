@@ -19,8 +19,9 @@ use clap::{ArgAction, Args, Parser, Subcommand};
 use codesplice_fs::{FsError, InspectedState, SnapshotLimits, Workspace};
 use codesplice_protocol::{
     CapabilitiesResponse, ErrorCode, ErrorDto, InspectPathResponse, InspectResponse,
-    MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, ProtocolVersionResponse, WarningCode,
-    WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
+    MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, ProtocolVersionResponse,
+    RecoveryEntryResponse, RecoveryListResponse, RecoveryStatusResponse, WarningCode, WarningDto,
+    escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
 };
 use serde_json::json;
 
@@ -179,7 +180,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
     match cli.command {
         Command::Capabilities(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
-            serialize_success(&CapabilitiesResponse::phase_three(), arguments.json)
+            serialize_success(&CapabilitiesResponse::phase_five(), arguments.json)
         }
         Command::ProtocolVersion(arguments) => {
             reject_workspace_for_target_independent(has_workspace, arguments.json)?;
@@ -190,21 +191,7 @@ fn execute(cli: Cli, stdin: &mut dyn Read) -> Result<String, (ErrorDto, bool)> {
             execute_inspect(cli.workspace.as_deref(), arguments)
         }
         Command::Apply(arguments) => execute_apply(arguments, stdin),
-        Command::Recover(arguments) => {
-            let route = if arguments.action.list {
-                "recovery_list"
-            } else if arguments.action.status {
-                "recovery_status"
-            } else if arguments.action.complete {
-                "recovery_complete"
-            } else if arguments.action.rollback {
-                "recovery_rollback"
-            } else {
-                "recovery"
-            };
-            let _transaction_id = arguments.id;
-            Err((development_unimplemented(route), arguments.json))
-        }
+        Command::Recover(arguments) => execute_recovery(cli.workspace.as_deref(), arguments),
     }
 }
 
@@ -330,6 +317,56 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             actual,
             limit,
         }) => limit_error(resource, actual, limit),
+        FsError::TransactionBusy => ErrorDto::new(
+            ErrorCode::TransactionBusy,
+            "another CodeSplice process holds the workspace lock",
+            BTreeMap::new(),
+        ),
+        FsError::TransactionRecoveryRequired { transaction_ids } => ErrorDto::new(
+            ErrorCode::TransactionRecoveryRequired,
+            "unfinished transactions require explicit recovery",
+            BTreeMap::from([("transaction_ids".to_string(), json!(transaction_ids))]),
+        ),
+        FsError::TransactionNotFound { transaction_id } => ErrorDto::new(
+            ErrorCode::TransactionNotFound,
+            "the requested transaction does not exist",
+            BTreeMap::from([("transaction_id".to_string(), json!(transaction_id))]),
+        ),
+        FsError::RecoveryActionNotAllowed {
+            transaction_id,
+            reason,
+        } => ErrorDto::new(
+            ErrorCode::RecoveryActionNotAllowed,
+            "the requested recovery action is not safe in the current state",
+            BTreeMap::from([
+                ("reason".to_string(), json!(reason)),
+                ("transaction_id".to_string(), json!(transaction_id)),
+            ]),
+        ),
+        FsError::ControlDirectoryInvalid { reason } => ErrorDto::new(
+            ErrorCode::ControlDirectoryInvalid,
+            "the workspace control tree is invalid",
+            BTreeMap::from([("reason".to_string(), json!(reason))]),
+        ),
+        FsError::TransactionRecordCorrupt {
+            transaction_id,
+            reason,
+        } => {
+            let mut context = BTreeMap::from([("reason".to_string(), json!(reason))]);
+            if let Some(transaction_id) = transaction_id {
+                context.insert("transaction_id".to_string(), json!(transaction_id));
+            }
+            ErrorDto::new(
+                ErrorCode::TransactionRecordCorrupt,
+                "a transaction record is corrupt",
+                context,
+            )
+        }
+        FsError::RecoveryConflict { reason } => ErrorDto::new(
+            ErrorCode::RecoveryConflict,
+            "filesystem observations conflict with the transaction journal",
+            BTreeMap::from([("reason".to_string(), json!(reason))]),
+        ),
         FsError::Io {
             operation,
             path,
@@ -356,9 +393,111 @@ fn filesystem_error(error: FsError) -> ErrorDto {
         ),
         _ => ErrorDto::new(
             ErrorCode::InternalError,
-            "an unrecognized workspace inspection error occurred",
+            "an unrecognized filesystem error occurred",
             BTreeMap::new(),
         ),
+    }
+}
+
+fn execute_recovery(
+    workspace_path: Option<&std::path::Path>,
+    arguments: RecoverArgs,
+) -> Result<String, (ErrorDto, bool)> {
+    if let Some(transaction_id) = arguments.id.as_deref() {
+        validate_transaction_id_argument(transaction_id)
+            .map_err(|report| (report, arguments.json))?;
+    }
+    let workspace = Workspace::open(workspace_path.unwrap_or_else(|| std::path::Path::new(".")))
+        .map_err(|error| (filesystem_error(error), arguments.json))?;
+    if arguments.action.list {
+        let observation = workspace
+            .recovery_list()
+            .map_err(|error| (filesystem_error(error), arguments.json))?;
+        if arguments.json {
+            let entries = observation
+                .entries()
+                .iter()
+                .map(recovery_entry_response)
+                .collect();
+            return serialize_success(&RecoveryListResponse::new(entries), true);
+        }
+        let mut output = String::new();
+        for entry in observation.entries() {
+            output.push_str(&format!(
+                "{} {} [{}]\n",
+                entry.transaction_id(),
+                entry.kind().as_str(),
+                entry.actions().join(",")
+            ));
+        }
+        return Ok(output);
+    }
+
+    let transaction_id = arguments.id.as_deref().ok_or_else(|| {
+        (
+            ErrorDto::new(
+                ErrorCode::InvalidCli,
+                "recovery requires a transaction ID",
+                BTreeMap::new(),
+            ),
+            arguments.json,
+        )
+    })?;
+    if arguments.action.status {
+        let entry = workspace
+            .recovery_status(transaction_id)
+            .map_err(|error| (filesystem_error(error), arguments.json))?;
+        if arguments.json {
+            return serialize_success(
+                &RecoveryStatusResponse::new(recovery_entry_response(&entry)),
+                true,
+            );
+        }
+        return Ok(format!(
+            "{} {} [{}]\n",
+            entry.transaction_id(),
+            entry.kind().as_str(),
+            entry.actions().join(",")
+        ));
+    }
+    if arguments.action.rollback {
+        workspace
+            .recovery_rollback_control_only(transaction_id)
+            .map_err(|error| (filesystem_error(error), arguments.json))?;
+        let completed =
+            RecoveryEntryResponse::new(transaction_id, "cleanup_only", std::iter::empty::<&str>());
+        if arguments.json {
+            return serialize_success(&RecoveryStatusResponse::new(completed), true);
+        }
+        return Ok(format!("{transaction_id} rolled_back_control_only\n"));
+    }
+    Err((
+        development_unimplemented("recovery_complete"),
+        arguments.json,
+    ))
+}
+
+fn recovery_entry_response(entry: &codesplice_fs::RecoveryEntry) -> RecoveryEntryResponse {
+    RecoveryEntryResponse::new(
+        entry.transaction_id(),
+        entry.kind().as_str(),
+        entry.actions().iter().copied(),
+    )
+}
+
+fn validate_transaction_id_argument(transaction_id: &str) -> Result<(), ErrorDto> {
+    if transaction_id.len() == 32
+        && transaction_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Ok(())
+    } else {
+        Err(ErrorDto::new(
+            ErrorCode::InvalidRequest,
+            "the transaction ID must be exactly 32 lowercase hexadecimal characters",
+            BTreeMap::from([("reason".to_string(), json!("invalid_transaction_id"))]),
+        ))
     }
 }
 

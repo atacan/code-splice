@@ -14,6 +14,13 @@ are revalidated before mutation. Changed existing files with multiple hard links
 are rejected. All target backup, install, and restore renames require native
 no-replace semantics.
 
+The `.codesplice` control tree and transaction directories must be real objects
+owned by the effective user and must not be group- or other-writable; transaction
+directories are mode `0700`. The lock is a real regular file and is never repaired
+silently. Mutation uses a nonblocking exclusive advisory lock, diagnostics use a
+nonblocking shared lock, and ordinary replacement is detected by retained physical
+identities before any future target mutation.
+
 Linux x86_64/ext4 and macOS arm64/APFS local filesystems are the only pilot
 configurations. Windows, network filesystems, hostile namespace-race resistance,
 and power-loss durability are outside the `v0.1.0` claim.

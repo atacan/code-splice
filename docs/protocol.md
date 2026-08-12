@@ -19,11 +19,13 @@ interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
 
-At the Phase 3 checkpoint, `inspect --json`, `capabilities --json`, and
-`protocol-version --json` are fully implemented. Inspection uses bounded immutable
-reads and never writes to the workspace. Commands that require planning or
-transactions validate their arguments and request, then return `INTERNAL_ERROR`
-with `development_only: true`; they never report simulated success.
+At the Phase 5 checkpoint, `inspect --json`, `recover --list`, recovery status,
+control-only rollback for canonical orphan/manifest-only records,
+`capabilities --json`, and `protocol-version --json` are implemented. Read-only
+recovery creates nothing and uses the existing shared control lock when present.
+Preview, commit, recovery completion, and any rollback that could change a user
+target remain explicit development-only routes; they never report simulated
+success.
 
 JSON mode writes exactly one UTF-8 JSON value followed by LF to stdout. Human
 diagnostics use stderr and visibly escape terminal control and bidi characters.

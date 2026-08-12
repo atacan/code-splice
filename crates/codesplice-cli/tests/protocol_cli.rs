@@ -127,23 +127,8 @@ fn every_execution_command_should_validate_then_match_its_golden_stub() {
             valid_request(),
         ),
         (
-            "recovery_list",
-            vec!["recover", "--list", "--json"],
-            Vec::new(),
-        ),
-        (
-            "recovery_status",
-            vec!["recover", transaction_id, "--status", "--json"],
-            Vec::new(),
-        ),
-        (
             "recovery_complete",
             vec!["recover", transaction_id, "--complete", "--json"],
-            Vec::new(),
-        ),
-        (
-            "recovery_rollback",
-            vec!["recover", transaction_id, "--rollback", "--json"],
             Vec::new(),
         ),
     ];

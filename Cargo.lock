@@ -144,6 +144,7 @@ dependencies = [
  "codesplice-protocol",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -159,7 +160,12 @@ name = "codesplice-fs"
 version = "0.1.0"
 dependencies = [
  "codesplice-core",
+ "getrandom 0.3.4",
+ "rustix",
+ "serde",
+ "serde_json",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]

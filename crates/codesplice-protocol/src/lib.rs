@@ -611,6 +611,92 @@ impl CapabilitiesResponse {
             },
         }
     }
+
+    /// Returns the capabilities truthfully available at the Phase 5 checkpoint.
+    #[must_use]
+    pub const fn phase_five() -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            implementation_phase: 5,
+            operations: ["move", "copy"],
+            selectors: ["lines", "bytes"],
+            anchors: [
+                "file_start",
+                "file_end",
+                "before_line",
+                "after_line",
+                "byte_offset",
+            ],
+            preconditions: ["sha256", "must_not_exist"],
+            features: FeatureAvailability {
+                request_parsing: true,
+                workspace_inspection: true,
+                preview: false,
+                commit: false,
+                recovery: true,
+            },
+        }
+    }
+}
+
+/// One validated transaction shown by recovery list or status.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RecoveryEntryResponse {
+    transaction_id: String,
+    classification: String,
+    actions: Vec<String>,
+}
+
+impl RecoveryEntryResponse {
+    /// Creates a recovery entry from validated filesystem-layer values.
+    #[must_use]
+    pub fn new(
+        transaction_id: impl Into<String>,
+        classification: impl Into<String>,
+        actions: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            transaction_id: transaction_id.into(),
+            classification: classification.into(),
+            actions: actions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Successful response for `recover --list`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RecoveryListResponse {
+    protocol_version: u64,
+    transactions: Vec<RecoveryEntryResponse>,
+}
+
+impl RecoveryListResponse {
+    /// Creates a protocol-v1 recovery listing.
+    #[must_use]
+    pub const fn new(transactions: Vec<RecoveryEntryResponse>) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            transactions,
+        }
+    }
+}
+
+/// Successful response for `recover ID --status` and control-only rollback.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RecoveryStatusResponse {
+    protocol_version: u64,
+    transaction: RecoveryEntryResponse,
+}
+
+impl RecoveryStatusResponse {
+    /// Creates a protocol-v1 recovery status.
+    #[must_use]
+    pub const fn new(transaction: RecoveryEntryResponse) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            transaction,
+        }
+    }
 }
 
 /// Parses and validates one protocol-v1 request using release resource limits.

@@ -1,0 +1,38 @@
+{
+  "transaction_version": 1,
+  "transaction_id": "0123456789abcdef0123456789abcdef",
+  "workspace_identity": { "device": 7, "inode": 11 },
+  "plan_sha256": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "inputs": [
+    {
+      "path": "src/input.rs",
+      "parent_identity": { "device": 7, "inode": 11 },
+      "existed": true,
+      "file_identity": { "device": 7, "inode": 12 },
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "length": 4,
+      "link_count": 1
+    }
+  ],
+  "targets": [
+    {
+      "target_index": 0,
+      "path": "src/output.rs",
+      "parent_identity": { "device": 7, "inode": 11 },
+      "original_existed": false,
+      "original_identity": null,
+      "original_sha256": null,
+      "original_length": null,
+      "candidate_name": "candidate-00000000",
+      "backup_name": "backup-00000000",
+      "candidate_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "candidate_length": 4,
+      "metadata_policy": "new_file_mode",
+      "new_file_mode": 420,
+      "segments": [
+        { "input_index": 0, "start": 0, "end": 4, "operation_index": 0 }
+      ]
+    }
+  ],
+  "metadata_limitations": ["ownership", "acl", "xattrs", "timestamps"]
+}
