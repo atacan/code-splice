@@ -63,7 +63,7 @@ an implementation decision, not an open product question.
 | Phase | Name | Status |
 |---|---|---|
 | Planning gate | Scope and decisions | Complete |
-| 1 | Workspace, contracts, and test foundation | Not started |
+| 1 | Workspace, contracts, and test foundation | Complete |
 | 2 | Protocol v1 and CLI shell | Not started |
 | 3 | Workspace inspection and immutable snapshots | Not started |
 | 4 | Pure planner and plan digest | Not started |

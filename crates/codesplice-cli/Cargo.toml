@@ -1,0 +1,20 @@
+[package]
+name = "codesplice-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line application for CodeSplice"
+
+[[bin]]
+name = "codesplice"
+path = "src/main.rs"
+
+[dependencies]
+codesplice-core = { path = "../codesplice-core" }
+codesplice-fs = { path = "../codesplice-fs" }
+codesplice-protocol = { path = "../codesplice-protocol" }
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "codesplice-fs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Filesystem boundary for CodeSplice"
+
+[dependencies]
+codesplice-core = { path = "../codesplice-core" }
+
+[lints]
+workspace = true

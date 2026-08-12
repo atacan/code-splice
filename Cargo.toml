@@ -1,0 +1,23 @@
+[workspace]
+members = [
+    "crates/codesplice-cli",
+    "crates/codesplice-core",
+    "crates/codesplice-fs",
+    "crates/codesplice-protocol",
+    "crates/codesplice-test-support",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+repository = "https://github.com/atacan/code-splice"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
