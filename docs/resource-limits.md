@@ -53,3 +53,18 @@ active-plus-completed transaction directories and reads at most 256 MiB across
 records and authorized artifacts. Checked arithmetic precedes every cumulative
 charge. Persisted data beyond a structural bound is rejected rather than partially
 interpreted or guessed through.
+
+## Boundary verification
+
+Every row above has below/at/above coverage using lowerable accounting limits or
+numeric accounting test doubles, so the suite does not allocate the release
+maximum merely to prove comparison behavior:
+
+| Layer | Covered resources | Regression test |
+|---|---|---|
+| Protocol | request bytes, depth, operations, paths, path bytes | `request_resource_boundaries_should_fail_at_the_first_exceeded_limit` |
+| CLI | serialized response bytes | `phase9_serialized_response_limit_covers_below_at_and_above_boundaries` |
+| Snapshot | file/total bytes, identities, lines, index memory, path bytes | `phase9_snapshot_limits_cover_below_at_and_above_every_boundary` |
+| Planner | output/total bytes, per-output/total segments, targets, response projection, planning memory | `planner_enforces_every_phase_four_resource_boundary` |
+| Transaction | record bytes, targets, state count/bytes, directories, recovery bytes, projected disk | `journal_limits_should_pass_at_and_reject_below_each_known_schema_boundary` and `journal_scan_limits_should_reject_below_directory_recovery_and_state_byte_usage` |
+| Diff | detailed input, work units, human/JSON output bytes | `phase9_diff_limits_cover_below_at_and_above_boundaries` |

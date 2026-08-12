@@ -142,6 +142,7 @@ dependencies = [
  "codesplice-core",
  "codesplice-fs",
  "codesplice-protocol",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",
@@ -162,6 +163,7 @@ version = "0.1.0"
 dependencies = [
  "codesplice-core",
  "getrandom 0.3.4",
+ "proptest",
  "rustix",
  "serde",
  "serde_json",
@@ -174,6 +176,7 @@ name = "codesplice-protocol"
 version = "0.1.0"
 dependencies = [
  "codesplice-core",
+ "proptest",
  "serde",
  "serde_json",
 ]

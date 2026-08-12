@@ -35,6 +35,26 @@ const METADATA_LIMITATIONS: [&str; 7] = [
     "hard_link_relationships",
 ];
 
+/// Local filesystem configurations qualified for the v0.1 pilot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QualifiedFilesystem {
+    /// Linux ext4.
+    Ext4,
+    /// macOS APFS.
+    Apfs,
+}
+
+impl QualifiedFilesystem {
+    /// Stable filesystem spelling used in qualification reports.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ext4 => "ext4",
+            Self::Apfs => "apfs",
+        }
+    }
+}
+
 /// Successful result of one changing commit.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommitOutcome {
@@ -97,6 +117,16 @@ impl RecoveryOutcome {
 }
 
 impl Workspace {
+    /// Detects and validates the workspace's local filesystem for mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::UnsupportedFilesystem`] unless the current platform and
+    /// filesystem match a qualified v0.1 pilot row.
+    pub fn qualified_filesystem(&self) -> Result<QualifiedFilesystem, FsError> {
+        detect_qualified_filesystem(self.canonical_root())
+    }
+
     /// Executes all changed targets through the persistent transaction engine.
     ///
     /// The caller must hold `lock`, must have repeated planning while locked, and
@@ -113,7 +143,8 @@ impl Workspace {
         plan: &EditPlan,
         new_file_mode: u32,
     ) -> Result<CommitOutcome, FsError> {
-        ensure_qualified_filesystem(self.canonical_root())?;
+        self.qualified_filesystem()?;
+        ensure_control_device(lock, self.identity())?;
         let mut changed = plan
             .outputs
             .iter()
@@ -191,13 +222,14 @@ impl Workspace {
     ///
     /// Returns contention, corruption, action, conflict, no-replace, or I/O errors.
     pub fn recovery_complete(&self, transaction_id: &str) -> Result<RecoveryOutcome, FsError> {
-        ensure_qualified_filesystem(self.canonical_root())?;
+        self.qualified_filesystem()?;
         if self.diagnostic_lock()?.is_none() {
             return Err(FsError::TransactionNotFound {
                 transaction_id: transaction_id.to_owned(),
             });
         }
         let lock = acquire_existing_mutation_lock(self)?;
+        ensure_control_device(&lock, self.identity())?;
         recover_locked(self, &lock, transaction_id, RecoveryMode::Complete)
     }
 
@@ -207,13 +239,14 @@ impl Workspace {
     ///
     /// Returns contention, corruption, action, conflict, no-replace, or I/O errors.
     pub fn recovery_rollback(&self, transaction_id: &str) -> Result<RecoveryOutcome, FsError> {
-        ensure_qualified_filesystem(self.canonical_root())?;
+        self.qualified_filesystem()?;
         if self.diagnostic_lock()?.is_none() {
             return Err(FsError::TransactionNotFound {
                 transaction_id: transaction_id.to_owned(),
             });
         }
         let lock = acquire_existing_mutation_lock(self)?;
+        ensure_control_device(&lock, self.identity())?;
         recover_locked(self, &lock, transaction_id, RecoveryMode::Rollback)
     }
 }
@@ -262,9 +295,7 @@ fn build_manifest(
             .ok_or(FsError::InternalInvariant {
                 invariant: "changed_output_has_snapshot_input",
             })?;
-        if parent_identity.device != snapshot.workspace_identity.device {
-            return Err(FsError::CrossDeviceTransaction);
-        }
+        ensure_same_device(parent_identity.device, snapshot.workspace_identity.device)?;
         let segments = output
             .segments
             .iter()
@@ -1140,9 +1171,10 @@ fn target_paths(
             reason: "target_parent_identity_changed",
         });
     }
-    if validated.parent_identity.device != workspace.identity().device {
-        return Err(FsError::CrossDeviceTransaction);
-    }
+    ensure_same_device(
+        validated.parent_identity.device,
+        workspace.identity().device,
+    )?;
     Ok(TargetPaths {
         target: validated.full_path,
         parent: validated.parent_path,
@@ -1414,7 +1446,19 @@ fn target_failpoint(name: &str, target_index: usize) -> Result<(), FsError> {
     crate::test_failpoint(&format!("{name}_target-{target_index:08}"))
 }
 
-fn ensure_qualified_filesystem(path: &Path) -> Result<(), FsError> {
+fn ensure_control_device(lock: &MutationLock, workspace: FileIdentity) -> Result<(), FsError> {
+    ensure_same_device(lock.control_device(), workspace.device)
+}
+
+fn ensure_same_device(control_device: u64, workspace_device: u64) -> Result<(), FsError> {
+    if control_device == workspace_device {
+        Ok(())
+    } else {
+        Err(FsError::CrossDeviceTransaction)
+    }
+}
+
+fn detect_qualified_filesystem(path: &Path) -> Result<QualifiedFilesystem, FsError> {
     let directory = File::open(path)
         .map_err(|error| transaction_io("open_workspace_filesystem", None, error))?;
     let statistics = rustix::fs::fstatfs(&directory).map_err(|error| {
@@ -1426,15 +1470,8 @@ fn ensure_qualified_filesystem(path: &Path) -> Result<(), FsError> {
     })?;
     #[cfg(target_os = "linux")]
     {
-        const EXT4_SUPER_MAGIC: i64 = 0xef53;
         let filesystem = statistics.f_type as i64;
-        if filesystem == EXT4_SUPER_MAGIC {
-            Ok(())
-        } else {
-            Err(FsError::UnsupportedFilesystem {
-                filesystem: format!("0x{filesystem:x}"),
-            })
-        }
+        classify_linux_filesystem(filesystem)
     }
     #[cfg(target_os = "macos")]
     {
@@ -1446,11 +1483,30 @@ fn ensure_qualified_filesystem(path: &Path) -> Result<(), FsError> {
             .map(|byte| byte as u8)
             .collect::<Vec<_>>();
         let filesystem = String::from_utf8(bytes).unwrap_or_else(|_| "non_utf8".to_owned());
-        if filesystem == "apfs" {
-            Ok(())
-        } else {
-            Err(FsError::UnsupportedFilesystem { filesystem })
-        }
+        classify_macos_filesystem(&filesystem)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn classify_linux_filesystem(filesystem: i64) -> Result<QualifiedFilesystem, FsError> {
+    const EXT4_SUPER_MAGIC: i64 = 0xef53;
+    if filesystem == EXT4_SUPER_MAGIC {
+        Ok(QualifiedFilesystem::Ext4)
+    } else {
+        Err(FsError::UnsupportedFilesystem {
+            filesystem: format!("0x{filesystem:x}"),
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn classify_macos_filesystem(filesystem: &str) -> Result<QualifiedFilesystem, FsError> {
+    if filesystem == "apfs" {
+        Ok(QualifiedFilesystem::Apfs)
+    } else {
+        Err(FsError::UnsupportedFilesystem {
+            filesystem: filesystem.to_owned(),
+        })
     }
 }
 
@@ -1500,6 +1556,10 @@ fn transaction_io(operation: &'static str, path: Option<&str>, error: io::Error)
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::TempDir;
+
     use super::*;
 
     #[test]
@@ -1512,5 +1572,63 @@ mod tests {
             digest.to_prefixed_hex(),
             "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         );
+    }
+
+    #[test]
+    fn phase9_cross_device_check_rejects_every_device_mismatch() {
+        assert_eq!(ensure_same_device(7, 7), Ok(()));
+        assert_eq!(
+            ensure_same_device(7, 8),
+            Err(FsError::CrossDeviceTransaction)
+        );
+    }
+
+    #[test]
+    fn phase9_no_replace_collision_preserves_both_entries() {
+        let directory = TempDir::new().expect("temporary directory should be created");
+        let source = directory.path().join("source");
+        let destination = directory.path().join("destination");
+        fs::write(&source, b"source").expect("source should be written");
+        fs::write(&destination, b"destination").expect("destination should be written");
+
+        let error = no_replace_rename(&source, &destination, "qualification_collision")
+            .expect_err("collision must fail closed");
+
+        assert!(matches!(error, FsError::RecoveryConflict { .. }));
+        assert_eq!(fs::read(source).expect("source should remain"), b"source");
+        assert_eq!(
+            fs::read(destination).expect("destination should remain"),
+            b"destination"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn phase9_filesystem_detection_accepts_ext4_and_rejects_virtual_or_network_types() {
+        assert_eq!(
+            classify_linux_filesystem(0xef53),
+            Ok(QualifiedFilesystem::Ext4)
+        );
+        for filesystem in [0x0102_1994, 0x6969, 0x794c_7630, 0x9fa0] {
+            assert!(matches!(
+                classify_linux_filesystem(filesystem),
+                Err(FsError::UnsupportedFilesystem { .. })
+            ));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn phase9_filesystem_detection_accepts_apfs_and_rejects_virtual_or_network_types() {
+        assert_eq!(
+            classify_macos_filesystem("apfs"),
+            Ok(QualifiedFilesystem::Apfs)
+        );
+        for filesystem in ["nfs", "smbfs", "webdav", "devfs"] {
+            assert!(matches!(
+                classify_macos_filesystem(filesystem),
+                Err(FsError::UnsupportedFilesystem { .. })
+            ));
+        }
     }
 }

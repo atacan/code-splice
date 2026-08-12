@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "seeds": [
+    { "surface": "json", "hex": "7b" },
+    { "surface": "json", "hex": "fffe" },
+    { "surface": "line_index", "hex": "0d0a0d0a00ff" },
+    { "surface": "deterministic_cbor", "hex": "9f01ff" },
+    { "surface": "manifest_record", "hex": "434f444553504c4943452d4d414e494645535400" },
+    { "surface": "state_record", "hex": "434f444553504c4943452d535441544500" },
+    { "surface": "human_escape", "text": "path\n\u202eescape" }
+  ]
+}

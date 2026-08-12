@@ -194,8 +194,10 @@ fn single_target_crash_recovery_should_reject_equal_byte_candidate_replacement()
         .join(&id)
         .join("candidate-00000000");
     let bytes = fs::read(&candidate).expect("candidate should read");
+    let replacement = candidate.with_file_name("replacement");
+    fs::write(&replacement, bytes).expect("equal-byte replacement should be written");
     fs::remove_file(&candidate).expect("recorded candidate should be replaced");
-    fs::write(&candidate, bytes).expect("equal-byte replacement should be written");
+    fs::rename(replacement, &candidate).expect("replacement should take candidate name");
 
     let recovery = recover(&workspace, &id, "--rollback");
     let error = report(&recovery);

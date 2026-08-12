@@ -11,3 +11,8 @@ more than one hard link is rejected. A successful changing report includes
 
 Directory parents must already exist. CodeSplice never silently repairs control
 directory permissions or target metadata.
+
+The exclusions are part of the v0.1 content-only guarantee, not implementation
+defects deferred behind an implicit promise. In particular, APFS resource forks
+and flags, Linux extended attributes, ACLs, ownership, and timestamps may be lost
+when a target is replaced; power-loss durability is not claimed.

@@ -1,0 +1,38 @@
+{
+  "format_version": 1,
+  "measured_at_utc": "2026-08-12T17:15:53Z",
+  "informational_only": true,
+  "thresholds": null,
+  "host": {
+    "operating_system": "macos",
+    "architecture": "aarch64",
+    "filesystem": "apfs",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "uname": "Darwin atacans-MacBook-Pro.local 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun 9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041 arm64"
+  },
+  "methodology": {
+    "command": "cargo run --release -p codesplice-cli --example phase9_baseline",
+    "profile": "release",
+    "clock": "std::time::Instant monotonic wall clock",
+    "statistic": "median with minimum and maximum",
+    "warmup_runs": 1,
+    "timing_scope": "in-memory plan, deterministic encoding, or limit-rejection call; fixture construction excluded",
+    "notes": [
+      "Measurements are a first observed baseline, not pass/fail gates.",
+      "The byte cases stream one whole-file copy into a new target.",
+      "The target cases plan one source copied to 1, 10, or 100 new targets.",
+      "The segment cases encode a synthetic deterministic plan record with 1, 1000, or 100000 retained segments."
+    ]
+  },
+  "measurements": [
+    { "scenario": "plan_1_mib", "iterations": 7, "median_milliseconds": 3.498958, "minimum_milliseconds": 3.396083, "maximum_milliseconds": 3.575375 },
+    { "scenario": "plan_100_mib", "iterations": 3, "median_milliseconds": 358.400417, "minimum_milliseconds": 358.140833, "maximum_milliseconds": 359.973958 },
+    { "scenario": "plan_1_target", "iterations": 25, "median_milliseconds": 0.002084, "minimum_milliseconds": 0.001833, "maximum_milliseconds": 0.010375 },
+    { "scenario": "plan_10_targets", "iterations": 15, "median_milliseconds": 0.01275, "minimum_milliseconds": 0.011625, "maximum_milliseconds": 0.0155 },
+    { "scenario": "plan_100_targets", "iterations": 7, "median_milliseconds": 0.13225, "minimum_milliseconds": 0.127417, "maximum_milliseconds": 0.136333 },
+    { "scenario": "encode_1_segment", "iterations": 100, "median_milliseconds": 0.000292, "minimum_milliseconds": 0.00025, "maximum_milliseconds": 0.001375 },
+    { "scenario": "encode_1000_segments", "iterations": 25, "median_milliseconds": 0.007167, "minimum_milliseconds": 0.007083, "maximum_milliseconds": 0.00825 },
+    { "scenario": "encode_100000_segments", "iterations": 5, "median_milliseconds": 0.650167, "minimum_milliseconds": 0.649209, "maximum_milliseconds": 0.665584 },
+    { "scenario": "reject_changed_target_limit", "iterations": 100, "median_milliseconds": 0.000834, "minimum_milliseconds": 0.000791, "maximum_milliseconds": 0.001333 }
+  ]
+}

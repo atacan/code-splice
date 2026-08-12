@@ -41,7 +41,7 @@ pub use journal::{
 pub use recovery_classifier::{
     LocationObservation, RecoveryDisposition, SyntheticTargetObservation, classify_recovery,
 };
-pub use transaction::{CommitOutcome, RecoveryOutcome};
+pub use transaction::{CommitOutcome, QualifiedFilesystem, RecoveryOutcome};
 
 /// Maximum bytes in one immutable file snapshot.
 pub const MAX_SNAPSHOT_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -1412,6 +1412,37 @@ mod snapshot_tests {
             SnapshotLimits::new(4_096, 10, 100, 3, 100, 100),
             SnapshotLimits::new(4_096, 10, 100, 100, 1, 100),
             SnapshotLimits::new(4_096, 10, 100, 100, 100, 15),
+        ] {
+            assert!(matches!(
+                workspace.acquire_snapshot(&requirements, limits),
+                Err(FsError::ResourceLimitExceeded { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn phase9_snapshot_limits_cover_below_at_and_above_every_boundary() {
+        let fixture = TestWorkspace::new();
+        fs::write(fixture.0.join("one"), b"a\n").expect("fixture should be written");
+        fs::write(fixture.0.join("two"), b"b\n").expect("fixture should be written");
+        let workspace = fixture.open();
+        let requirements = [existing("one", b"a\n"), existing("two", b"b\n")];
+        let exact = SnapshotLimits::new(3, 2, 2, 4, 2, 16);
+
+        workspace
+            .acquire_snapshot(&requirements, SnapshotLimits::default())
+            .expect("usage below release limits should pass");
+        workspace
+            .acquire_snapshot(&requirements, exact)
+            .expect("usage at every limit should pass");
+
+        for limits in [
+            SnapshotLimits::new(2, 2, 2, 4, 2, 16),
+            SnapshotLimits::new(3, 1, 2, 4, 2, 16),
+            SnapshotLimits::new(3, 2, 1, 4, 2, 16),
+            SnapshotLimits::new(3, 2, 2, 3, 2, 16),
+            SnapshotLimits::new(3, 2, 2, 4, 1, 16),
+            SnapshotLimits::new(3, 2, 2, 4, 2, 15),
         ] {
             assert!(matches!(
                 workspace.acquire_snapshot(&requirements, limits),

@@ -880,12 +880,7 @@ fn serialize_commit_response(
     if json {
         let line = to_json_line(response).map_err(|error| (error.into_report(), true))?;
         let actual = u64::try_from(line.len()).unwrap_or(u64::MAX);
-        if actual > MAX_RESPONSE_BYTES {
-            return Err((
-                limit_error("serialized_json_response", actual, MAX_RESPONSE_BYTES),
-                true,
-            ));
-        }
+        enforce_response_bytes(actual).map_err(|error| (error, true))?;
         Ok(line)
     } else {
         let value = serde_json::to_value(response).map_err(|_| {
@@ -912,13 +907,20 @@ fn serialize_preview(
 ) -> Result<String, (ErrorDto, bool)> {
     let line = to_json_line(response).map_err(|error| (error.into_report(), true))?;
     let actual = u64::try_from(line.len()).unwrap_or(u64::MAX);
-    if actual > MAX_RESPONSE_BYTES {
-        return Err((
-            limit_error("serialized_json_response", actual, MAX_RESPONSE_BYTES),
-            true,
-        ));
-    }
+    enforce_response_bytes(actual).map_err(|error| (error, true))?;
     Ok(line)
+}
+
+fn enforce_response_bytes(actual: u64) -> Result<(), ErrorDto> {
+    if actual > MAX_RESPONSE_BYTES {
+        Err(limit_error(
+            "serialized_json_response",
+            actual,
+            MAX_RESPONSE_BYTES,
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn snapshot_requirements(batch: &codesplice_core::BatchSpecification) -> Vec<SnapshotRequirement> {
@@ -1131,5 +1133,14 @@ mod tests {
             stderr,
             b"codesplice: INVALID_CLI: unsafe\\u{202e}\\u{a}message\n"
         );
+    }
+
+    #[test]
+    fn phase9_serialized_response_limit_covers_below_at_and_above_boundaries() {
+        assert!(enforce_response_bytes(MAX_RESPONSE_BYTES - 1).is_ok());
+        assert!(enforce_response_bytes(MAX_RESPONSE_BYTES).is_ok());
+        let error = enforce_response_bytes(MAX_RESPONSE_BYTES + 1)
+            .expect_err("above-limit response should be rejected");
+        assert_eq!(error.code(), ErrorCode::ResourceLimitExceeded);
     }
 }

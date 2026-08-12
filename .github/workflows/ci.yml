@@ -10,6 +10,7 @@ permissions:
 jobs:
   check:
     name: ${{ matrix.name }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +34,7 @@ jobs:
         run: cargo fmt --all --check
       - name: Lint
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: Test
-        run: cargo test --workspace --all-features
+      - name: Phase 9 platform qualification
+        run: scripts/qualify-platform.sh
       - name: Build
         run: cargo build --workspace --all-features

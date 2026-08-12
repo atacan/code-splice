@@ -113,7 +113,7 @@ fn build_diff(
     let detailed_input_limited = changed.iter().any(|output| {
         let before = original_bytes(snapshot, &output.path.value)
             .map_or(0, |bytes| u64::try_from(bytes.len()).unwrap_or(u64::MAX));
-        before > DETAILED_DIFF_INPUT_BYTES || output.resulting_length > DETAILED_DIFF_INPUT_BYTES
+        detailed_input_exceeded(before) || detailed_input_exceeded(output.resulting_length)
     });
     if detailed_input_limited {
         let summary = summary_value(snapshot, &changed, files, "detailed_input_limit")?;
@@ -174,6 +174,10 @@ fn build_diff(
         },
         warning: truncated.then(|| diff_truncated_warning("diff_budget")),
     })
+}
+
+const fn detailed_input_exceeded(length: u64) -> bool {
+    length > DETAILED_DIFF_INPUT_BYTES
 }
 
 fn diff_truncated_warning(reason: &'static str) -> WarningDto {
@@ -560,7 +564,9 @@ fn output_change_name(change: OutputChange) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::base64_encode;
+    use proptest::prelude::*;
+
+    use super::*;
 
     #[test]
     fn base64_should_encode_padding_boundaries() {
@@ -568,5 +574,42 @@ mod tests {
         assert_eq!(base64_encode(b"f"), "Zg==");
         assert_eq!(base64_encode(b"fo"), "Zm8=");
         assert_eq!(base64_encode(b"foo"), "Zm9v");
+    }
+
+    #[test]
+    fn phase9_diff_limits_cover_below_at_and_above_boundaries() {
+        assert!(!detailed_input_exceeded(DETAILED_DIFF_INPUT_BYTES - 1));
+        assert!(!detailed_input_exceeded(DETAILED_DIFF_INPUT_BYTES));
+        assert!(detailed_input_exceeded(DETAILED_DIFF_INPUT_BYTES + 1));
+
+        let exact = "x".repeat(DIFF_OUTPUT_BYTES);
+        let mut writer = DiffWriter::default();
+        assert!(writer.push(&exact));
+        assert!(!writer.push("x"));
+
+        let mut work_limited = DiffWriter {
+            work_units: DIFF_WORK_UNITS - 1,
+            ..DiffWriter::default()
+        };
+        work_limited.charge(1);
+        assert!(!work_limited.truncated);
+        work_limited.charge(1);
+        assert!(work_limited.truncated);
+    }
+
+    proptest! {
+        #[test]
+        fn text_diff_decoder_fuzz_regression_is_total(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let decoded = text_lines(&bytes);
+            if let Ok(lines) = decoded {
+                let reconstructed = lines
+                    .iter()
+                    .flat_map(|line| line.full.iter().copied())
+                    .collect::<Vec<_>>();
+                prop_assert_eq!(reconstructed, bytes);
+            } else {
+                prop_assert!(std::str::from_utf8(&bytes).is_err());
+            }
+        }
     }
 }

@@ -24,3 +24,9 @@ identities before any future target mutation.
 Linux x86_64/ext4 and macOS arm64/APFS local filesystems are the only pilot
 configurations. Windows, network filesystems, hostile namespace-race resistance,
 and power-loss durability are outside the `v0.1.0` claim.
+
+The trusted-user boundary means a same-user process intentionally racing path
+replacement can defeat assumptions between individual checks. CodeSplice is not
+a sandbox, privilege boundary, malware defense, or guarantee against power-loss
+reordering. It fails closed for detected ordinary edits, identity changes,
+unsupported filesystems, cross-device layouts, and ambiguous recovery state.

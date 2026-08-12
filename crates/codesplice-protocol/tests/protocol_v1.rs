@@ -145,28 +145,26 @@ fn release_request_size_and_depth_limits_should_reject_above_boundary() {
 #[test]
 fn request_resource_boundaries_should_fail_at_the_first_exceeded_limit() {
     let two_operations = request(&[operation("copy", "a", "b"), operation("move", "c", "d")]);
-    let exact_limits = RequestLimits::new(two_operations.len() as u64, 8, 2, 4, 1);
+    let below_limits = RequestLimits::new(two_operations.len() as u64 + 1, 6, 3, 5, 2);
+    parse_request_with_limits(two_operations.as_bytes(), below_limits)
+        .expect("below-limit request must parse");
+
+    let exact_limits = RequestLimits::new(two_operations.len() as u64, 5, 2, 4, 1);
     parse_request_with_limits(two_operations.as_bytes(), exact_limits)
         .expect("at-limit request must parse");
 
     let limit_cases = [
-        RequestLimits::new(two_operations.len() as u64 - 1, 8, 2, 4, 1),
-        RequestLimits::new(two_operations.len() as u64, 8, 1, 4, 1),
-        RequestLimits::new(two_operations.len() as u64, 8, 2, 3, 1),
-        RequestLimits::new(two_operations.len() as u64, 8, 2, 4, 0),
+        RequestLimits::new(two_operations.len() as u64 - 1, 5, 2, 4, 1),
+        RequestLimits::new(two_operations.len() as u64, 4, 2, 4, 1),
+        RequestLimits::new(two_operations.len() as u64, 5, 1, 4, 1),
+        RequestLimits::new(two_operations.len() as u64, 5, 2, 3, 1),
+        RequestLimits::new(two_operations.len() as u64, 5, 2, 4, 0),
     ];
     for limits in limit_cases {
         let error = parse_request_with_limits(two_operations.as_bytes(), limits)
             .expect_err("above-limit request must fail");
         assert_eq!(error.report().code(), ErrorCode::ResourceLimitExceeded);
     }
-
-    let depth_error = parse_request_with_limits(b"[[[]]]", RequestLimits::new(100, 2, 10, 10, 10))
-        .expect_err("excess depth must fail before conversion");
-    assert_eq!(
-        depth_error.report().code(),
-        ErrorCode::ResourceLimitExceeded
-    );
 }
 
 #[test]

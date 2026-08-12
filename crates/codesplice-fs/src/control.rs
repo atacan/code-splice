@@ -182,6 +182,10 @@ pub struct MutationLock {
 }
 
 impl MutationLock {
+    pub(crate) const fn control_device(&self) -> u64 {
+        self.identities.control.0
+    }
+
     /// Revalidates the root, control directories, and lock entry against the
     /// identities captured immediately after lock acquisition.
     ///
