@@ -1,5 +1,11 @@
 # CodeSplice
 
+[![CI](https://github.com/atacan/code-splice/actions/workflows/ci.yml/badge.svg)](https://github.com/atacan/code-splice/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/atacan/code-splice)](https://github.com/atacan/code-splice/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust 1.97+](https://img.shields.io/badge/rust-1.97%2B-orange?logo=rust)](https://www.rust-lang.org/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/atacan/code-splice)
+
 **Exact, byte-preserving code movement for developers and coding agents.**
 
 CodeSplice is a Rust command-line tool that moves or copies code already present
@@ -150,7 +156,7 @@ focused references only when a task needs them.
 Install it for Codex with the open [Skills CLI](https://skills.sh/docs/cli):
 
 ```bash
-npx skills add atacan/code-splice --skill codesplice -g -a codex
+npx skills add https://github.com/atacan/code-splice --skill codesplice -g -a codex
 ```
 
 From a local checkout, omit `-g` to install it for the current project:
