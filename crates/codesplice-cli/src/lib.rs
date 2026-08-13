@@ -370,11 +370,7 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             "commit requires a qualified local ext4 or APFS filesystem",
             BTreeMap::from([("filesystem".to_owned(), json!(filesystem))]),
         ),
-        FsError::TransactionBusy => ErrorDto::new(
-            ErrorCode::TransactionBusy,
-            "another CodeSplice process holds the workspace lock",
-            BTreeMap::new(),
-        ),
+        FsError::TransactionBusy => transaction_busy_error(),
         FsError::TransactionRecoveryRequired { transaction_ids } => ErrorDto::new(
             ErrorCode::TransactionRecoveryRequired,
             "unfinished transactions require explicit recovery",
@@ -471,6 +467,18 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             BTreeMap::new(),
         ),
     }
+}
+
+fn transaction_busy_error() -> ErrorDto {
+    ErrorDto::new(
+        ErrorCode::TransactionBusy,
+        "an incompatible workspace lock is held; wait and retry; never bypass or remove the lock",
+        BTreeMap::from([
+            ("lock_state".to_owned(), json!("contended")),
+            ("recovery_required".to_owned(), json!("unknown")),
+            ("safe_next_action".to_owned(), json!("wait_then_retry")),
+        ]),
+    )
 }
 
 fn execute_recovery(

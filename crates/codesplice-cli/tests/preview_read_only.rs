@@ -65,6 +65,20 @@ fn json_stdout(output: &Output) -> Value {
     serde_json::from_str(stdout).expect("stdout should contain one JSON value")
 }
 
+fn assert_transaction_busy_response(report: &Value) {
+    assert_eq!(report["code"], "TRANSACTION_BUSY");
+    assert_eq!(report["category"], "transaction");
+    assert_eq!(report["retryable"], true);
+    assert_eq!(
+        report["context"],
+        json!({
+            "lock_state": "contended",
+            "recovery_required": "unknown",
+            "safe_next_action": "wait_then_retry"
+        })
+    );
+}
+
 #[test]
 fn preview_should_leave_an_absent_control_tree_and_workspace_unchanged() {
     let workspace = TestWorkspace::new();
@@ -109,7 +123,7 @@ fn preview_should_hold_a_valid_shared_lock_without_changing_the_tree() {
 }
 
 #[test]
-fn preview_should_return_busy_while_an_exclusive_lock_is_held() {
+fn preview_should_report_safe_contention_before_a_transaction_exists() {
     let workspace = TestWorkspace::new();
     let lock = workspace
         .open()
@@ -123,8 +137,74 @@ fn preview_should_return_busy_while_an_exclusive_lock_is_held() {
     let report = json_stdout(&output);
 
     assert_eq!(output.status.code(), Some(5));
-    assert_eq!(report["code"], "TRANSACTION_BUSY");
+    assert_transaction_busy_response(&report);
+
+    let human = workspace.invoke(
+        &["apply", "--request", "-", "--preview"],
+        Some(&workspace.request()),
+    );
+    assert_eq!(human.status.code(), Some(5));
+    assert!(human.stdout.is_empty());
+    assert_eq!(
+        human.stderr,
+        b"codesplice: TRANSACTION_BUSY: an incompatible workspace lock is held; wait and retry; never bypass or remove the lock\n"
+    );
+
     drop(lock);
+
+    let recovered = workspace.invoke(&["recover", "--list", "--json"], None);
+    assert_eq!(recovered.status.code(), Some(0));
+    assert_eq!(json_stdout(&recovered)["transactions"], json!([]));
+}
+
+#[test]
+fn changing_commit_should_report_contention_while_a_shared_reader_holds_the_lock() {
+    let workspace = TestWorkspace::new();
+    drop(
+        workspace
+            .open()
+            .mutation_lock()
+            .expect("control tree should be created"),
+    );
+    let request = workspace.request();
+    let preview = workspace.invoke(
+        &["apply", "--request", "-", "--preview", "--json"],
+        Some(&request),
+    );
+    let preview_report = json_stdout(&preview);
+    assert_eq!(preview.status.code(), Some(0));
+    let plan = preview_report["plan_sha256"]
+        .as_str()
+        .expect("preview should report a plan digest")
+        .to_owned();
+    let shared = workspace
+        .open()
+        .diagnostic_lock()
+        .expect("diagnostic lock should succeed")
+        .expect("control tree should exist");
+
+    let commit = workspace.invoke(
+        &[
+            "apply",
+            "--request",
+            "-",
+            "--commit",
+            "--expect-plan",
+            &plan,
+            "--json",
+        ],
+        Some(&request),
+    );
+    let report = json_stdout(&commit);
+
+    assert_eq!(commit.status.code(), Some(5));
+    assert_transaction_busy_response(&report);
+    assert!(!workspace.0.path().join("new").exists());
+
+    drop(shared);
+    let recovered = workspace.invoke(&["recover", "--list", "--json"], None);
+    assert_eq!(recovered.status.code(), Some(0));
+    assert_eq!(json_stdout(&recovered)["transactions"], json!([]));
 }
 
 #[test]

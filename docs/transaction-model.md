@@ -6,7 +6,13 @@ during commit or rollback.
 
 Mutating commands hold a nonblocking exclusive advisory workspace lock. Read-only
 commands create nothing and use a shared lock only when a valid lock already
-exists. A changing commit refuses an unfinished active transaction.
+exists. A changing commit refuses an unfinished active transaction. Lock
+contention proves only that an incompatible lock is held: an exclusive request
+can be blocked by a shared reader, and a shared request can be blocked by an
+exclusive holder. CodeSplice therefore does not infer holder kind, transaction
+identity, phase, or recovery need from contention. The persistent lock file is a
+rendezvous object, not evidence of a stale lock; the OS releases the advisory
+lock when its holder exits.
 
 Transaction records live below `.codesplice/transactions/<id>/`. A manifest is
 published before candidate creation. Append-only state records contain full
@@ -54,14 +60,21 @@ bytes are under `tests/golden/transaction-v1/`.
 
 ## Phase 8 multi-target execution
 
-`recover --list` and `recover ID --status` are read-only and create nothing. They
-take a nonblocking shared lock when a valid control tree exists. Explicit recovery
-classifies every target before changing any of them, then completes in normalized
-UTF-8 path order or rolls back in reverse order. Candidate identity is authoritative
-even when replacement bytes are equal. Each candidate readiness, target backup,
-install, and rollback restoration publishes a full indexed state snapshot. A
-new-transaction gate rejects every active transaction and may delete only fully
-validated suffix-classified cleanup-only directories.
+`recover --list` is the workspace-level status operation, and
+`recover ID --status` is the transaction-level operation. Both are read-only,
+create nothing, and retain a nonblocking shared lock through validation, scanning,
+and report construction when a valid control tree exists. An empty list means no
+recorded transaction needing recovery was observed. `orphan_record`,
+`manifest_only`, or `active` requires recovery before a new mutation;
+`cleanup_only` alone is terminal cleanup state. An exclusive holder yields
+`TRANSACTION_BUSY` rather than a scan of a journal being published.
+
+Explicit recovery classifies every target before changing any of them, then
+completes in normalized UTF-8 path order or rolls back in reverse order. Candidate
+identity is authoritative even when replacement bytes are equal. Each candidate
+readiness, target backup, install, and rollback restoration publishes a full
+indexed state snapshot. A new-transaction gate rejects every active transaction
+and may delete only fully validated suffix-classified cleanup-only directories.
 
 Commit responses state that visibility is `recoverable_not_atomic`. Recovery
 reports classify visibility as `all_original`, `mixed_old_new_possible`, or

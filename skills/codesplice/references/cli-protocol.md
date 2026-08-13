@@ -53,4 +53,18 @@ Commit adds `transaction_id`, `transaction_state`, `files_changed`, preserved pe
 
 Every JSON error includes `code`, `category`, `retryable`, `message`, and `context`. Interpret the code and context; do not retry solely because `retryable` is true without re-establishing current workspace state.
 
+`TRANSACTION_BUSY` keeps exit 5 and `retryable: true` and always reports:
+
+```json
+{
+  "lock_state": "contended",
+  "recovery_required": "unknown",
+  "safe_next_action": "wait_then_retry"
+}
+```
+
+This context proves only that an incompatible workspace lock is held. It does not identify the holder or show whether a mutation or recovery is active. Wait before retrying; never poll tightly, bypass the lock, or remove the lock file. Retrying inspect or preview takes a fresh observation. An agent may retry the unchanged commit request with the same `--expect-plan`, then must inspect and preview again if a precondition or plan mismatch follows. A human using `--accept-current-plan` previews again before retrying.
+
+`recover --list --json` is the workspace-level status operation, and `recover ID --status --json` is the transaction-level operation. Both are read-only, create nothing, and hold a shared lock through their validated scan and report construction. An empty list means no recorded transaction needing recovery was observed. Any `orphan_record`, `manifest_only`, or `active` entry requires recovery before a new mutation. `cleanup_only` alone is terminal cleanup state. An incompatible exclusive holder produces `TRANSACTION_BUSY` instead of a scan.
+
 Protocol-v1 request and response objects reject unknown fields. Integers are nonnegative `u64` values, and existing-file digests must be lowercase SHA-256 strings. The v0.1.0 protocol, plan-hash format, error/warning registry, and transaction-record version are frozen; do not invent fields or commands.

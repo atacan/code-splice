@@ -176,7 +176,7 @@ pub enum ErrorCode {
     CrossDeviceTransaction,
     /// The required no-replace rename primitive is unavailable.
     NoReplaceUnavailable,
-    /// Another process holds the mutation lock.
+    /// An incompatible workspace lock is held.
     TransactionBusy,
     /// An unfinished transaction requires explicit recovery.
     TransactionRecoveryRequired,
