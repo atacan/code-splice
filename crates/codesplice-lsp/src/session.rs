@@ -3,7 +3,7 @@
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use gen_lsp_types::{DocumentSymbolResponse, InitializeResult, WorkspaceFolder};
+use gen_lsp_types::{InitializeResult, WorkspaceFolder};
 use serde_json::{Value, json};
 
 use crate::capabilities::{
@@ -152,8 +152,12 @@ impl fmt::Debug for SessionInput {
 pub struct SessionOutput {
     /// Validated initialization capabilities.
     pub capabilities: NegotiatedCapabilities,
-    /// Hierarchical, flat, or null document-symbol result as reported by the server.
-    pub symbols: Option<DocumentSymbolResponse>,
+    /// Raw document-symbol result retained for structurally unambiguous normalization.
+    ///
+    /// The generated LSP response union is intentionally not used here because
+    /// its untagged empty array is ambiguous between hierarchical and flat
+    /// results. The symbol layer validates this value before producing matches.
+    pub symbols: Value,
 }
 
 /// Lifecycle phase associated with a session failure.
@@ -377,8 +381,7 @@ fn run_active_session(
         input,
         &mut counters,
     )?;
-    let symbols = serde_json::from_value(symbol_value)
-        .map_err(|_| SessionError::InvalidLspPayload("document-symbol result"))?;
+    let symbols = symbol_value;
     send_notification(
         transport,
         "textDocument/didClose",

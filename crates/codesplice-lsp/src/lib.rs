@@ -9,10 +9,14 @@
 pub mod capabilities;
 /// Bounded JSON-RPC framing, envelope validation, and response correlation.
 pub mod jsonrpc;
+/// Exact conversion between immutable snapshot bytes and LSP positions.
+pub mod position;
 /// Bounded child-process transport, supervision, and cleanup.
 pub mod process;
 /// Stateful initialization, synchronization, server-request dispatch, and shutdown.
 pub mod session;
+/// Bounded document-symbol normalization and deterministic semantic resolution.
+pub mod symbols;
 /// Deadline-aware composition of process supervision and JSON-RPC framing.
 pub mod transport;
 

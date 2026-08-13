@@ -65,8 +65,11 @@ dependencies = [
 name = "codesplice-lsp-fuzz"
 version = "0.0.0"
 dependencies = [
+ "codesplice-core",
  "codesplice-lsp",
+ "gen-lsp-types",
  "libfuzzer-sys",
+ "serde_json",
 ]
 
 [[package]]

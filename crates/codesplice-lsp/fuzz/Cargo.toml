@@ -9,8 +9,11 @@ rust-version = "1.97"
 cargo-fuzz = true
 
 [dependencies]
+codesplice-core = { path = "../../codesplice-core" }
 codesplice-lsp = { path = ".." }
+gen-lsp-types = { version = "=0.11.0", features = ["url"] }
 libfuzzer-sys = "=0.4.13"
+serde_json = "1.0.143"
 
 [[bin]]
 name = "framing-header"
@@ -22,6 +25,27 @@ bench = false
 [[bin]]
 name = "jsonrpc-envelope"
 path = "fuzz_targets/jsonrpc_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "position-conversion"
+path = "fuzz_targets/position_conversion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "declaration-line-expansion"
+path = "fuzz_targets/declaration_line_expansion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hierarchical-symbol-normalization"
+path = "fuzz_targets/hierarchical_symbol_normalization.rs"
 test = false
 doc = false
 bench = false

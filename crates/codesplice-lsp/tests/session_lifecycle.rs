@@ -14,7 +14,7 @@ use codesplice_lsp::session::{
 };
 use codesplice_lsp::transport::{TransportError, TransportLimits};
 use codesplice_test_support::fake_lsp::FakeLspScenario;
-use gen_lsp_types::{DocumentSymbolResponse, Uri, WorkspaceFolder};
+use gen_lsp_types::{Uri, WorkspaceFolder};
 use serde_json::json;
 use support::{
     ExpectedSessionOutcome, FakeLspCommand, PLANNED_SESSION_CASES, TestCase, repository_fixture,
@@ -58,10 +58,7 @@ fn production_session_executes_planned_matrix() -> Result<(), String> {
     for case in PLANNED_SESSION_CASES {
         let result = run_case(case.scenario);
         let matches = match (case.outcome, &result) {
-            (ExpectedSessionOutcome::Success, Ok(output)) => matches!(
-                output.symbols,
-                Some(DocumentSymbolResponse::DocumentSymbolList(_))
-            ),
+            (ExpectedSessionOutcome::Success, Ok(output)) => output.symbols.is_array(),
             (
                 ExpectedSessionOutcome::CapabilityError,
                 Err(SessionError::Capability(

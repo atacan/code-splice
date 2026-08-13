@@ -68,7 +68,7 @@ codesplice --workspace . select \
   --json
 ```
 
-`--at-byte` is a zero-based insertion offset into the captured source and is the canonical exact-position interface. For human use, `--at-line` may be combined with `--at-column`; both are one-based, and the column counts Unicode scalar insertion positions rather than bytes or negotiated LSP code units. `--at-column` defaults to 1. CodeSplice first converts either input form to a snapshot byte offset, independently converts that offset to the encoding negotiated with the server, and then chooses the smallest symbol range containing it after applying the optional kind filter. The two position forms are mutually exclusive.
+`--at-byte` is a zero-based insertion offset into the captured source and is the canonical exact-position interface. For human use, `--at-line` may be combined with `--at-column`; both are one-based, and the column counts Unicode scalar insertion positions rather than bytes or negotiated LSP code units. `--at-column` defaults to 1. CodeSplice converts either input form to a validated snapshot byte offset, independently converts every server range from the negotiated encoding into byte coordinates, and then chooses the smallest converted range containing the query after applying the optional kind filter. The query itself remains in canonical bytes; this preserves EOF queries even when a final line terminator means that EOF has no representable LSP position under CodeSplice's no-phantom-line semantics. The two position forms are mutually exclusive.
 
 User-supplied byte, line, and scalar-column positions must be in range and are never clamped. Clamping described later applies only when normalizing server-returned LSP positions according to the LSP contract.
 
@@ -609,6 +609,8 @@ Freeze these first-release defaults, represented with checked integer conversion
 | Symbol name bytes | 4 KiB |
 | Symbol detail bytes | 16 KiB |
 | Symbol path bytes | 64 KiB per candidate |
+| Cumulative normalized candidate string bytes | 64 MiB |
+| Successful matches | 1,000 |
 | Ambiguity candidates in an error | 50 |
 | Configuration file bytes / JSON depth | 1 MiB / 32 |
 | Server arguments / individual argument / total argument bytes | 128 / 16 KiB / 256 KiB |
@@ -700,12 +702,20 @@ Exit criterion: CodeSplice can negotiate capabilities and open a captured docume
 
 ### Phase 3: position conversion and symbol resolution
 
-- [ ] Implement custom UTF-8/UTF-16/UTF-32 conversion on `LineIndex`.
-- [ ] Support hierarchical document-symbol responses and reject flat `SymbolInformation[]` without emitting a selector.
-- [ ] Implement standardized kind mapping, name queries, position queries, deterministic ordering, deduplication, and ambiguity.
-- [ ] Implement `symbol` and `declaration_lines` extents.
-- [ ] Validate `selectionRange` containment and add property tests for Unicode, CR/LF combinations, range normalization, containment, and conversion round trips.
-- [ ] Add non-gating fuzz targets for position conversion, declaration-line expansion, and hierarchical-symbol flattening.
+- [x] Implement custom UTF-8/UTF-16/UTF-32 conversion on `LineIndex`.
+- [x] Support hierarchical document-symbol responses and reject flat `SymbolInformation[]` without emitting a selector.
+- [x] Implement standardized kind mapping, name queries, position queries, deterministic ordering, deduplication, and ambiguity.
+- [x] Implement `symbol` and `declaration_lines` extents.
+- [x] Validate `selectionRange` containment and add property tests for Unicode, CR/LF combinations, range normalization, containment, and conversion round trips.
+- [x] Add non-gating fuzz targets for position conversion, declaration-line expansion, and hierarchical-symbol flattening.
+
+Checkpoint: raw document-symbol JSON is retained through the session boundary so
+`null` and the untagged empty-array case normalize safely while nonempty flat or
+mixed responses fail closed. All candidates are range-validated before query
+filtering; normalization, breadcrumb storage, ambiguity diagnostics, and
+successful discovery results have independent bounds. The standalone Phase 3
+fuzz targets and deterministic corpora compile on stable Rust; runtime campaigns
+remain non-gating and were not run because `cargo-fuzz` was unavailable.
 
 Exit criterion: every accepted match yields a validated, nonempty `ByteRange` over the original snapshot.
 
