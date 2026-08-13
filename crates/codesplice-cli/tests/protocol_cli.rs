@@ -149,10 +149,7 @@ fn apply_should_read_and_validate_a_request_file() {
 
 #[test]
 fn commit_without_an_expected_plan_policy_should_fail_before_execution() {
-    let output = invoke(
-        &["apply", "--request", "-", "--commit", "--json"],
-        &valid_request(),
-    );
+    let output = invoke(&["apply", "--request", "-", "--commit", "--json"], b"");
     let error = json_stdout(&output);
 
     assert_eq!(output.status.code(), Some(3));
@@ -172,7 +169,7 @@ fn commit_with_both_expected_plan_policies_should_be_invalid_cli() {
             "--accept-current-plan",
             "--json",
         ],
-        &valid_request(),
+        b"",
     );
     let error = json_stdout(&output);
 

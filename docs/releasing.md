@@ -31,13 +31,25 @@ the workflow is present in that release's tagged commit.
    changes, and update version-specific release notes and contracts.
 2. Run the normal qualification and release acceptance checks.
 3. Commit and merge the release candidate to the default branch.
-4. Create an annotated tag whose version exactly matches the `codesplice-cli`
-   package version, then push it:
+4. From a clean, synchronized `main`, use the guarded release helper. It
+   re-runs the local release acceptance checks, requires a successful CI push
+   run for the exact commit, creates an annotated tag from the version-specific
+   notes, pushes it, waits for the Release workflow, and verifies the published
+   asset set:
 
    ```console
-   git tag -a v0.1.1 -m "CodeSplice v0.1.1"
-   git push origin v0.1.1
+   scripts/release.sh publish 0.2.0
    ```
+
+   A release candidate can run the same checks without creating a tag:
+
+   ```console
+   scripts/release.sh verify 0.2.0
+   ```
+
+   The publish command is intentionally not a version-bump tool. Version and
+   release-note changes remain ordinary reviewed source changes, and publishing
+   happens only after they are merged.
 
 Only stable tags of the form `vMAJOR.MINOR.PATCH` pass the workflow gate. The
 workflow also requires the tag to be annotated and resolves it back to the exact
