@@ -32,6 +32,21 @@ opaque workspace identity hash. `--no-diff` changes only the diff field. Text
 diffs label `LF`, `CRLF`, lone `CR`, and unterminated (`NONE`) lines; binary data
 uses digest, length, and bounded base64 head/tail samples.
 
+Beginning with CodeSplice `v0.2.0`, preview also accepts opt-in `--summary`.
+Without that flag, JSON and human preview output are unchanged. `--summary`
+retains the bounded diff and adds review-summary-v1 metadata at
+`diff.summary.review`; `--summary --no-diff` is the concise review mode and uses
+`diff.kind = "omitted"` while retaining the complete review metadata. The
+independent nested schema is `docs/schema/review-summary-v1/schema.json`.
+
+Review operation indices join `resolved_operations` in request order, and output
+indices join `outputs` in normalized UTF-8 path order. Logical lines use the same
+LF, CRLF, lone-CR, and final-unterminated-line semantics as inspection. Selected
+ranges are interpreted as standalone byte sequences. Each output lists only
+effectful payload insertion groups in final segment traversal order; a reported
+same-file `no_op` has no fabricated insertion event. Existing binary and
+truncation summary keys remain siblings of `review`.
+
 Commit reports include a transaction ID (or `null` for a no-op), terminal state,
 changed paths, preserved existing-target permission modes, and an inserted payload
 digest for every effectful operation (`null` for a reported same-file no-op). The

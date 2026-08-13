@@ -14,8 +14,8 @@ Release v0.1.0 implements protocol version 1 and plan-hash version 1. Query capa
 
 ```text
 codesplice [--workspace PATH] inspect --path RELATIVE [--path RELATIVE ...] --json
-codesplice [--workspace PATH] apply --request FILE_OR_DASH --preview [--json] [--no-diff]
-codesplice [--workspace PATH] apply --request FILE_OR_DASH --commit --expect-plan DIGEST [--json] [--no-diff]
+codesplice [--workspace PATH] apply --request FILE_OR_DASH --preview [--json] [--no-diff] [--summary]
+codesplice [--workspace PATH] apply --request FILE_OR_DASH --commit --expect-plan DIGEST [--json]
 codesplice [--workspace PATH] recover --list [--json]
 codesplice [--workspace PATH] recover ID --status [--json]
 codesplice [--workspace PATH] recover ID --complete [--json]
@@ -37,6 +37,11 @@ Preview returns:
 - `outputs` with change kinds and before/after lengths and digests.
 - A text diff, bounded binary summary, or omitted diff.
 - Structured warnings.
+
+Beginning with v0.2.0, opt-in `--summary` adds review-summary-v1 at
+`diff.summary.review`. Combine it with `--no-diff` for a complete concise review
+without detailed diff text. Operation and output indices join the existing
+report arrays; no top-level field or capability entry is added.
 
 Commit adds `transaction_id`, `transaction_state`, `files_changed`, preserved permission modes, recoverability status, and visibility. Each effectful resolved operation reports `inserted_payload_sha256`; a same-file no-op reports `null`.
 

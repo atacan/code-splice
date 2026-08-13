@@ -7,7 +7,7 @@ codesplice --workspace /path/to/repo inspect \
   --path src/source.rs --path src/destination.rs --json
 
 codesplice --workspace /path/to/repo apply \
-  --request split.json --preview --json
+  --request split.json --preview --summary --no-diff --json
 
 codesplice --workspace /path/to/repo apply \
   --request split.json --commit \
@@ -18,6 +18,12 @@ An agent never uses `--accept-current-plan`. If the expected plan changes, the
 agent inspects and previews again rather than bypassing the digest precondition.
 It treats recovery-required and conflict outcomes as failures needing explicit
 inspection; it does not reproduce selected source bytes by hand as a fallback.
+
+CodeSplice `v0.2.0` adds the opt-in concise preview shown above. The complete
+typed review record is at `diff.summary.review`; it reports selected byte/line
+metrics, before/after output line counts, and effectful insertion groups without
+embedding source text. Omit `--no-diff` when detailed bounded diff evidence is
+also useful. Omitting `--summary` preserves the earlier preview output exactly.
 
 On `TRANSACTION_BUSY`, the agent waits and never polls tightly, bypasses the
 lock, removes the lock file, or guesses whether a mutation or recovery is active.

@@ -137,6 +137,11 @@ Review `$DEMO_DIR/preview.json` before committing. If the workspace or plan
 changes, CodeSplice rejects the commit; inspect and preview again. Coding agents
 should never bypass this check with `--accept-current-plan`.
 
+Beginning with `v0.2.0`, add `--summary --no-diff` to preview for a concise,
+typed review record without detailed diff text. Use `--summary` alone to retain
+the bounded diff alongside the review metadata. Both modes preserve the same
+plan digest as ordinary preview.
+
 For interrupted work, inspect persistent transactions before choosing an
 explicit action:
 
