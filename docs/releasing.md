@@ -81,8 +81,10 @@ adopt bottles once the formula and release cadence are stable.
 
 - If either native build fails, no GitHub Release is created.
 - If release creation or verification fails, the release remains a private
-  draft. Rerun the workflow for the same tag after fixing transient service
-  issues; it will replace only that draft.
+  draft. After correcting the workflow on `main`, recover an existing immutable
+  tag with `gh workflow run Release --ref main -f tag=v0.1.1`. The manual run
+  verifies the remote annotation and builds the exact tagged commit; it does not
+  move or recreate the tag. It replaces only an abandoned draft.
 - If the release is already public, the workflow stops. Do not delete or mutate
   it to make a rerun pass.
 - If the tag or packaged content is wrong, increment the version, qualify a new

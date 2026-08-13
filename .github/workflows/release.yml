@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag to build and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -33,32 +39,59 @@ jobs:
             target: aarch64-apple-darwin
 
     steps:
-      - name: Check out the tagged source
+      - name: Check out the workflow source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install pinned Rust toolchain
-        run: rustup show active-toolchain
-
-      - name: Validate version tag and immutable source identity
+      - name: Resolve and check out immutable release source
         id: release
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
+          case "${GITHUB_EVENT_NAME}" in
+            push)
+              test "${GITHUB_REF_TYPE}" = tag
+              tag="${GITHUB_REF_NAME}"
+              ;;
+            workflow_dispatch)
+              tag="${DISPATCH_TAG}"
+              ;;
+            *)
+              printf 'unsupported release event: %s\n' "${GITHUB_EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          # Checkout's tag-event fallback may replace an annotated local tag
+          # with its peeled commit. Fetch the exact tag ref after checking out
+          # main so the annotation object remains available for validation.
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+          test "$(git cat-file -t "refs/tags/${tag}")" = tag
+          source_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          if test "${GITHUB_EVENT_NAME}" = push; then
+            test "$source_sha" = "${GITHUB_SHA}"
+          fi
+          git checkout --detach "$source_sha"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+
           version="$(
             cargo metadata --locked --no-deps --format-version 1 \
               | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
           )"
-          test "${GITHUB_REF_TYPE}" = tag
-          [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "${GITHUB_REF_NAME}" = "v${version}"
-          test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = tag
-          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "${GITHUB_SHA}"
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$tag" = "v${version}"
+          printf 'RELEASE_TAG=%s\n' "$tag" >>"${GITHUB_ENV}"
+          printf 'RELEASE_SOURCE_SHA=%s\n' "$source_sha" >>"${GITHUB_ENV}"
           printf 'VERSION=%s\n' "$version" >>"${GITHUB_ENV}"
           printf 'version=%s\n' "$version" >>"${GITHUB_OUTPUT}"
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
 
       - name: Verify qualified native runner identity
         shell: bash
@@ -141,11 +174,45 @@ jobs:
       contents: write
 
     steps:
-      - name: Check out the tagged source
+      - name: Check out the workflow source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Resolve and check out immutable release source
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_EVENT_NAME}" in
+            push)
+              test "${GITHUB_REF_TYPE}" = tag
+              tag="${GITHUB_REF_NAME}"
+              ;;
+            workflow_dispatch)
+              tag="${DISPATCH_TAG}"
+              ;;
+            *)
+              printf 'unsupported release event: %s\n' "${GITHUB_EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+          test "$(git cat-file -t "refs/tags/${tag}")" = tag
+          source_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          if test "${GITHUB_EVENT_NAME}" = push; then
+            test "$source_sha" = "${GITHUB_SHA}"
+          fi
+          git checkout --detach "$source_sha"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+
+          printf 'RELEASE_TAG=%s\n' "$tag" >>"${GITHUB_ENV}"
+          printf 'RELEASE_SOURCE_SHA=%s\n' "$source_sha" >>"${GITHUB_ENV}"
 
       - name: Download native archives
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -162,9 +229,9 @@ jobs:
             cargo metadata --locked --no-deps --format-version 1 \
               | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
           )"
-          test "${GITHUB_REF_NAME}" = "v${version}"
-          test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = tag
-          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "${GITHUB_SHA}"
+          test "${RELEASE_TAG}" = "v${version}"
+          test "$(git cat-file -t "refs/tags/${RELEASE_TAG}")" = tag
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "${RELEASE_SOURCE_SHA}"
 
           cd dist
           macos="codesplice-v${version}-aarch64-apple-darwin.tar.gz"
@@ -181,7 +248,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
 
           resolve_remote_tag() {
             local tag_object
@@ -196,7 +263,7 @@ jobs:
 
           remote_commit="$(resolve_remote_tag)"
           test -n "$remote_commit"
-          test "$remote_commit" = "${GITHUB_SHA}"
+          test "$remote_commit" = "${RELEASE_SOURCE_SHA}"
 
           existing="$(
             gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
@@ -241,5 +308,5 @@ jobs:
           test "$actual_assets" = "$expected_assets"
 
           remote_commit="$(resolve_remote_tag)"
-          test "$remote_commit" = "${GITHUB_SHA}"
+          test "$remote_commit" = "${RELEASE_SOURCE_SHA}"
           gh release edit "$tag" --draft=false
