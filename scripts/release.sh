@@ -12,10 +12,28 @@ usage() {
 fail() {
   printf 'release: %s\n' "$1" >&2
   if test "$tag_pushed" -eq 1; then
+    print_recovery
+  fi
+  exit 1
+}
+
+print_recovery() {
+  local release_state
+  release_state=""
+  if command -v gh >/dev/null 2>&1; then
+    release_state="$({
+      gh release view "$tag" --json isDraft,isPrerelease \
+        --jq '[.isDraft, .isPrerelease] | @tsv' 2>/dev/null || true
+    })"
+  fi
+
+  if test "$release_state" = $'false\tfalse'; then
+    printf 'release: %s is already public and was not rolled back. Recover only the tap notification with:\n' "$tag" >&2
+    printf '  gh workflow run update-codesplice.yml --repo atacan/homebrew-tap --ref main -f version=%s\n' "$version" >&2
+  else
     printf 'release: the tag is immutable on origin; inspect the failed Release run and recover with:\n' >&2
     printf '  gh workflow run Release --ref main -f tag=%s\n' "$tag" >&2
   fi
-  exit 1
 }
 
 require_command() {
@@ -112,8 +130,7 @@ test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" \
 publish_failed() {
   status=$?
   if test "$tag_pushed" -eq 1; then
-    printf 'release: %s is immutable on origin; inspect the failed Release run and recover with:\n' "$tag" >&2
-    printf '  gh workflow run Release --ref main -f tag=%s\n' "$tag" >&2
+    print_recovery
   fi
   exit "$status"
 }

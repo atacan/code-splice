@@ -34,8 +34,8 @@ the workflow is present in that release's tagged commit.
 4. From a clean, synchronized `main`, use the guarded release helper. It
    re-runs the local release acceptance checks, requires a successful CI push
    run for the exact commit, creates an annotated tag from the version-specific
-   notes, pushes it, waits for the Release workflow, and verifies the published
-   asset set:
+   notes, pushes it, waits for the Release workflow, verifies the published
+   asset set, and waits for the post-publication Homebrew notification:
 
    ```console
    scripts/release.sh publish 0.2.0
@@ -71,6 +71,33 @@ the draft. A failed upload therefore does not expose a partial public release.
 A rerun replaces an abandoned draft but refuses to replace an already published
 release.
 
+After the stable release is public, the final job sends a
+`codesplice_release_published` repository-dispatch event to
+`atacan/homebrew-tap`. The tap independently verifies the release and opens a
+formula update PR. This notification is deliberately downstream of publication:
+if it fails, the GitHub Release remains public and its tag remains immutable.
+
+### One-time Homebrew automation setup
+
+1. Create a fine-grained personal access token owned by `atacan`. Give it
+   access to **only** the `atacan/homebrew-tap` repository and grant the
+   repository permission **Contents: Read and write**. No Actions,
+   pull-request, administration, or organization permissions are required for
+   the repository-dispatch endpoint. Choose an expiration and rotate the token
+   before it expires.
+2. In `atacan/code-splice`, create the Actions repository secret
+   `HOMEBREW_TAP_DISPATCH_TOKEN` with that token as its value. Do not add the
+   token to repository variables, environments, source files, or the tap.
+3. In `atacan/homebrew-tap`, open **Settings > Actions > General > Workflow
+   permissions**. Keep the default token permission at read-only, and enable
+   **Allow GitHub Actions to create and approve pull requests**. The tap
+   workflow explicitly grants its job `contents: write` and
+   `pull-requests: write`; it creates PRs but never approves or merges them.
+
+No custom Actions variables are required. Both repositories receive their own
+automatic, repository-scoped `GITHUB_TOKEN`; the CodeSplice token cannot notify
+another repository and is not used for that purpose.
+
 ## Homebrew consumption
 
 GitHub Release assets are the right first distribution source for the personal
@@ -99,5 +126,9 @@ adopt bottles once the formula and release cadence are stable.
   move or recreate the tag. It replaces only an abandoned draft.
 - If the release is already public, the workflow stops. Do not delete or mutate
   it to make a rerun pass.
+- If the stable release is public but the Homebrew notification fails, the
+  release was not rolled back. Rerun only the failed notification job, or invoke
+  the tap's recovery path directly with
+  `gh workflow run update-codesplice.yml --repo atacan/homebrew-tap --ref main -f version=0.2.1`.
 - If the tag or packaged content is wrong, increment the version, qualify a new
   commit, and publish a new tag.
