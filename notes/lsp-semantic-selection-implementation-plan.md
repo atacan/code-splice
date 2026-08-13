@@ -662,13 +662,22 @@ Exit criterion: the external behavior is reviewable before production implementa
 
 ### Phase 1: framed transport and process lifecycle
 
-- [ ] Add `codesplice-lsp` and workspace dependencies.
-- [ ] Implement separately bounded inbound/outbound `Content-Length` framing, incremental header-limit enforcement, bounded Crossbeam channels, a writer thread, deterministic simultaneous-event precedence, and exact outbound-message preflight.
-- [ ] Implement request IDs, response correlation, server-request dispatch, stderr draining, deadlines, dedicated process groups, explicit shutdown, thread joins, and child reaping.
-- [ ] Add non-gating `cargo-fuzz` targets for framing/header parsing and JSON-RPC envelope classification, with minimized failures checked into the deterministic regression corpus.
-- [ ] Test malformed and overlong unterminated headers, oversized frames, invalid JSON, unknown response IDs, channel saturation, simultaneous failures, blocked stdin/stdout/stderr, early exit, timeout, descendant cleanup, and forced cleanup.
+- [x] Add `codesplice-lsp` and workspace dependencies.
+- [x] Implement separately bounded inbound/outbound `Content-Length` framing, incremental header-limit enforcement, bounded Crossbeam channels, a writer thread, deterministic simultaneous-event precedence, and exact outbound-message preflight.
+- [x] Implement request IDs, response correlation, stderr draining, deadlines, dedicated process groups, thread joins, child reaping, and transport-level graceful/forced cleanup.
+- [ ] Implement stateful server-request dispatch, per-selection request/notification rate limits, and protocol-level `shutdown`/`exit` in the Phase 2 session client.
+- [x] Add non-gating `cargo-fuzz` targets for framing/header parsing and JSON-RPC envelope classification, with minimized failures checked into the deterministic regression corpus.
+- [x] Test malformed and overlong unterminated headers, oversized frames, invalid JSON, unknown response IDs, channel saturation, simultaneous failures, blocked stdin/stdout/stderr, early exit, timeout, descendant cleanup, forced cleanup, JSON depth, live producers, and decoded-message byte bounds.
+- [ ] Exercise the complete successful, early-exit, timeout, ignored-shutdown, server-request, and descendant-cleanup lifecycles through the fake LSP executable in Phase 2.
 
 Exit criterion: the fake server can complete and fail every lifecycle path without leaking a process or thread.
+
+Checkpoint: the independently reviewed transport foundation is complete. The
+literal Phase 1 exit criterion remains open until the Phase 2 session client
+adds stateful server-request handling and drives the full fake-server
+lifecycle. The two standalone fuzz targets and corpora compile on stable Rust;
+runtime fuzz campaigns remain non-gating and were not run because
+`cargo-fuzz` was unavailable in the implementation environment.
 
 ### Phase 2: initialization and document synchronization
 

@@ -1,0 +1,36 @@
+[package]
+name = "codesplice-lsp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.97"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+codesplice-lsp = { path = ".." }
+libfuzzer-sys = "=0.4.13"
+
+[[bin]]
+name = "framing-header"
+path = "fuzz_targets/framing_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jsonrpc-envelope"
+path = "fuzz_targets/jsonrpc_envelope.rs"
+test = false
+doc = false
+bench = false
+
+# Keep nightly fuzz tooling and its lockfile independent of the stable parent.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

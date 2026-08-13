@@ -5,6 +5,13 @@
 //! This crate will own the LSP transport, lifecycle, and conversion from
 //! language-server positions to validated [`codesplice_core::ByteRange`] values.
 
+/// Bounded JSON-RPC framing, envelope validation, and response correlation.
+pub mod jsonrpc;
+/// Bounded child-process transport, supervision, and cleanup.
+pub mod process;
+/// Deadline-aware composition of process supervision and JSON-RPC framing.
+pub mod transport;
+
 use std::path::{Path, PathBuf};
 
 /// Returns the CodeSplice configuration file below a platform configuration directory.

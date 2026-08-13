@@ -1,0 +1,8 @@
+/target
+/artifacts/*
+!/artifacts/framing-header/
+!/artifacts/jsonrpc-envelope/
+/artifacts/framing-header/*
+!/artifacts/framing-header/.gitkeep
+/artifacts/jsonrpc-envelope/*
+!/artifacts/jsonrpc-envelope/.gitkeep
