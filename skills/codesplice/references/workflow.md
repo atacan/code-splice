@@ -72,6 +72,25 @@ Never pass `--accept-current-plan` in an agent workflow.
 
 If the command returns `PRECONDITION_FAILED`, `FILE_CHANGED`, `EXPECTED_PLAN_MISMATCH`, or `PLAN_CHANGED_DURING_COMMIT`, do not weaken the guard. Re-inspect the workspace, rebuild preconditions or coordinates if still appropriate, and preview a new plan for review.
 
+If the command returns `TRANSACTION_BUSY`, wait before retrying. Never poll in a
+tight loop, bypass or remove the lock, or infer a holder or transaction state
+from contention. You may retry the exact request with the same `--expect-plan`:
+the command replans and the expected-plan check still prevents an unreviewed plan
+from committing. If the retry instead reports a precondition or plan mismatch,
+return to inspect and preview. A retried inspect or preview inherently obtains a
+fresh observation.
+
+Before starting an unrelated normal mutation after contention, run:
+
+```bash
+codesplice --workspace /absolute/path/to/repo recover --list --json
+```
+
+This is the authoritative point-in-time workspace status check. An empty list
+means no recorded transaction needing recovery was observed;
+`orphan_record`, `manifest_only`, or `active` requires recovery before mutation;
+`cleanup_only` alone does not.
+
 ## 6. Verify and finish
 
 On a changing commit, require:

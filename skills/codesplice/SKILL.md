@@ -19,6 +19,8 @@ For every mutation, follow this sequence without shortcuts:
 
 Never use `--accept-current-plan`. If a digest, file, or plan changed, inspect and preview again. Never reproduce the selected bytes by hand as a fallback after CodeSplice rejects an operation.
 
+If CodeSplice returns `TRANSACTION_BUSY`, wait before retrying and never bypass or remove the lock. Retrying an inspect or preview takes a fresh observation. You may retry the unchanged commit request with the same `--expect-plan`; if it then reports a precondition or plan mismatch, return to inspect and preview. Before an unrelated mutation after contention, use `recover --list --json` as the point-in-time workspace status check.
+
 Read [references/workflow.md](references/workflow.md) before executing any mutating task. It contains the commands, review gates, and retry rules.
 
 ## Keep the operation in scope

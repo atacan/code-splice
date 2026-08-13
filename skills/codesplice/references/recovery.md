@@ -4,17 +4,33 @@ Use recovery only for an interrupted or unfinished CodeSplice transaction. Do no
 
 ## Inspect before acting
 
-List known transactions:
+Use the workspace-level status operation to list known transactions:
 
 ```bash
 codesplice --workspace /absolute/path/to/repo recover --list --json
 ```
 
-Inspect a specific transaction:
+Use the transaction-level status operation to inspect a specific transaction:
 
 ```bash
 codesplice --workspace /absolute/path/to/repo recover TRANSACTION_ID --status --json
 ```
+
+Both status operations are read-only, create nothing, and retain a shared lock
+through control-tree validation, scanning, and report construction. Interpret a
+workspace list as follows:
+
+- An empty list means no recorded transaction needing recovery was observed.
+- Any `orphan_record`, `manifest_only`, or `active` entry requires recovery
+  before a new mutation.
+- `cleanup_only` alone is terminal cleanup state, not unfinished recovery.
+
+If an incompatible exclusive lock prevents a safe scan, status returns
+`TRANSACTION_BUSY` with `lock_state: "contended"`,
+`recovery_required: "unknown"`, and
+`safe_next_action: "wait_then_retry"`. Wait and retry; never bypass or remove
+the lock. Contention does not identify the holder or prove whether recovery is
+required.
 
 Check its `classification`, allowed `actions`, and `visibility`:
 

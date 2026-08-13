@@ -49,6 +49,20 @@ fn json_stdout(output: &Output) -> Value {
     serde_json::from_str(stdout).expect("stdout should contain one JSON value")
 }
 
+fn assert_transaction_busy_response(response: &Value) {
+    assert_eq!(response["code"], "TRANSACTION_BUSY");
+    assert_eq!(response["category"], "transaction");
+    assert_eq!(response["retryable"], true);
+    assert_eq!(
+        response["context"],
+        serde_json::json!({
+            "lock_state": "contended",
+            "recovery_required": "unknown",
+            "safe_next_action": "wait_then_retry"
+        })
+    );
+}
+
 fn empty_manifest(transaction_id: &str) -> Manifest {
     Manifest {
         transaction_version: 1,
@@ -143,12 +157,32 @@ fn recovery_status_should_return_busy_deterministically_under_exclusive_lock() {
         .create_transaction_directory()
         .expect("transaction should allocate");
     let id = directory.transaction_id().to_owned();
+    drop(directory);
 
     let output = workspace.invoke(&["recover", &id, "--status", "--json"]);
     let response = json_stdout(&output);
 
     assert_eq!(output.status.code(), Some(5));
-    assert_eq!(response["code"], "TRANSACTION_BUSY");
+    assert_transaction_busy_response(&response);
+
+    drop(lock);
+    let list = workspace.invoke(&["recover", "--list", "--json"]);
+    let response = json_stdout(&list);
+    assert_eq!(list.status.code(), Some(0));
+    assert_eq!(response["transactions"][0]["transaction_id"], id);
+    assert_eq!(
+        response["transactions"][0]["classification"],
+        "orphan_record"
+    );
+
+    let inspect = workspace.invoke(&["inspect", "--path", "future-target", "--json"]);
+    let response = json_stdout(&inspect);
+    assert_eq!(inspect.status.code(), Some(5));
+    assert_eq!(response["code"], "TRANSACTION_RECOVERY_REQUIRED");
+    assert_eq!(
+        response["context"]["transaction_ids"],
+        serde_json::json!([id])
+    );
 }
 
 #[test]

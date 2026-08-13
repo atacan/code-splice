@@ -64,6 +64,40 @@ Absolute request-file paths are redacted from structured I/O errors. Human error
 messages visibly escape terminal controls and Unicode bidirectional-formatting
 characters.
 
+Every `TRANSACTION_BUSY` response has `retryable: true` and this exact context:
+
+```json
+{
+  "lock_state": "contended",
+  "recovery_required": "unknown",
+  "safe_next_action": "wait_then_retry"
+}
+```
+
+The error means that the command's nonblocking lock attempt encountered an
+incompatible workspace lock. It does not identify the holder, prove that a
+mutation is active, or establish whether recovery is required. `retryable` means
+that an external state change may allow a later invocation to succeed; it does
+not direct clients to poll or retry in a tight loop. Wait before retrying and
+never bypass, remove, or break the lock.
+
+Retry behavior depends on the command. A retried `inspect` or preview obtains a
+fresh observation. An unchanged commit may be retried with the same
+`--expect-plan`; the command replans and rejects a changed plan before mutation.
+After a precondition or plan mismatch, inspect and preview again. A human using
+`--accept-current-plan` previews again before retrying because that option can
+accept a plan different from the earlier preview. Before an unrelated normal
+mutation after contention, `recover --list --json` is the authoritative
+point-in-time workspace status operation.
+
+`recover --list --json` and `recover ID --status --json` are read-only and hold a
+shared lock through validation, scanning, and report construction. An empty list
+means that no recorded transaction needing recovery was observed. Any
+`orphan_record`, `manifest_only`, or `active` entry requires recovery before a
+new mutation. `cleanup_only` by itself is terminal cleanup state, not unfinished
+recovery. If an exclusive holder prevents a safe scan, these status operations
+return `TRANSACTION_BUSY` instead of observing a journal being published.
+
 ## Version freeze
 
 The `v0.1.0` tag closes protocol version 1. The request and response schemas,
