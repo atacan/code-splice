@@ -1,20 +1,24 @@
 [package]
-name = "codesplice-protocol"
+name = "codesplice-lsp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Protocol boundary for CodeSplice"
+description = "Bounded LSP client and semantic selection for CodeSplice"
 
 [dependencies]
 codesplice-core = { path = "../codesplice-core" }
-serde.workspace = true
+crossbeam-channel.workspace = true
+directories.workspace = true
+gen-lsp-types.workspace = true
+rustix.workspace = true
 serde_json.workspace = true
+url.workspace = true
 
 [dev-dependencies]
-jsonschema.workspace = true
-proptest = "1.7.0"
+serde.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

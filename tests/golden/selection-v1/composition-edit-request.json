@@ -1,0 +1,24 @@
+{
+  "protocol_version": 1,
+  "operations": [
+    {
+      "kind": "copy",
+      "source": {
+        "path": "src/input.rs",
+        "selector": { "kind": "bytes", "start": 0, "end": 42 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:7e05110a7dcdd32e6048b54848c84deb34c920d17678394730035e93fbd4e5be"
+        }
+      },
+      "destination": {
+        "path": "src/output.rs",
+        "anchor": { "kind": "file_end" },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:079296190f46d7f4ef7f99a23716e9ac4e01d26698f0a6f299957f2d90f2228a"
+        }
+      }
+    }
+  ]
+}

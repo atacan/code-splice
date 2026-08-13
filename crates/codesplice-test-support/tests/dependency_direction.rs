@@ -60,6 +60,7 @@ fn workspace_crate_dependencies_should_follow_the_declared_architecture() {
     let expected = [
         ("codesplice-core", &[][..]),
         ("codesplice-fs", &["codesplice-core"][..]),
+        ("codesplice-lsp", &["codesplice-core"][..]),
         ("codesplice-protocol", &["codesplice-core"][..]),
         (
             "codesplice-cli",

@@ -1,0 +1,10 @@
+{"sequence":1,"direction":"server_to_client","message":{"jsonrpc":"2.0","id":"folders-request","method":"workspace/workspaceFolders","params":null}}
+{"sequence":2,"direction":"client_to_server","message":{"jsonrpc":"2.0","id":"folders-request","result":[{"uri":"file:///fixture/workspace/","name":"workspace"}]}}
+{"sequence":3,"direction":"server_to_client","message":{"jsonrpc":"2.0","id":7001,"method":"workspace/configuration","params":{"items":[{"section":"fixture"}]}}}
+{"sequence":4,"direction":"client_to_server","message":{"jsonrpc":"2.0","id":7001,"result":[{"enabled":true}]}}
+{"sequence":5,"direction":"server_to_client","message":{"jsonrpc":"2.0","id":"show-message-request","method":"window/showMessageRequest","params":{"type":3,"message":"fixture question","actions":[]}}}
+{"sequence":6,"direction":"client_to_server","message":{"jsonrpc":"2.0","id":"show-message-request","result":null}}
+{"sequence":7,"direction":"server_to_client","message":{"jsonrpc":"2.0","id":7002,"method":"workspace/applyEdit","params":{"edit":{"changes":{}}}}}
+{"sequence":8,"direction":"client_to_server","message":{"jsonrpc":"2.0","id":7002,"result":{"applied":false,"failureReason":"CodeSplice selection is read-only"}}}
+{"sequence":9,"direction":"server_to_client","message":{"jsonrpc":"2.0","id":"unknown-request","method":"fixture/unknownRequest","params":{}}}
+{"sequence":10,"direction":"client_to_server","message":{"jsonrpc":"2.0","id":"unknown-request","error":{"code":-32601,"message":"Method not found"}}}

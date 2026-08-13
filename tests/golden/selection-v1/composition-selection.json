@@ -1,0 +1,49 @@
+{
+  "selection_protocol_version": 1,
+  "workspace_identity_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "source": {
+    "path": "src/input.rs",
+    "sha256": "sha256:7e05110a7dcdd32e6048b54848c84deb34c920d17678394730035e93fbd4e5be",
+    "byte_length": 87
+  },
+  "query": {
+    "kind": "name",
+    "name": "first",
+    "symbol_kind": "function"
+  },
+  "server": {
+    "configuration_id": "rust",
+    "reported_name": "rust-analyzer",
+    "reported_version": "golden-1.0",
+    "position_encoding": "utf-8"
+  },
+  "matches": [
+    {
+      "name": "first",
+      "symbol_kind": "function",
+      "symbol_path": ["first"],
+      "detail": "pub fn first()",
+      "lsp_range": {
+        "start": { "line": 0, "character": 0 },
+        "end": { "line": 2, "character": 1 }
+      },
+      "lsp_selection_range": {
+        "start": { "line": 0, "character": 7 },
+        "end": { "line": 0, "character": 12 }
+      },
+      "extent": "declaration_lines",
+      "selector": { "kind": "bytes", "start": 0, "end": 42 },
+      "selected_payload_sha256": "sha256:be453f70d1e77e49cac7efacebf2d46d789fbc3629aef4337e25bf566c3f780b",
+      "selected_byte_length": 42,
+      "request_source": {
+        "path": "src/input.rs",
+        "selector": { "kind": "bytes", "start": 0, "end": 42 },
+        "precondition": {
+          "kind": "sha256",
+          "value": "sha256:7e05110a7dcdd32e6048b54848c84deb34c920d17678394730035e93fbd4e5be"
+        }
+      }
+    }
+  ],
+  "warnings": []
+}

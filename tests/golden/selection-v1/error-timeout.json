@@ -1,0 +1,13 @@
+{
+  "selection_protocol_version": 1,
+  "code": "LSP_TIMEOUT",
+  "category": "support",
+  "retryable": true,
+  "message": "the language server did not answer before the document-symbol deadline",
+  "context": {
+    "server_configuration_id": "rust",
+    "phase": "document_symbol",
+    "elapsed_ms": 30000,
+    "limit_ms": 30000
+  }
+}

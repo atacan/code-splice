@@ -1,6 +1,6 @@
 # LSP-backed semantic selection implementation plan
 
-Status: proposed; independent architecture review incorporated
+Status: implementation in progress; Phase 0 contract and fixture gate complete
 
 Scope: read-only source selection through an installed Language Server Protocol (LSP) server
 
@@ -20,6 +20,8 @@ The language server identifies structure. CodeSplice remains responsible for:
 - enforcing all existing path, precondition, transaction, and recovery guarantees.
 
 This feature will use LSP only. It will not bundle grammars, load parser plugins, or provide a parser-based fallback.
+
+Reuse established crates for the standard LSP vocabulary, bounded channel coordination, file-URI construction, and user-configuration plumbing. Keep CodeSplice responsible for the security- and correctness-sensitive boundaries: framed transport, JSON-RPC envelope validation, resource accounting, position conversion, symbol normalization, query resolution, and byte-range validation.
 
 ## 2. Goals
 
@@ -150,6 +152,10 @@ Example successful response:
         "start": {"line": 1364, "character": 0},
         "end": {"line": 1417, "character": 1}
       },
+      "lsp_selection_range": {
+        "start": {"line": 1364, "character": 7},
+        "end": {"line": 1364, "character": 20}
+      },
       "extent": "declaration_lines",
       "selector": {"kind": "bytes", "start": 42100, "end": 43793},
       "selected_payload_sha256": "sha256:...",
@@ -165,7 +171,7 @@ Example successful response:
 }
 ```
 
-`lsp_range` preserves the raw zero-based LSP line/character coordinates for audit. The byte selector is the authoritative CodeSplice coordinate.
+`lsp_range` and `lsp_selection_range` preserve the raw zero-based coordinates from `DocumentSymbol.range` and `DocumentSymbol.selectionRange` for audit. Both ranges are validated and converted, but declaration selection uses the enclosing `lsp_range`. The byte selector is the authoritative CodeSplice coordinate.
 
 The emitted `matches[0].request_source` is directly composable, without field transformation, into the `source` member of an ordinary edit request:
 
@@ -234,6 +240,8 @@ Language features must be requested for the synchronized document. Do not rely o
 
 Before sending `didOpen`, require usable synchronization capability. Accept legacy `TextDocumentSyncKind::Full` and `Incremental`. For `TextDocumentSyncOptions`, require `openClose: true`; reject `None`, omitted synchronization, or `openClose: false` with `LSP_DOCUMENT_SYNC_UNAVAILABLE`. Tests must prove the server receives the captured text when the disk file changes after capture.
 
+The consistency model is intentionally mixed-time. The selected document bytes are immutable, hashed, and sent exactly through `didOpen`, but after CodeSplice releases its diagnostic lock the language server may read project configuration, imports, macros, generated sources, or other workspace files from their current live state. Those observations may influence the server's semantic interpretation, but they cannot change the captured bytes or bypass range validation and the emitted SHA-256 precondition. Document this distinction; do not hold the diagnostic lock for the lifetime of the language server.
+
 ### 7.3 Existing edit workflow
 
 `select` does not create an edit plan or a commit token. The caller still performs:
@@ -259,9 +267,9 @@ crates/codesplice-lsp/src/
   error.rs        # typed LspError and SelectionError
   jsonrpc.rs      # bounded Content-Length framing and message IDs
   process.rs      # child launch, pipe ownership, stderr drain, cleanup
-  client.rs       # initialize/open/request/close/shutdown lifecycle
+  client.rs       # initialize/open/request/close/shutdown lifecycle using generated LSP types
   position.rs     # LSP position <-> snapshot byte conversion
-  symbols.rs      # tolerant LSP DTOs and hierarchy flattening
+  symbols.rs      # generated LSP types -> validated symbols and hierarchy flattening
   resolve.rs      # query filtering, ambiguity, extent, deterministic ordering
 ```
 
@@ -269,7 +277,35 @@ Keep this crate independent of `codesplice-fs`. It accepts borrowed snapshot byt
 
 Use a concrete LSP client implementation internally. Do not introduce trait objects merely for hypothetical alternate parsers or transports. A narrow test-only transport trait is acceptable if it materially simplifies deterministic unit tests; prefer generics at that seam.
 
-### 8.2 `codesplice-protocol` additions
+### 8.2 Dependency and ownership boundary
+
+Use focused dependencies instead of implementing standard protocol vocabulary and platform conventions from scratch:
+
+- `gen-lsp-types` for LSP 3.18 request, notification, capability, synchronization, position-encoding, and document-symbol types;
+- `crossbeam-channel` for bounded inbound, outbound, and completion channels plus deadline-aware selection;
+- `url` for `Url::from_file_path` and `Url::from_directory_path`, including platform-correct `file:` URI serialization;
+- `toml` with Serde for the versioned user configuration document;
+- `directories` for platform user-configuration directory discovery; and
+- `std::os::unix::process::CommandExt::process_group(0)` for safe process-group creation and the workspace's existing `rustix` dependency for process-group signalling.
+
+Phase 0 qualifies and exactly pins `gen-lsp-types` 0.11.0 with its `url` feature, `crossbeam-channel` 0.5.16, `url` 2.5.8 with Serde, `toml` 1.1.4 (published as `1.1.4+spec-1.1.0`), and `directories` 6.0.0. Compatibility tests deserialize and reserialize the actual frozen JSONL initialization and document-symbol transcripts to structurally identical JSON; these fixture shapes require no optional/default-field normalization. The generated URI is directly `url::Url`, hierarchical and flat document-symbol responses remain distinguishable, synchronization supports both options and legacy kinds, and future numeric symbol kinds round-trip as `SymbolKind::Custom(u32)`. No CodeSplice-owned wire DTO is currently required for these fields. Keep `gen-lsp-types` exactly pinned because it is generated from an evolving metamodel. If a later generated field prevents tolerant handling, add the smallest possible CodeSplice-owned wire DTO for that field or response union; do not fork or duplicate the whole LSP type model.
+
+The parsing boundary is:
+
+```text
+bounded CodeSplice JSON-RPC envelope
+  -> generated standard LSP types
+  -> CodeSplice validation and normalization
+  -> validated internal symbols and byte ranges
+```
+
+Do not use `lsp-server` for transport: its general-purpose framing does not expose the incremental header and frame limits required here. Do not use a text-document helper for position conversion because CodeSplice's exact LF, CRLF, lone-CR, Unicode-boundary, and fail-closed semantics are part of the selection contract. Do not add `async-lsp` or an async runtime unless measurements justify an explicit architecture change and its resource/lifecycle behavior is re-audited.
+
+`process-wrap` is not needed for the currently qualified Linux and macOS targets. Re-evaluate it, particularly its Windows Job Object support, only as part of a separately qualified Windows port.
+
+`cargo-fuzz` is development tooling rather than a shipped dependency. Add non-gating fuzz targets early for byte-stream and conversion boundaries; its nightly Rust and Unix-like platform requirements must not affect the stable workspace build or the normal cross-platform test suite. Minimize discovered failures and check them into the existing deterministic fuzz-regression corpus.
+
+### 8.3 `codesplice-protocol` additions
 
 Add `SelectionResponse` and a concrete `SelectionErrorDto`, strict serialization tests, schemas, and golden vectors. These types are independent of `ProtocolVersionResponse`, `CapabilitiesResponse::v0_1_0`, edit `ErrorDto`, edit `ErrorCode`, and protocol-v1 request parsing. Do not generalize the frozen edit error types solely to reuse them here.
 
@@ -306,7 +342,7 @@ Freeze this mapping in the selection error schema and golden vectors:
 
 Top-level Clap grammar failures remain the existing global `INVALID_CLI` behavior because they occur before command dispatch. `INVALID_SELECTION_QUERY` is reserved for semantic query validation after successful CLI parsing.
 
-### 8.3 CLI additions
+### 8.4 CLI additions
 
 Add `Command::Select(SelectArgs)` and route it to a dedicated module:
 
@@ -333,7 +369,7 @@ Refactor the current top-level error rendering only as far as required to suppor
 
 Use `std::process::Command` with piped stdin, stdout, and stderr. The initial implementation does not require an async runtime:
 
-- one reader thread parses bounded stdout frames and sends typed events over a small `std::sync::mpsc::sync_channel` whose capacity and cumulative queued bytes are bounded;
+- one reader thread parses bounded stdout frames and sends typed events over a small `crossbeam_channel::bounded` channel whose capacity and cumulative queued bytes are bounded;
 - one writer thread owns child stdin and consumes a bounded outbound queue, so a server that stops reading cannot trap the orchestration thread inside `write_all` past its deadline;
 - one stderr thread continuously drains into a bounded diagnostic tail so a noisy server cannot block;
 - every I/O thread reports completion over a bounded status channel, allowing orchestration to enforce deadlines without a blocking join;
@@ -342,6 +378,17 @@ Use `std::process::Command` with piped stdin, stdout, and stderr. The initial im
 - an explicit fallible lifecycle method terminates or waits for the process before joining all I/O threads, while `Drop` provides only bounded best-effort cleanup.
 
 On normal completion, send `shutdown`, wait for its response, queue `exit`, and drop the outbound sender. Until the shutdown deadline, observe writer completion and direct-child exit without performing a blocking join. If the deadline expires, terminate the dedicated process group. On any failure, drop all channel senders and the inbound receiver so blocked queue operations wake, terminate the process group immediately, and skip the graceful wait. In every path, wait for and reap the direct child before joining the writer, stdout-reader, and stderr-reader threads; reaping closes the child-side pipes and unblocks pending I/O. The process-group boundary covers ordinary wrapper-spawned helpers; CodeSplice cannot guarantee cleanup of a malicious or independently daemonized descendant, which remains inside the trusted-language-server boundary. Test a fake server that spawns a child and ignores shutdown.
+
+Crossbeam may choose nondeterministically when several channel operations become ready simultaneously. Channel scheduling must not decide an externally visible selection error. At every orchestration wake-up, drain the already-ready events and apply this precedence before producing a result for the current lifecycle phase:
+
+1. locally detected invariant failure;
+2. framing, JSON-RPC, or resource-limit violation;
+3. unexpected direct-child exit;
+4. I/O worker failure or premature pipe closure;
+5. the awaited server response, including a JSON-RPC error response; and
+6. deadline expiration.
+
+An event already ready when the deadline is checked therefore wins over the deadline. During final cleanup, direct-child exit after the `exit` notification is expected rather than an `LSP_EXITED` error. Tests must inject every meaningful simultaneous pair so this ordering is independent of Crossbeam's ready-operation choice.
 
 ### 9.2 Lifecycle sequence
 
@@ -400,6 +447,7 @@ Selection v1 requires static `documentSymbolProvider` and usable text synchroniz
 
 Treat stdout as an untrusted framed stream:
 
+- enforce the total header-byte limit incrementally while scanning for `\r\n\r\n`; do not call an unbounded `read_line` or allocate an entire unterminated header before checking the limit;
 - require exactly one unsigned decimal `Content-Length` header, rejecting a sign, overflow, duplicate, or missing length;
 - require ASCII header bytes and reject unsupported `Content-Type` charsets while accepting the specified `utf-8` spelling and legacy `utf8` compatibility spelling;
 - reject JSON-RPC batches, messages with an invalid `jsonrpc` version, and responses containing both or neither of `result` and `error`;
@@ -418,14 +466,14 @@ Requirements:
 - LSP lines and characters are zero-based. CLI line/scalar-column positions are one-based, while `--at-byte` is zero-based.
 - Support negotiated UTF-8, UTF-16, and UTF-32 code-unit counts.
 - Treat LF, CRLF, lone CR, and an unterminated final line consistently with `LineIndex`.
-- Reject nonexistent line numbers. As required by LSP, silently normalize a character offset beyond a valid line's content length to the content end; never count CR or LF bytes as line content.
+- Reject nonexistent line numbers. LSP specifies normalization only when the character offset exceeds the length of an existing line; it does not specify clamping a nonexistent line to the document end. Silently normalize an oversized character offset on a valid line to that line's content end, and never count CR or LF bytes as line content.
 - Reject positions that split a UTF-8 code point or UTF-16 surrogate pair.
 - Reject reversed, empty, or out-of-file symbol ranges after normalization.
 - Validate that every `DocumentSymbol.selectionRange` is well formed and contained by its `range`, even though selection uses the enclosing `range`.
 - Convert every candidate before filtering by containing position so malformed server output cannot hide behind a query filter.
 - Charge conversion work and candidate storage against explicit limits.
 
-Reuse or extend `codesplice_core::LineIndex` for physical line boundaries. Keep Unicode code-unit conversion in `codesplice-lsp::position`, where it can be exhaustively tested without filesystem access.
+Reuse or extend `codesplice_core::LineIndex` for physical line boundaries. Keep the focused UTF-8/UTF-16/UTF-32 code-unit scanner in `codesplice-lsp::position`, where it can be exhaustively tested without filesystem access. Do not delegate this contract to a text-document library with different rounding or line-ending behavior.
 
 ## 11. Symbol resolution
 
@@ -483,7 +531,7 @@ Validation rules:
 - environment replacement is not supported initially; a small allowlisted environment overlay may be added later;
 - no secrets or configuration contents are echoed in normal responses.
 
-Use `$CODESPLICE_CONFIG` when explicitly set; otherwise use the platform user-configuration location (`$XDG_CONFIG_HOME/codesplice/config.toml` or its standard fallback on Linux, and `~/Library/Application Support/CodeSplice/config.toml` on macOS). Configuration loading must not create directories or files. After `initialized`, send `workspace/didChangeConfiguration` when settings are configured. For `workspace/configuration`, resolve each requested section independently.
+Use `$CODESPLICE_CONFIG` when explicitly set; otherwise use `directories` to resolve the platform user-configuration directory and append the documented CodeSplice configuration filename. Preserve the expected Linux and macOS paths in compatibility tests. Configuration loading must not create directories or files. Parse the bounded document with `toml` and Serde, then apply the CodeSplice validation and trust rules above. After `initialized`, send `workspace/didChangeConfiguration` when settings are configured. For `workspace/configuration`, resolve each requested section independently.
 
 Executable discovery rules are:
 
@@ -504,6 +552,23 @@ codesplice lsp doctor --path src/lib.rs --json
 
 It would report which descriptor matched, whether the executable resolved, its reported server name/version after initialization, negotiated encoding, and document-symbol capability. It must not open or inspect unrelated source files.
 
+### 12.1 Frozen Phase 0 defaults
+
+The first release ships a deliberately small built-in descriptor table only for executable invocations that are stable and can be covered by qualification tests:
+
+| Descriptor | Extensions and language IDs | Invocation |
+|---|---|---|
+| `rust` | `rs` -> `rust` | `rust-analyzer` |
+| `go` | `go` -> `go` | `gopls` |
+| `python` | `py` -> `python` | `pylsp` |
+| `clangd-c` | `c` -> `c` | `clangd` |
+| `clangd-cpp` | `cc`, `cpp`, `cxx` -> `cpp` | `clangd` |
+| `typescript` | `ts` -> `typescript`, `tsx` -> `typescriptreact`, `js` -> `javascript`, `jsx` -> `javascriptreact` | `typescript-language-server --stdio` |
+
+Do not guess a language for ambiguous header extensions such as `h`; require `--server-id` or an explicit descriptor. A built-in descriptor is convenience metadata, not a bundled server or a support guarantee. Explicit CLI and trusted user descriptors remain the compatibility escape hatch.
+
+The default user configuration path is the `directories::BaseDirs` configuration directory followed by `codesplice/config.toml`. This yields `$XDG_CONFIG_HOME/codesplice/config.toml` or the standard Linux fallback and `~/Library/Application Support/codesplice/config.toml` on macOS. `$CODESPLICE_CONFIG` overrides it exactly.
+
 ## 13. Resource limits and security
 
 Add lowerable limits with below/at/above boundary tests:
@@ -522,6 +587,34 @@ Add lowerable limits with below/at/above boundary tests:
 - maximum name, detail, and symbol-path bytes;
 - maximum candidates included in an ambiguity error;
 - startup, initialize, document-symbol, shutdown, and total wall-clock deadlines.
+
+Freeze these first-release defaults, represented with checked integer conversions at API boundaries:
+
+| Resource | Default |
+|---|---:|
+| Header bytes | 16 KiB |
+| Source bytes | 8 MiB |
+| Inbound frame bytes | 16 MiB |
+| Outbound frame bytes | 64 MiB |
+| JSON nesting depth | 64 |
+| Pending client requests | 8 |
+| Server-initiated requests | 64 per selection |
+| Notifications | 1,024 per selection |
+| Inbound channel events / queued bytes | 32 / 32 MiB |
+| Outbound channel frames / queued bytes | 16 / 64 MiB |
+| Completion channel events | 16 |
+| Retained stderr tail | 64 KiB |
+| Raw and flattened document symbols | 100,000 each |
+| Symbol nesting depth | 256 |
+| Symbol name bytes | 4 KiB |
+| Symbol detail bytes | 16 KiB |
+| Symbol path bytes | 64 KiB per candidate |
+| Ambiguity candidates in an error | 50 |
+| Configuration file bytes / JSON depth | 1 MiB / 32 |
+| Server arguments / individual argument / total argument bytes | 128 / 16 KiB / 256 KiB |
+| Initialization-options or settings JSON | 1 MiB each |
+| Initialize / document-symbol / graceful-shutdown deadline | 10 s / 30 s / 5 s |
+| Total selection wall clock | 60 s |
 
 Preflight the exactly serialized `didOpen` message against the outbound frame limit before queuing any bytes. Defaults must fit inside the existing 16 MiB serialized-response limit, and the dedicated source limit must be lower than the 256 MiB general snapshot-file limit. All cumulative accounting uses checked arithmetic before allocation. Add below/at/above tests for source bytes, JSON escaping expansion, inbound and outbound frames, queued bytes, and channel saturation.
 
@@ -558,19 +651,22 @@ Do not retain source text, complete server stderr, initialization options, envir
 
 ### Phase 0: contract and fixtures
 
-- [ ] Approve CLI grammar, response/error schemas, extent semantics, and initial limits.
-- [ ] Add selection-v1 schemas and hand-authored golden examples.
-- [ ] Add a fake language-server fixture executable to `codesplice-test-support`.
-- [ ] Freeze representative JSON-RPC transcripts for initialization, configuration, document synchronization, document symbols, and shutdown.
+- [x] Approve CLI grammar, response/error schemas, extent semantics, and initial limits.
+- [x] Run the dependency compatibility spike for `gen-lsp-types`, `url`, `crossbeam-channel`, `toml`, and `directories`; select and pin qualified versions.
+- [x] Verify unknown `SymbolKind` handling and introduce only narrowly scoped tolerant wire DTOs where generated types cannot preserve the required behavior.
+- [x] Add selection-v1 schemas and hand-authored golden examples.
+- [x] Add a fake language-server fixture executable to `codesplice-test-support`.
+- [x] Freeze representative JSON-RPC transcripts for initialization, configuration, document synchronization, document symbols, and shutdown.
 
 Exit criterion: the external behavior is reviewable before production implementation begins.
 
 ### Phase 1: framed transport and process lifecycle
 
 - [ ] Add `codesplice-lsp` and workspace dependencies.
-- [ ] Implement separately bounded inbound/outbound `Content-Length` framing, a bounded event channel, a writer thread, and exact outbound-message preflight.
+- [ ] Implement separately bounded inbound/outbound `Content-Length` framing, incremental header-limit enforcement, bounded Crossbeam channels, a writer thread, deterministic simultaneous-event precedence, and exact outbound-message preflight.
 - [ ] Implement request IDs, response correlation, server-request dispatch, stderr draining, deadlines, dedicated process groups, explicit shutdown, thread joins, and child reaping.
-- [ ] Test malformed headers, oversized frames, invalid JSON, unknown response IDs, channel saturation, blocked stdin/stdout/stderr, early exit, timeout, descendant cleanup, and forced cleanup.
+- [ ] Add non-gating `cargo-fuzz` targets for framing/header parsing and JSON-RPC envelope classification, with minimized failures checked into the deterministic regression corpus.
+- [ ] Test malformed and overlong unterminated headers, oversized frames, invalid JSON, unknown response IDs, channel saturation, simultaneous failures, blocked stdin/stdout/stderr, early exit, timeout, descendant cleanup, and forced cleanup.
 
 Exit criterion: the fake server can complete and fail every lifecycle path without leaking a process or thread.
 
@@ -587,11 +683,12 @@ Exit criterion: CodeSplice can negotiate capabilities and open a captured docume
 
 ### Phase 3: position conversion and symbol resolution
 
-- [ ] Implement UTF-8/UTF-16/UTF-32 conversion.
+- [ ] Implement custom UTF-8/UTF-16/UTF-32 conversion on `LineIndex`.
 - [ ] Support hierarchical document-symbol responses and reject flat `SymbolInformation[]` without emitting a selector.
 - [ ] Implement standardized kind mapping, name queries, position queries, deterministic ordering, deduplication, and ambiguity.
 - [ ] Implement `symbol` and `declaration_lines` extents.
 - [ ] Validate `selectionRange` containment and add property tests for Unicode, CR/LF combinations, range normalization, containment, and conversion round trips.
+- [ ] Add non-gating fuzz targets for position conversion, declaration-line expansion, and hierarchical-symbol flattening.
 
 Exit criterion: every accepted match yields a validated, nonempty `ByteRange` over the original snapshot.
 
@@ -601,13 +698,14 @@ Exit criterion: every accepted match yields a validated, nonempty `ByteRange` ov
 - [ ] Add `Command::Select`, argument validation, configuration loading, and server discovery.
 - [ ] Release the diagnostic context after snapshot capture and prove a slow server does not block a later CodeSplice commit.
 - [ ] Compute source and selected-payload digests.
-- [ ] Render selection-v1 JSON and human output with exact response limits.
+- [ ] Render selection-v1 JSON and human output, including both raw LSP ranges, with exact response limits.
 
 Exit criterion: a fake-server integration test emits a source fragment accepted unchanged by protocol-v1 request parsing and preview.
 
 ### Phase 5: hardening and compatibility
 
 - [ ] Add below/at/above tests for every new resource limit.
+- [ ] Expand the Phase 1 and Phase 3 fuzz corpora and promote every minimized finding into the checked-in deterministic regression suite.
 - [ ] Add server-request flood, notification flood, deep symbol tree, flat-response rejection, duplicate symbol, malformed range, invalid selectionRange, and non-UTF-8 tests.
 - [ ] Add source-size, JSON-expansion, frame-size, queue-byte, channel-saturation, and PATH-poisoning tests.
 - [ ] Verify no mutation command is sent or accepted during selection.
@@ -619,6 +717,7 @@ Exit criterion: all failure modes are typed, bounded, deterministic, and leave t
 ### Phase 6: documentation and release
 
 - [ ] Document configuration, discovery, trust, range semantics, ambiguity, and composition with edit requests.
+- [ ] Document the mixed-time workspace model: immutable selected-document bytes with potentially live observations of other project files by the trusted server.
 - [ ] Update `README.md`, `docs/protocol.md`, `docs/resource-limits.md`, `docs/security.md`, and agent integration guidance.
 - [ ] Add runnable examples using a fake or explicitly supplied server.
 - [ ] Report selection support through a new independently versioned discovery surface; do not change the frozen v0.1.0 capabilities JSON.
@@ -630,18 +729,18 @@ Exit criterion: a user can configure an installed server, select a symbol, previ
 
 | Area | Required cases |
 |---|---|
-| Framing | split headers/bodies, duplicate or missing `Content-Length`, sign/overflow, non-ASCII headers, supported/unsupported charset, oversized inbound/outbound frame, EOF mid-frame, batch rejection |
+| Framing | split headers/bodies, incremental header limit, overlong unterminated header, duplicate or missing `Content-Length`, sign/overflow, non-ASCII headers, supported/unsupported charset, oversized inbound/outbound frame, EOF mid-frame, batch rejection |
 | JSON-RPC | integer/string server request IDs, both/neither result and error, duplicate/unknown completed ID, bounded unknown method/params |
-| Backpressure | exact didOpen preflight, JSON escaping expansion, saturated inbound/outbound channels, blocked child stdin, bounded queued bytes |
+| Backpressure | exact didOpen preflight, JSON escaping expansion, saturated inbound/outbound channels, simultaneous ready events with deterministic error precedence, blocked child stdin, bounded queued bytes |
 | Lifecycle | successful shutdown, initialize failure, early exit, timeout, ignored notification, server request during client request, process-group termination, thread joins after framing failure |
 | Capabilities | static hierarchical symbols, no symbol support, flat-only response, unknown capabilities, full/incremental/no text synchronization |
-| Symbol responses | hierarchy, rejected flat list, null, empty, duplicate, deep nesting, unknown kind, excessive candidates, invalid selectionRange containment |
+| Symbol responses | hierarchy, rejected flat list, null, empty, duplicate, deep nesting, unknown kind, excessive candidates, invalid selectionRange containment, preservation of both raw LSP ranges |
 | Queries | exact name, kind filter, containing position, nested symbols, zero/one/many matches, deterministic order |
 | Unicode positions | ASCII, multibyte UTF-8, supplementary characters in UTF-16, UTF-32, invalid mid-code-unit positions |
 | Lines | LF, CRLF, lone CR, mixed terminators, unterminated final line, empty file |
 | Extent | indented declaration, trailing spaces, final newline, range already ending at next-line column zero, inline declaration, non-whitespace prefix/suffix |
 | URI/discovery | spaces, `#`, `%`, non-ASCII paths, relative/empty PATH entries, workspace executable shadowing |
-| Safety | non-UTF-8 input, stale source after selection, slow selection concurrent with commit, rejected applyEdit, redaction, stderr flood, descendant cleanup |
+| Safety | non-UTF-8 input, stale source after selection, mixed-time changes to non-selected project files, slow selection concurrent with commit, rejected applyEdit, redaction, stderr flood, descendant cleanup |
 | Composition | emitted `request_source` inserted unchanged into a protocol-v1 request and successfully parsed and previewed |
 
 ## 17. Acceptance criteria
@@ -660,9 +759,8 @@ The first release is complete when all of the following are true:
 
 ## 18. Open decisions to settle in Phase 0
 
-- Exact default startup and request deadlines after measuring representative servers. Recommended starting bounds: 10 seconds for initialization, 30 seconds for document symbols, and 5 seconds for graceful shutdown.
-- Whether the first release should ship built-in executable-name descriptors or require explicit/user configuration. Recommended: built-in descriptors only where invocation is stable and covered by qualification tests.
-- Confirm the recommended 8 MiB source, 16 MiB inbound-frame, 64 MiB outbound-frame, and small fixed channel limits against measured serialization and server behavior.
+- Exact dependency versions after the Phase 0 compatibility spike, especially the pinned generated LSP model.
+- Whether measurements against qualified real servers require lowering any frozen deadline or resource default before release. Increasing a bound requires a fresh memory and denial-of-service review.
 
 ## 19. Primary references
 
@@ -670,3 +768,8 @@ The first release is complete when all of the following are true:
 - [Document Symbols Request](https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.18/language/documentSymbol.md)
 - [Initialize Request and capability negotiation](https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.18/general/initialize.md)
 - [Position encoding](https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.18/types/position.md)
+- [`gen-lsp-types` generated LSP model](https://docs.rs/gen-lsp-types/)
+- [`crossbeam-channel` bounded channels and selection](https://docs.rs/crossbeam-channel/)
+- [`url::Url` file-URI construction](https://docs.rs/url/latest/url/struct.Url.html)
+- [`directories` platform configuration paths](https://docs.rs/directories/)
+- [Rust Fuzz Book](https://rust-fuzz.github.io/book/)

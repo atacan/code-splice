@@ -1,0 +1,24 @@
+{
+  "selection_protocol_version": 1,
+  "code": "SELECTION_AMBIGUOUS",
+  "category": "conflict",
+  "retryable": false,
+  "message": "the selection query matched more than one document symbol",
+  "context": {
+    "candidate_count": 2,
+    "candidates": [
+      {
+        "name": "run",
+        "symbol_kind": "method",
+        "symbol_path": ["FirstRunner", "run"],
+        "selector": { "kind": "bytes", "start": 40, "end": 88 }
+      },
+      {
+        "name": "run",
+        "symbol_kind": "method",
+        "symbol_path": ["SecondRunner", "run"],
+        "selector": { "kind": "bytes", "start": 120, "end": 171 }
+      }
+    ]
+  }
+}

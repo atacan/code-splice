@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codesplice.dev/schema/selection-v1/error.schema.json",
+  "title": "CodeSplice semantic selection protocol v1 error response",
+  "x-codesplice-error-registry": [
+    { "code": "INVALID_SELECTION_QUERY", "category": "request", "exit": 2, "retryable": false },
+    { "code": "LSP_SERVER_NOT_CONFIGURED", "category": "support", "exit": 4, "retryable": false },
+    { "code": "SELECTION_NOT_FOUND", "category": "conflict", "exit": 3, "retryable": false },
+    { "code": "SELECTION_AMBIGUOUS", "category": "conflict", "exit": 3, "retryable": false },
+    { "code": "UNSUPPORTED_TEXT_ENCODING", "category": "support", "exit": 4, "retryable": false },
+    { "code": "LSP_CAPABILITY_UNAVAILABLE", "category": "support", "exit": 4, "retryable": false },
+    { "code": "LSP_FLAT_SYMBOLS_UNSUPPORTED", "category": "support", "exit": 4, "retryable": false },
+    { "code": "LSP_DOCUMENT_SYNC_UNAVAILABLE", "category": "support", "exit": 4, "retryable": false },
+    { "code": "LSP_RESOURCE_LIMIT_EXCEEDED", "category": "support", "exit": 4, "retryable": false },
+    { "code": "LSP_TIMEOUT", "category": "support", "exit": 4, "retryable": true },
+    { "code": "LSP_START_FAILED", "category": "support", "exit": 4, "retryable": true },
+    { "code": "LSP_EXITED", "category": "support", "exit": 4, "retryable": true },
+    { "code": "LSP_PROTOCOL_ERROR", "category": "support", "exit": 4, "retryable": false },
+    { "code": "LSP_REQUEST_FAILED", "category": "support", "exit": 4, "retryable": true },
+    { "code": "SELECTION_INTERNAL_ERROR", "category": "internal", "exit": 8, "retryable": false }
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selection_protocol_version",
+    "code",
+    "category",
+    "retryable",
+    "message",
+    "context"
+  ],
+  "properties": {
+    "selection_protocol_version": { "const": 1 },
+    "code": {
+      "enum": [
+        "INVALID_SELECTION_QUERY",
+        "LSP_SERVER_NOT_CONFIGURED",
+        "SELECTION_NOT_FOUND",
+        "SELECTION_AMBIGUOUS",
+        "UNSUPPORTED_TEXT_ENCODING",
+        "LSP_CAPABILITY_UNAVAILABLE",
+        "LSP_FLAT_SYMBOLS_UNSUPPORTED",
+        "LSP_DOCUMENT_SYNC_UNAVAILABLE",
+        "LSP_RESOURCE_LIMIT_EXCEEDED",
+        "LSP_TIMEOUT",
+        "LSP_START_FAILED",
+        "LSP_EXITED",
+        "LSP_PROTOCOL_ERROR",
+        "LSP_REQUEST_FAILED",
+        "SELECTION_INTERNAL_ERROR"
+      ]
+    },
+    "category": { "enum": ["request", "conflict", "support", "internal"] },
+    "retryable": { "type": "boolean" },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "context": {
+      "type": "object",
+      "maxProperties": 32
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "code": { "const": "INVALID_SELECTION_QUERY" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "request" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_SERVER_NOT_CONFIGURED" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "SELECTION_NOT_FOUND" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "conflict" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "SELECTION_AMBIGUOUS" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "conflict" },
+          "retryable": { "const": false },
+          "context": { "$ref": "#/$defs/ambiguity_context" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "UNSUPPORTED_TEXT_ENCODING" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_CAPABILITY_UNAVAILABLE" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_FLAT_SYMBOLS_UNSUPPORTED" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_DOCUMENT_SYNC_UNAVAILABLE" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_RESOURCE_LIMIT_EXCEEDED" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_TIMEOUT" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": true }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_START_FAILED" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": true }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_EXITED" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": true }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_PROTOCOL_ERROR" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "LSP_REQUEST_FAILED" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "support" },
+          "retryable": { "const": true }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "code": { "const": "SELECTION_INTERNAL_ERROR" } } },
+      "then": {
+        "properties": {
+          "category": { "const": "internal" },
+          "retryable": { "const": false }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "u64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "symbol_kind": {
+      "enum": [
+        "file",
+        "module",
+        "namespace",
+        "package",
+        "class",
+        "method",
+        "property",
+        "field",
+        "constructor",
+        "enum",
+        "interface",
+        "function",
+        "variable",
+        "constant",
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object",
+        "key",
+        "null",
+        "enum_member",
+        "struct",
+        "event",
+        "operator",
+        "type_parameter",
+        "unknown"
+      ]
+    },
+    "byte_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "start", "end"],
+      "properties": {
+        "kind": { "const": "bytes" },
+        "start": { "$ref": "#/$defs/u64" },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "symbol_kind", "symbol_path", "selector"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "symbol_kind": { "$ref": "#/$defs/symbol_kind" },
+        "symbol_path": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "selector": { "$ref": "#/$defs/byte_selector" }
+      }
+    },
+    "ambiguity_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_count", "candidates"],
+      "properties": {
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 18446744073709551615
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/candidate" }
+        }
+      }
+    }
+  }
+}

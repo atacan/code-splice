@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codesplice.dev/schema/selection-v1/response.schema.json",
+  "title": "CodeSplice semantic selection protocol v1 success response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selection_protocol_version",
+    "workspace_identity_hash",
+    "source",
+    "query",
+    "server",
+    "matches",
+    "warnings"
+  ],
+  "properties": {
+    "selection_protocol_version": { "const": 1 },
+    "workspace_identity_hash": { "$ref": "#/$defs/digest" },
+    "source": { "$ref": "#/$defs/source_snapshot" },
+    "query": { "$ref": "#/$defs/query" },
+    "server": { "$ref": "#/$defs/server" },
+    "matches": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/match" }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/warning" }
+    }
+  },
+  "$defs": {
+    "u64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "positive_u64": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "lsp_uinteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "known_symbol_kind": {
+      "enum": [
+        "file",
+        "module",
+        "namespace",
+        "package",
+        "class",
+        "method",
+        "property",
+        "field",
+        "constructor",
+        "enum",
+        "interface",
+        "function",
+        "variable",
+        "constant",
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object",
+        "key",
+        "null",
+        "enum_member",
+        "struct",
+        "event",
+        "operator",
+        "type_parameter"
+      ]
+    },
+    "symbol_kind": {
+      "oneOf": [
+        { "$ref": "#/$defs/known_symbol_kind" },
+        { "const": "unknown" }
+      ]
+    },
+    "nullable_symbol_kind": {
+      "oneOf": [
+        { "$ref": "#/$defs/known_symbol_kind" },
+        { "type": "null" }
+      ]
+    },
+    "byte_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "start", "end"],
+      "properties": {
+        "kind": { "const": "bytes" },
+        "start": { "$ref": "#/$defs/u64" },
+        "end": { "$ref": "#/$defs/positive_u64" }
+      }
+    },
+    "source_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "byte_length"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "byte_length": { "$ref": "#/$defs/u64" }
+      }
+    },
+    "name_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "symbol_kind"],
+      "properties": {
+        "kind": { "const": "name" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "symbol_kind": { "$ref": "#/$defs/nullable_symbol_kind" }
+      }
+    },
+    "position_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "byte_offset", "symbol_kind"],
+      "properties": {
+        "kind": { "const": "position" },
+        "byte_offset": { "$ref": "#/$defs/u64" },
+        "symbol_kind": { "$ref": "#/$defs/nullable_symbol_kind" }
+      }
+    },
+    "query": {
+      "oneOf": [
+        { "$ref": "#/$defs/name_query" },
+        { "$ref": "#/$defs/position_query" }
+      ]
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configuration_id",
+        "reported_name",
+        "reported_version",
+        "position_encoding"
+      ],
+      "properties": {
+        "configuration_id": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "reported_name": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "reported_version": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "position_encoding": { "enum": ["utf-8", "utf-16", "utf-32"] }
+      }
+    },
+    "lsp_position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "character"],
+      "properties": {
+        "line": { "$ref": "#/$defs/lsp_uinteger" },
+        "character": { "$ref": "#/$defs/lsp_uinteger" }
+      }
+    },
+    "lsp_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/lsp_position" },
+        "end": { "$ref": "#/$defs/lsp_position" }
+      }
+    },
+    "symbol_path": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "symbol_kind",
+        "symbol_path",
+        "detail",
+        "lsp_range",
+        "lsp_selection_range",
+        "extent",
+        "selector",
+        "selected_payload_sha256",
+        "selected_byte_length",
+        "request_source"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "symbol_kind": { "$ref": "#/$defs/symbol_kind" },
+        "symbol_path": { "$ref": "#/$defs/symbol_path" },
+        "detail": {
+          "type": ["string", "null"],
+          "maxLength": 16384
+        },
+        "lsp_range": { "$ref": "#/$defs/lsp_range" },
+        "lsp_selection_range": { "$ref": "#/$defs/lsp_range" },
+        "extent": { "enum": ["symbol", "declaration_lines"] },
+        "selector": { "$ref": "#/$defs/byte_selector" },
+        "selected_payload_sha256": { "$ref": "#/$defs/digest" },
+        "selected_byte_length": { "$ref": "#/$defs/positive_u64" },
+        "request_source": {
+          "$ref": "https://codesplice.dev/schema/v1/request.schema.json#/$defs/source"
+        }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "context"],
+      "properties": {
+        "code": { "const": "OBSERVATION_MAY_BE_STALE" },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "context": {
+          "type": "object",
+          "maxProperties": 32
+        }
+      }
+    }
+  }
+}
