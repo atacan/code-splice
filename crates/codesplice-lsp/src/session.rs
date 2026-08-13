@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 use crate::capabilities::{
     CapabilityError, NegotiatedCapabilities, initialize_params, validate_initialize_result,
 };
-use crate::jsonrpc::{ClientRequestId, IncomingMessage, ResponsePayload, ServerRequest};
+use crate::jsonrpc::{
+    ClientRequestId, IncomingMessage, ResponsePayload, ServerRequest, encode_message,
+};
 use crate::process::ProcessSpec;
 use crate::transport::{Transport, TransportError, TransportLimits};
 
@@ -158,6 +160,19 @@ pub struct SessionOutput {
     /// its untagged empty array is ambiguous between hierarchical and flat
     /// results. The symbol layer validates this value before producing matches.
     pub symbols: Value,
+    /// Wall-clock lifecycle timings measured inside the client.
+    pub timings: SessionTimings,
+}
+
+/// Wall-clock measurements for one completed LSP selection lifecycle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SessionTimings {
+    /// Initialization through capability validation and configured notification.
+    pub initialize: Duration,
+    /// `didOpen` through document-symbol response and `didClose`.
+    pub document_symbols: Duration,
+    /// Shutdown request through process cleanup.
+    pub shutdown: Duration,
 }
 
 /// Lifecycle phase associated with a session failure.
@@ -248,11 +263,13 @@ pub fn run_session(
     transport_limits: TransportLimits,
 ) -> Result<SessionOutput, SessionError> {
     validate_input_limits(&input)?;
+    preflight_did_open(&input, transport_limits)?;
+    let initialize_started = Instant::now();
     let total_deadline = deadline_from_now(input.deadlines.total, "total deadline")?;
     let _cleanup_deadline = deadline_from_now(input.deadlines.cleanup, "cleanup deadline")?;
     let mut transport =
         Transport::spawn(&input.process, transport_limits).map_err(SessionError::Transport)?;
-    let result = run_active_session(&mut transport, &input, total_deadline);
+    let result = run_active_session(&mut transport, &input, total_deadline, initialize_started);
     if result.is_err() {
         let cleanup_deadline = deadline_from_now(input.deadlines.cleanup, "cleanup deadline")
             .unwrap_or_else(|_| Instant::now());
@@ -284,6 +301,28 @@ fn validate_input_limits(input: &SessionInput) -> Result<(), SessionError> {
     Ok(())
 }
 
+fn did_open_message(input: &SessionInput) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {
+            "uri": input.document.uri,
+            "languageId": input.document.language_id,
+            "version": 1,
+            "text": input.document.text,
+        }}
+    })
+}
+
+fn preflight_did_open(
+    input: &SessionInput,
+    transport_limits: TransportLimits,
+) -> Result<(), SessionError> {
+    encode_message(&did_open_message(input), transport_limits.framing)
+        .map(|_| ())
+        .map_err(|error| SessionError::Transport(TransportError::Protocol(error)))
+}
+
 fn serialized_len(value: &Value, name: &'static str) -> Result<usize, SessionError> {
     serde_json::to_vec(value)
         .map(|bytes| bytes.len())
@@ -305,6 +344,7 @@ fn run_active_session(
     transport: &mut Transport,
     input: &SessionInput,
     total_deadline: Instant,
+    initialize_started: Instant,
 ) -> Result<SessionOutput, SessionError> {
     let mut counters = MessageCounters::default();
     let initialize_deadline = phase_deadline(total_deadline, input.deadlines.initialize);
@@ -351,20 +391,13 @@ fn run_active_session(
             SessionPhase::Initialize,
         )?;
     }
+    let initialize_elapsed = initialize_started.elapsed();
 
+    let document_symbols_started = Instant::now();
     let document_deadline = phase_deadline(total_deadline, input.deadlines.document_symbols);
-    send_notification(
-        transport,
-        "textDocument/didOpen",
-        json!({"textDocument": {
-            "uri": input.document.uri,
-            "languageId": input.document.language_id,
-            "version": 1,
-            "text": input.document.text,
-        }}),
-        document_deadline,
-        SessionPhase::DocumentSymbols,
-    )?;
+    transport
+        .send_value(&did_open_message(input), document_deadline)
+        .map_err(map_transport(SessionPhase::DocumentSymbols))?;
     let symbol_id = transport
         .send_request(
             "textDocument/documentSymbol",
@@ -389,7 +422,9 @@ fn run_active_session(
         document_deadline,
         SessionPhase::DocumentSymbols,
     )?;
+    let document_symbols_elapsed = document_symbols_started.elapsed();
 
+    let shutdown_started = Instant::now();
     let shutdown_deadline = phase_deadline(total_deadline, input.deadlines.shutdown);
     let shutdown_id = transport
         .send_request("shutdown", Some(Value::Null), shutdown_deadline)
@@ -419,10 +454,16 @@ fn run_active_session(
             deadline_from_now(input.deadlines.cleanup, "cleanup deadline")?,
         )
         .map_err(SessionError::Transport)?;
+    let shutdown_elapsed = shutdown_started.elapsed();
 
     Ok(SessionOutput {
         capabilities,
         symbols,
+        timings: SessionTimings {
+            initialize: initialize_elapsed,
+            document_symbols: document_symbols_elapsed,
+            shutdown: shutdown_elapsed,
+        },
     })
 }
 

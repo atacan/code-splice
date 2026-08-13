@@ -104,6 +104,7 @@ pub(crate) struct SelectArgs {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum ExtentArgument {
     Symbol,
+    #[value(name = "declaration_lines")]
     DeclarationLines,
 }
 
@@ -393,6 +394,7 @@ fn resolve_selection_server(
 fn session_deadlines(server: &ResolvedServer) -> SessionDeadlines {
     let shutdown = Duration::from_secs(5);
     let cleanup = Duration::from_secs(5);
+    let scheduling_allowance = Duration::from_secs(10);
     SessionDeadlines {
         initialize: server.startup_timeout,
         document_symbols: server.request_timeout,
@@ -402,7 +404,8 @@ fn session_deadlines(server: &ResolvedServer) -> SessionDeadlines {
             .startup_timeout
             .saturating_add(server.request_timeout)
             .saturating_add(shutdown)
-            .saturating_add(cleanup),
+            .saturating_add(cleanup)
+            .saturating_add(scheduling_allowance),
     }
 }
 
@@ -850,6 +853,10 @@ mod tests {
     fn server_identity_must_be_nonempty_and_bounded_for_the_wire_schema() {
         assert!(validate_server_identity(&None, "identity").is_ok());
         assert!(validate_server_identity(&Some("server".to_owned()), "identity").is_ok());
+        assert!(
+            validate_server_identity(&Some("x".repeat(MAXIMUM_SERVER_IDENTITY_BYTES)), "identity",)
+                .is_ok()
+        );
 
         let empty = validate_server_identity(&Some(String::new()), "identity")
             .expect_err("empty identity must fail");
@@ -860,6 +867,19 @@ mod tests {
         .expect_err("oversized identity must fail");
 
         assert_eq!(empty.code(), SelectionErrorCode::LspProtocolError);
+        assert_eq!(
+            oversized.code(),
+            SelectionErrorCode::LspResourceLimitExceeded
+        );
+    }
+
+    #[test]
+    fn query_name_bytes_are_checked_below_at_and_above_the_limit() {
+        assert!(validate_name(Some(&"x".repeat(MAXIMUM_QUERY_NAME_BYTES - 1))).is_ok());
+        assert!(validate_name(Some(&"x".repeat(MAXIMUM_QUERY_NAME_BYTES))).is_ok());
+
+        let oversized = validate_name(Some(&"x".repeat(MAXIMUM_QUERY_NAME_BYTES + 1)))
+            .expect_err("a name above the byte limit must fail");
         assert_eq!(
             oversized.code(),
             SelectionErrorCode::LspResourceLimitExceeded

@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use codesplice_lsp::config::{
-    ConfigError, MAX_CONFIGURATION_BYTES, MAX_SERVER_ARGUMENT_BYTES, MAX_SERVER_ID_BYTES,
+    ConfigError, MAX_CONFIGURATION_BYTES, MAX_CONFIGURATION_JSON_BYTES,
+    MAX_LANGUAGE_IDENTIFIER_BYTES, MAX_SERVER_ARGUMENT_BYTES, MAX_SERVER_ARGUMENTS,
+    MAX_SERVER_ID_BYTES, MAX_SERVER_PROGRAM_BYTES, MAX_TOTAL_SERVER_ARGUMENT_BYTES,
     ResolutionRequest, ServerOrigin, ServerSelection, configuration_path, load_user_configuration,
     parse_user_configuration, resolve_server,
 };
@@ -80,6 +82,31 @@ program = "{program}"
 {extra}
 "#
     )
+}
+
+fn config_with_arguments(arguments: &[String]) -> String {
+    let arguments = arguments
+        .iter()
+        .map(|argument| format!(r#""{argument}""#))
+        .collect::<Vec<_>>()
+        .join(",");
+    config_with_server(
+        "fixture",
+        "\"fixture\"",
+        "server",
+        &format!("args = [{arguments}]"),
+    )
+}
+
+fn configuration_with_exact_bytes(length: usize) -> String {
+    let mut document = "version = 1\n".to_owned();
+    assert!(length >= document.len());
+    if length > document.len() {
+        document.push('#');
+        document.extend(std::iter::repeat_n('x', length - document.len()));
+    }
+    document.truncate(length);
+    document
 }
 
 fn automatic_request<'a>(
@@ -245,6 +272,19 @@ fn parser_should_reject_configuration_above_byte_limit() {
 }
 
 #[test]
+fn parser_should_accept_configuration_below_and_at_byte_limit() {
+    for length in [MAX_CONFIGURATION_BYTES - 1, MAX_CONFIGURATION_BYTES] {
+        let document = configuration_with_exact_bytes(length);
+        let result = parse_user_configuration(&document);
+
+        assert!(
+            result.is_ok(),
+            "configuration of {length} bytes should be accepted: {result:?}"
+        );
+    }
+}
+
+#[test]
 fn parser_should_reject_configuration_above_depth_limit() {
     let mut nested = "true".to_owned();
     for _ in 0..40 {
@@ -257,6 +297,103 @@ fn parser_should_reject_configuration_above_depth_limit() {
     assert!(matches!(
         result,
         Err(ConfigError::ConfigurationTooDeep { .. })
+    ));
+}
+
+#[test]
+fn parser_should_accept_configuration_at_depth_limit() {
+    // Root table, servers array, and server table consume the first three
+    // levels. Twenty-eight inline tables plus the boolean reach level 32.
+    let mut settings = "true".to_owned();
+    for _ in 0..28 {
+        settings = format!("{{ value = {settings} }}");
+    }
+    let document = config_with_server(
+        "fixture",
+        "\"fixture\"",
+        "server",
+        &format!("settings = {settings}"),
+    );
+
+    let result = parse_user_configuration(&document);
+
+    assert!(
+        result.is_ok(),
+        "configuration at depth 32 should pass: {result:?}"
+    );
+}
+
+#[test]
+fn parser_should_enforce_language_and_extension_byte_limits() {
+    let at_language = "l".repeat(MAX_LANGUAGE_IDENTIFIER_BYTES);
+    let at_extension = "e".repeat(MAX_LANGUAGE_IDENTIFIER_BYTES);
+    let at = config_with_server(
+        "fixture",
+        &format!("\"{at_extension}\""),
+        "server",
+        &format!("language_id = \"{at_language}\""),
+    )
+    .replace("language_id = \"fixture\"\n", "");
+    assert!(parse_user_configuration(&at).is_ok());
+
+    let above_language = "l".repeat(MAX_LANGUAGE_IDENTIFIER_BYTES + 1);
+    let language_result = parse_user_configuration(
+        &config_with_server(
+            "fixture",
+            "\"fixture\"",
+            "server",
+            &format!("language_id = \"{above_language}\""),
+        )
+        .replace("language_id = \"fixture\"\n", ""),
+    );
+    assert!(matches!(
+        language_result,
+        Err(ConfigError::FieldTooLarge {
+            field: "language ID",
+            limit: MAX_LANGUAGE_IDENTIFIER_BYTES
+        })
+    ));
+
+    let above_extension = "e".repeat(MAX_LANGUAGE_IDENTIFIER_BYTES + 1);
+    let extension_result = parse_user_configuration(&config_with_server(
+        "fixture",
+        &format!("\"{above_extension}\""),
+        "server",
+        "",
+    ));
+    assert!(matches!(
+        extension_result,
+        Err(ConfigError::FieldTooLarge {
+            field: "extension",
+            limit: MAX_LANGUAGE_IDENTIFIER_BYTES
+        })
+    ));
+}
+
+#[test]
+fn parser_should_accept_program_at_limit_and_reject_above() {
+    let at_program = "p".repeat(MAX_SERVER_PROGRAM_BYTES);
+    let at = parse_user_configuration(&config_with_server(
+        "fixture",
+        "\"fixture\"",
+        &at_program,
+        "",
+    ));
+    assert!(at.is_ok(), "program at byte limit should pass: {at:?}");
+
+    let above_program = "p".repeat(MAX_SERVER_PROGRAM_BYTES + 1);
+    let above = parse_user_configuration(&config_with_server(
+        "fixture",
+        "\"fixture\"",
+        &above_program,
+        "",
+    ));
+    assert!(matches!(
+        above,
+        Err(ConfigError::FieldTooLarge {
+            field: "program",
+            limit: MAX_SERVER_PROGRAM_BYTES
+        })
     ));
 }
 
@@ -279,6 +416,37 @@ fn parser_should_reject_json_field_whose_serialized_form_exceeds_limit() {
 }
 
 #[test]
+fn parser_should_accept_json_field_at_exact_serialized_limit() {
+    let fixed_json_bytes = serde_json::to_vec(&serde_json::json!({"payload": "xx"}))
+        .expect("fixture JSON should serialize")
+        .len();
+    let newline_count = (MAX_CONFIGURATION_JSON_BYTES - fixed_json_bytes) / 2;
+    let payload = format!("xx{}", "\n".repeat(newline_count));
+    assert_eq!(
+        serde_json::to_vec(&serde_json::json!({"payload": payload}))
+            .expect("fixture JSON should serialize")
+            .len(),
+        MAX_CONFIGURATION_JSON_BYTES
+    );
+    let document = config_with_server(
+        "fixture",
+        "\"fixture\"",
+        "server",
+        &format!(
+            "settings = {{ payload = '''xx{}''' }}",
+            "\n".repeat(newline_count)
+        ),
+    );
+
+    let result = parse_user_configuration(&document);
+
+    assert!(
+        result.is_ok(),
+        "at-limit JSON should be accepted: {result:?}"
+    );
+}
+
+#[test]
 fn parser_should_reject_argument_above_individual_limit() {
     let argument = "a".repeat(MAX_SERVER_ARGUMENT_BYTES + 1);
     let document = config_with_server(
@@ -291,6 +459,57 @@ fn parser_should_reject_argument_above_individual_limit() {
     let result = parse_user_configuration(&document);
 
     assert!(matches!(result, Err(ConfigError::InvalidArguments)));
+}
+
+#[test]
+fn parser_should_accept_arguments_below_and_at_individual_limit() {
+    for length in [MAX_SERVER_ARGUMENT_BYTES - 1, MAX_SERVER_ARGUMENT_BYTES] {
+        let result = parse_user_configuration(&config_with_arguments(&["a".repeat(length)]));
+
+        assert!(
+            result.is_ok(),
+            "argument of {length} bytes should be accepted: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn parser_should_enforce_argument_count_below_at_and_above_limit() {
+    for count in [MAX_SERVER_ARGUMENTS - 1, MAX_SERVER_ARGUMENTS] {
+        let arguments = vec!["x".to_owned(); count];
+        let result = parse_user_configuration(&config_with_arguments(&arguments));
+
+        assert!(
+            result.is_ok(),
+            "{count} arguments should be accepted: {result:?}"
+        );
+    }
+
+    let arguments = vec!["x".to_owned(); MAX_SERVER_ARGUMENTS + 1];
+    let result = parse_user_configuration(&config_with_arguments(&arguments));
+    assert!(matches!(result, Err(ConfigError::InvalidArguments)));
+}
+
+#[test]
+fn parser_should_enforce_total_argument_bytes_below_at_and_above_limit() {
+    let argument_count = MAX_SERVER_ARGUMENTS;
+    let at_argument_size = MAX_TOTAL_SERVER_ARGUMENT_BYTES / argument_count;
+    assert_eq!(
+        at_argument_size * argument_count,
+        MAX_TOTAL_SERVER_ARGUMENT_BYTES
+    );
+
+    let below = vec!["x".repeat(at_argument_size); argument_count - 1];
+    let at = vec!["x".repeat(at_argument_size); argument_count];
+    let mut above = at.clone();
+    above[0].push('x');
+
+    assert!(parse_user_configuration(&config_with_arguments(&below)).is_ok());
+    assert!(parse_user_configuration(&config_with_arguments(&at)).is_ok());
+    assert!(matches!(
+        parse_user_configuration(&config_with_arguments(&above)),
+        Err(ConfigError::InvalidArguments)
+    ));
 }
 
 #[test]
@@ -319,6 +538,23 @@ fn parser_should_reject_request_timeout_above_conservative_maximum() {
     let result = parse_user_configuration(&document);
 
     assert!(matches!(result, Err(ConfigError::InvalidTimeout { ref id }) if id == "fixture"));
+}
+
+#[test]
+fn parser_should_accept_timeout_endpoints() {
+    for extra in [
+        "startup_timeout_ms = 100\nrequest_timeout_ms = 100",
+        "startup_timeout_ms = 300000\nrequest_timeout_ms = 300000",
+    ] {
+        let result = parse_user_configuration(&config_with_server(
+            "fixture",
+            "\"fixture\"",
+            "server",
+            extra,
+        ));
+
+        assert!(result.is_ok(), "timeout endpoint should pass: {result:?}");
+    }
 }
 
 #[test]

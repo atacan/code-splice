@@ -58,6 +58,37 @@ fn completion_capacity_requires_one_slot_per_terminal_producer() {
 }
 
 #[test]
+fn every_process_capacity_rejects_zero() {
+    let mut cases = Vec::new();
+    let defaults = ProcessLimits::default();
+    cases.push(ProcessLimits {
+        inbound_events: 0,
+        ..defaults
+    });
+    cases.push(ProcessLimits {
+        inbound_bytes: 0,
+        ..defaults
+    });
+    cases.push(ProcessLimits {
+        outbound_frames: 0,
+        ..defaults
+    });
+    cases.push(ProcessLimits {
+        outbound_bytes: 0,
+        ..defaults
+    });
+    cases.push(ProcessLimits {
+        stderr_tail_bytes: 0,
+        ..defaults
+    });
+
+    for limits in cases {
+        let result = ManagedProcess::spawn(&ProcessSpec::new("/bin/true"), limits);
+        assert!(matches!(result, Err(ProcessError::InvalidLimits)));
+    }
+}
+
+#[test]
 fn observes_early_exit_and_reaps_child() {
     let mut process = shell("exit 7", ProcessLimits::default());
     let deadline = deadline_after(CLEANUP);
@@ -113,6 +144,63 @@ fn rejects_single_outbound_frame_over_cumulative_byte_limit() {
     process
         .abort(deadline_after(CLEANUP))
         .expect("process should be cleaned up");
+}
+
+#[test]
+fn outbound_byte_capacity_accepts_below_and_at_limit() {
+    for frame_bytes in [7, 8] {
+        let limits = ProcessLimits {
+            outbound_bytes: 8,
+            ..ProcessLimits::default()
+        };
+        let mut process = shell("sleep 60", limits);
+        process
+            .send_frame(vec![0; frame_bytes], deadline_after(SHORT))
+            .expect("frame at or below byte capacity should be queued");
+        process
+            .abort(deadline_after(CLEANUP))
+            .expect("process should be cleaned up");
+    }
+}
+
+#[test]
+fn inbound_byte_capacity_accepts_at_limit_and_reports_above() {
+    let at_limits = ProcessLimits {
+        inbound_bytes: 8,
+        ..ProcessLimits::default()
+    };
+    let mut at = shell("printf 12345678; sleep 60", at_limits);
+    let event = at
+        .next_event(deadline_after(CLEANUP))
+        .expect("exactly bounded stdout should arrive");
+    assert!(matches!(event, ProcessEvent::Stdout(bytes) if bytes == b"12345678"));
+    at.abort(deadline_after(CLEANUP))
+        .expect("at-limit process should be cleaned up");
+
+    let above_limits = ProcessLimits {
+        inbound_bytes: 7,
+        ..ProcessLimits::default()
+    };
+    let mut above = shell("printf 12345678; sleep 60", above_limits);
+    let error = loop {
+        match above.next_event(deadline_after(CLEANUP)) {
+            Ok(ProcessEvent::Fault(fault)) => break fault,
+            Ok(ProcessEvent::Stdout(_)) => continue,
+            Ok(event) => panic!("unexpected event before resource fault: {event:?}"),
+            Err(error) => panic!("resource fault should be delivered: {error:?}"),
+        }
+    };
+    assert!(matches!(
+        error.kind,
+        codesplice_lsp::process::ProcessFaultKind::ResourceLimit {
+            queue: "inbound",
+            capacity_bytes: 7,
+            ..
+        }
+    ));
+    above
+        .abort(deadline_after(CLEANUP))
+        .expect("above-limit process should be cleaned up");
 }
 
 #[test]

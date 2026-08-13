@@ -58,7 +58,13 @@ fn production_session_executes_planned_matrix() -> Result<(), String> {
     for case in PLANNED_SESSION_CASES {
         let result = run_case(case.scenario);
         let matches = match (case.outcome, &result) {
-            (ExpectedSessionOutcome::Success, Ok(output)) => output.symbols.is_array(),
+            (ExpectedSessionOutcome::Success, Ok(output)) => {
+                output.symbols.is_array()
+                    && output.timings.initialize <= SessionDeadlines::default().initialize
+                    && output.timings.document_symbols
+                        <= SessionDeadlines::default().document_symbols
+                    && output.timings.shutdown <= SessionDeadlines::default().shutdown
+            }
             (
                 ExpectedSessionOutcome::CapabilityError,
                 Err(SessionError::Capability(
@@ -171,6 +177,15 @@ fn run_case_with_limits(
 }
 
 fn session_rate_limits_are_enforced() -> Result<(), String> {
+    run_case_with_limits(
+        FakeLspScenario::NotificationFlood,
+        SessionLimits {
+            notifications: 64,
+            ..SessionLimits::default()
+        },
+    )
+    .map_err(|error| format!("the exact notification limit must succeed: {error:?}"))?;
+
     let notification_error = run_case_with_limits(
         FakeLspScenario::NotificationFlood,
         SessionLimits {
@@ -190,6 +205,15 @@ fn session_rate_limits_are_enforced() -> Result<(), String> {
             "notification limit produced unexpected error: {notification_error:?}"
         ));
     }
+
+    run_case_with_limits(
+        FakeLspScenario::ServerRequests,
+        SessionLimits {
+            server_requests: 5,
+            ..SessionLimits::default()
+        },
+    )
+    .map_err(|error| format!("the exact server-request limit must succeed: {error:?}"))?;
 
     let request_error = run_case_with_limits(
         FakeLspScenario::ServerRequests,

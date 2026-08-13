@@ -64,7 +64,12 @@ fn workspace_crate_dependencies_should_follow_the_declared_architecture() {
         ("codesplice-protocol", &["codesplice-core"][..]),
         (
             "codesplice-cli",
-            &["codesplice-core", "codesplice-fs", "codesplice-protocol"][..],
+            &[
+                "codesplice-core",
+                "codesplice-fs",
+                "codesplice-lsp",
+                "codesplice-protocol",
+            ][..],
         ),
         ("codesplice-test-support", &[][..]),
     ];

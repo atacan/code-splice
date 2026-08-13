@@ -141,6 +141,11 @@ fn incremental_decoder_emits_empty_body_then_continues_same_chunk() {
 #[test]
 fn header_limit_accepts_at_boundary_and_rejects_above_without_terminator() {
     let at = b"Content-Length: 0\r\n\r\n";
+    assert_eq!(
+        read_body(&mut Cursor::new(at), framing_limits(at.len() + 1, 0, 1))
+            .expect("header below limit should pass"),
+        Some(Vec::new())
+    );
     let limits = framing_limits(at.len(), 0, 1);
     assert_eq!(
         read_body(&mut Cursor::new(at), limits).expect("exact limit should pass"),

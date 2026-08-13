@@ -1,5 +1,6 @@
 //! End-to-end semantic-selection CLI tests with fake-server process re-entry.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -15,6 +16,7 @@ use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const HOLD_MODE: &str = "--hold-before-success";
+const MAXIMUM_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 type TestFunction = fn() -> Result<(), String>;
 
 fn main() -> ExitCode {
@@ -40,12 +42,93 @@ fn main() -> ExitCode {
             flat_symbols_return_typed_error,
         ),
         (
+            "server_requests_remain_read_only",
+            server_requests_remain_read_only,
+        ),
+        (
+            "server_request_flood_hits_rate_limit",
+            server_request_flood_hits_rate_limit,
+        ),
+        (
+            "bounded_notification_flood_succeeds",
+            bounded_notification_flood_succeeds,
+        ),
+        (
+            "notification_flood_hits_rate_limit",
+            notification_flood_hits_rate_limit,
+        ),
+        (
+            "deep_symbol_tree_hits_a_bounded_wire_failure",
+            deep_symbol_tree_hits_a_bounded_wire_failure,
+        ),
+        (
+            "identical_duplicate_symbols_are_deduplicated",
+            identical_duplicate_symbols_are_deduplicated,
+        ),
+        (
+            "distinct_path_symbols_are_ambiguous",
+            distinct_path_symbols_are_ambiguous,
+        ),
+        ("malformed_range_is_rejected", malformed_range_is_rejected),
+        (
+            "invalid_selection_range_is_rejected",
+            invalid_selection_range_is_rejected,
+        ),
+        (
             "non_utf8_source_fails_before_spawn",
             non_utf8_source_fails_before_spawn,
         ),
         (
+            "source_just_below_limit_succeeds",
+            source_just_below_limit_succeeds,
+        ),
+        ("source_at_limit_succeeds", source_at_limit_succeeds),
+        (
+            "source_above_limit_is_rejected",
+            source_above_limit_is_rejected,
+        ),
+        (
+            "initialize_request_failure_is_typed",
+            initialize_request_failure_is_typed,
+        ),
+        ("early_server_exit_is_typed", early_server_exit_is_typed),
+        ("malformed_header_is_typed", malformed_header_is_typed),
+        (
+            "initialize_timeout_uses_trusted_deadline",
+            initialize_timeout_uses_trusted_deadline,
+        ),
+        (
+            "document_symbol_timeout_uses_trusted_deadline",
+            document_symbol_timeout_uses_trusted_deadline,
+        ),
+        (
             "human_output_reports_auditable_ranges",
             human_output_reports_auditable_ranges,
+        ),
+        (
+            "byte_position_selects_function",
+            byte_position_selects_function,
+        ),
+        (
+            "line_scalar_position_selects_function",
+            line_scalar_position_selects_function,
+        ),
+        (
+            "line_position_defaults_to_column_one",
+            line_position_defaults_to_column_one,
+        ),
+        ("all_allows_zero_matches", all_allows_zero_matches),
+        (
+            "all_returns_distinct_path_matches",
+            all_returns_distinct_path_matches,
+        ),
+        (
+            "extent_controls_final_byte_selector",
+            extent_controls_final_byte_selector,
+        ),
+        (
+            "help_documents_declaration_lines_extent",
+            help_documents_declaration_lines_extent,
         ),
     ];
     let mut failures = 0;
@@ -216,6 +299,72 @@ fn flat_symbols_return_typed_error() -> Result<(), String> {
     Ok(())
 }
 
+fn server_requests_remain_read_only() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let config = write_trusted_config(workspace.path(), "server-requests", 1_000)?;
+    let before = snapshot_workspace(workspace.path())?;
+    let output = trusted_selection_command(workspace.path(), &config, true)
+        .output()
+        .map_err(display)?;
+    ensure_success(&output, "read-only server requests")?;
+    let after = snapshot_workspace(workspace.path())?;
+    if before != after {
+        return Err("selection changed workspace source or control state".to_owned());
+    }
+    Ok(())
+}
+
+fn server_request_flood_hits_rate_limit() -> Result<(), String> {
+    assert_scenario_error("server-request-flood", "LSP_RESOURCE_LIMIT_EXCEEDED")
+}
+
+fn bounded_notification_flood_succeeds() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command(workspace.path(), &[], "notification-flood", true)
+        .output()
+        .map_err(display)?;
+    ensure_success(&output, "bounded notification flood")
+}
+
+fn notification_flood_hits_rate_limit() -> Result<(), String> {
+    assert_scenario_error("notification-limit-exceeded", "LSP_RESOURCE_LIMIT_EXCEEDED")
+}
+
+fn deep_symbol_tree_hits_a_bounded_wire_failure() -> Result<(), String> {
+    assert_scenario_error("deep-symbols", "LSP_PROTOCOL_ERROR")
+}
+
+fn identical_duplicate_symbols_are_deduplicated() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command(workspace.path(), &[], "duplicate-symbols", true)
+        .output()
+        .map_err(display)?;
+    ensure_success(&output, "identical duplicate symbols")?;
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(display)?;
+    if response["matches"].as_array().map(Vec::len) != Some(1) {
+        return Err(format!(
+            "duplicate symbols were not deduplicated: {response}"
+        ));
+    }
+    Ok(())
+}
+
+fn distinct_path_symbols_are_ambiguous() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command(workspace.path(), &[], "ambiguous-symbols", true)
+        .output()
+        .map_err(display)?;
+    assert_error_with_status(&output, "SELECTION_AMBIGUOUS", 3)
+}
+
+fn malformed_range_is_rejected() -> Result<(), String> {
+    assert_scenario_error("malformed-range", "LSP_PROTOCOL_ERROR")
+}
+
+fn invalid_selection_range_is_rejected() -> Result<(), String> {
+    assert_scenario_error("invalid-selection-range", "LSP_PROTOCOL_ERROR")
+}
+
 fn non_utf8_source_fails_before_spawn() -> Result<(), String> {
     let workspace = fixture_workspace()?;
     fs::write(workspace.path().join("source.rs"), [0xff, 0xfe]).map_err(display)?;
@@ -227,6 +376,43 @@ fn non_utf8_source_fails_before_spawn() -> Result<(), String> {
         return Err(format!("unexpected non-UTF-8 response: {response}"));
     }
     Ok(())
+}
+
+fn source_just_below_limit_succeeds() -> Result<(), String> {
+    assert_source_size_succeeds(MAXIMUM_SOURCE_BYTES - 1)
+}
+
+fn source_at_limit_succeeds() -> Result<(), String> {
+    assert_source_size_succeeds(MAXIMUM_SOURCE_BYTES)
+}
+
+fn source_above_limit_is_rejected() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    resize_source(workspace.path(), MAXIMUM_SOURCE_BYTES + 1)?;
+    let output = selection_command(workspace.path(), &[], "success", true)
+        .output()
+        .map_err(display)?;
+    assert_error(&output, "LSP_RESOURCE_LIMIT_EXCEEDED")
+}
+
+fn initialize_request_failure_is_typed() -> Result<(), String> {
+    assert_scenario_error("initialize-error", "LSP_REQUEST_FAILED")
+}
+
+fn early_server_exit_is_typed() -> Result<(), String> {
+    assert_scenario_error("exit-after-initialize", "LSP_EXITED")
+}
+
+fn malformed_header_is_typed() -> Result<(), String> {
+    assert_scenario_error("malformed-header", "LSP_PROTOCOL_ERROR")
+}
+
+fn initialize_timeout_uses_trusted_deadline() -> Result<(), String> {
+    assert_timeout_scenario("hang-initialize", "initialize")
+}
+
+fn document_symbol_timeout_uses_trusted_deadline() -> Result<(), String> {
+    assert_timeout_scenario("hang-document-symbols", "document_symbol")
 }
 
 fn human_output_reports_auditable_ranges() -> Result<(), String> {
@@ -241,6 +427,160 @@ fn human_output_reports_auditable_ranges() -> Result<(), String> {
         || !stdout.contains("selection=3:11..3:16")
     {
         return Err(format!("human output omitted audit ranges: {stdout}"));
+    }
+    Ok(())
+}
+
+fn byte_position_selects_function() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command_for_query(
+        workspace.path(),
+        &["--at-byte", "50", "--kind", "function"],
+        "success",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&output, "byte-position selection")?;
+    assert_selected_name(&output, "alpha")
+}
+
+fn line_scalar_position_selects_function() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command_for_query(
+        workspace.path(),
+        &["--at-line", "4", "--at-column", "12", "--kind", "function"],
+        "success",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&output, "line-scalar selection")?;
+    assert_selected_name(&output, "alpha")
+}
+
+fn line_position_defaults_to_column_one() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command_for_query(
+        workspace.path(),
+        &["--at-line", "5", "--kind", "function"],
+        "success",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&output, "default-column selection")?;
+    assert_selected_name(&output, "alpha")
+}
+
+fn all_allows_zero_matches() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command_for_query(
+        workspace.path(),
+        &["--name", "missing", "--all"],
+        "success",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&output, "zero-match all selection")?;
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(display)?;
+    if response["matches"]
+        .as_array()
+        .is_none_or(|matches| !matches.is_empty())
+    {
+        return Err(format!(
+            "--all did not return an empty match list: {response}"
+        ));
+    }
+    Ok(())
+}
+
+fn all_returns_distinct_path_matches() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command_for_query(
+        workspace.path(),
+        &["--name", "alpha", "--kind", "function", "--all"],
+        "ambiguous-symbols",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&output, "multiple-match all selection")?;
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(display)?;
+    if response["matches"].as_array().map(Vec::len) != Some(2) {
+        return Err(format!("--all did not return both matches: {response}"));
+    }
+    Ok(())
+}
+
+fn extent_controls_final_byte_selector() -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let symbol = selection_command_for_query(
+        workspace.path(),
+        &[
+            "--name", "alpha", "--kind", "function", "--extent", "symbol",
+        ],
+        "success",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&symbol, "symbol extent")?;
+    let declaration = selection_command_for_query(
+        workspace.path(),
+        &[
+            "--name",
+            "alpha",
+            "--kind",
+            "function",
+            "--extent",
+            "declaration_lines",
+        ],
+        "success",
+        true,
+    )
+    .output()
+    .map_err(display)?;
+    ensure_success(&declaration, "declaration-lines extent")?;
+    let symbol: Value = serde_json::from_slice(&symbol.stdout).map_err(display)?;
+    let declaration: Value = serde_json::from_slice(&declaration.stdout).map_err(display)?;
+    let actual = (
+        symbol.pointer("/matches/0/selector/start"),
+        symbol.pointer("/matches/0/selector/end"),
+        declaration.pointer("/matches/0/selector/start"),
+        declaration.pointer("/matches/0/selector/end"),
+    );
+    if actual
+        != (
+            Some(&json!(36)),
+            Some(&json!(75)),
+            Some(&json!(32)),
+            Some(&json!(76)),
+        )
+    {
+        return Err(format!("unexpected extent selectors: {actual:?}"));
+    }
+    Ok(())
+}
+
+fn help_documents_declaration_lines_extent() -> Result<(), String> {
+    let output = Command::new(codesplice_binary())
+        .args(["select", "--help"])
+        .output()
+        .map_err(display)?;
+    ensure_success(&output, "select help")?;
+    let help = String::from_utf8(output.stdout).map_err(display)?;
+    if !help.contains("declaration_lines") {
+        return Err(format!("select help omitted declaration_lines: {help}"));
+    }
+    Ok(())
+}
+
+fn assert_selected_name(output: &Output, expected: &str) -> Result<(), String> {
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(display)?;
+    if response["matches"][0]["name"] != expected {
+        return Err(format!("unexpected selection response: {response}"));
     }
     Ok(())
 }
@@ -279,6 +619,155 @@ fn fixture_workspace() -> Result<TempDir, String> {
     Ok(directory)
 }
 
+fn assert_scenario_error(scenario: &str, expected_code: &str) -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let output = selection_command(workspace.path(), &[], scenario, true)
+        .output()
+        .map_err(display)?;
+    assert_error(&output, expected_code)
+}
+
+fn assert_error(output: &Output, expected_code: &str) -> Result<(), String> {
+    assert_error_with_status(output, expected_code, 4)
+}
+
+fn assert_error_with_status(
+    output: &Output,
+    expected_code: &str,
+    expected_status: i32,
+) -> Result<(), String> {
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(display)?;
+    if output.status.code() != Some(expected_status) || response["code"] != expected_code {
+        return Err(format!(
+            "expected {expected_code}, got status {} and response {response}",
+            output.status
+        ));
+    }
+    Ok(())
+}
+
+fn assert_source_size_succeeds(size: usize) -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    resize_source(workspace.path(), size)?;
+    let output = selection_command(workspace.path(), &[], "success", true)
+        .output()
+        .map_err(display)?;
+    ensure_success(&output, &format!("selection of {size} source bytes"))
+}
+
+fn resize_source(workspace: &Path, size: usize) -> Result<(), String> {
+    let source_path = workspace.join("source.rs");
+    let mut source = fs::read(&source_path).map_err(display)?;
+    if size < source.len() {
+        return Err("requested source size is smaller than the fixture".to_owned());
+    }
+    source.resize(size, b' ');
+    fs::write(source_path, source).map_err(display)
+}
+
+fn assert_timeout_scenario(scenario: &str, expected_phase: &str) -> Result<(), String> {
+    let workspace = fixture_workspace()?;
+    let config = write_trusted_config(workspace.path(), scenario, 100)?;
+    let started = Instant::now();
+    let output = trusted_selection_command(workspace.path(), &config, true)
+        .output()
+        .map_err(display)?;
+    let elapsed = started.elapsed();
+    assert_error(&output, "LSP_TIMEOUT")?;
+    let response: Value = serde_json::from_slice(&output.stdout).map_err(display)?;
+    if response["context"]["phase"] != expected_phase {
+        return Err(format!("unexpected timeout response: {response}"));
+    }
+    if elapsed >= Duration::from_secs(5) {
+        return Err(format!("timeout scenario took too long: {elapsed:?}"));
+    }
+    Ok(())
+}
+
+fn write_trusted_config(
+    workspace: &Path,
+    scenario: &str,
+    timeout_ms: u64,
+) -> Result<PathBuf, String> {
+    let source = workspace.join("source.rs");
+    let canonical_source = source.canonicalize().map_err(display)?;
+    let uri = url::Url::from_file_path(&canonical_source)
+        .map_err(|()| "failed to build fixture source URI".to_owned())?;
+    let arguments = vec![
+        "--scenario".to_owned(),
+        scenario.to_owned(),
+        "--expected-document-uri".to_owned(),
+        uri.to_string(),
+        "--expected-language-id".to_owned(),
+        "fixture-rust".to_owned(),
+        "--expected-document-text-file".to_owned(),
+        canonical_source.display().to_string(),
+    ];
+    let program = env::current_exe().map_err(display)?.display().to_string();
+    let settings = if scenario == "server-requests" {
+        "settings = { fixture = { enabled = true } }\n"
+    } else {
+        ""
+    };
+    let document = format!(
+        "version = 1\n\n[[servers]]\nid = \"fixture\"\nextensions = [\"rs\"]\nlanguage_id = \"fixture-rust\"\nprogram = {}\nargs = {}\n{settings}startup_timeout_ms = {timeout_ms}\nrequest_timeout_ms = {timeout_ms}\n",
+        serde_json::to_string(&program).map_err(display)?,
+        serde_json::to_string(&arguments).map_err(display)?,
+    );
+    let path = workspace.join("lsp-config.toml");
+    fs::write(&path, document).map_err(display)?;
+    Ok(path)
+}
+
+fn trusted_selection_command(workspace: &Path, config: &Path, json_output: bool) -> Command {
+    let mut command = Command::new(codesplice_binary());
+    command
+        .env("CODESPLICE_CONFIG", config)
+        .args(["--workspace"])
+        .arg(workspace)
+        .args([
+            "select",
+            "--path",
+            "source.rs",
+            "--name",
+            "alpha",
+            "--kind",
+            "function",
+            "--server-id",
+            "fixture",
+        ]);
+    if json_output {
+        command.arg("--json");
+    }
+    command
+}
+
+fn snapshot_workspace(root: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, String> {
+    let mut snapshot = BTreeMap::new();
+    snapshot_directory(root, root, &mut snapshot)?;
+    Ok(snapshot)
+}
+
+fn snapshot_directory(
+    root: &Path,
+    directory: &Path,
+    snapshot: &mut BTreeMap<PathBuf, Option<Vec<u8>>>,
+) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(display)? {
+        let entry = entry.map_err(display)?;
+        let path = entry.path();
+        let relative = path.strip_prefix(root).map_err(display)?.to_path_buf();
+        let file_type = entry.file_type().map_err(display)?;
+        if file_type.is_dir() {
+            snapshot.insert(relative, None);
+            snapshot_directory(root, &path, snapshot)?;
+        } else if file_type.is_file() {
+            snapshot.insert(relative, Some(fs::read(path).map_err(display)?));
+        }
+    }
+    Ok(())
+}
+
 fn selection_command(
     workspace: &Path,
     server_prefix_arguments: &[&str],
@@ -295,8 +784,43 @@ fn selection_command(
     )
 }
 
+fn selection_command_for_query(
+    workspace: &Path,
+    query_arguments: &[&str],
+    scenario: &str,
+    json_output: bool,
+) -> Command {
+    let source = workspace.join("source.rs");
+    selection_command_with_query_and_expected(
+        workspace,
+        query_arguments,
+        &[],
+        scenario,
+        json_output,
+        &source,
+    )
+}
+
 fn selection_command_with_expected(
     workspace: &Path,
+    server_prefix_arguments: &[&str],
+    scenario: &str,
+    json_output: bool,
+    expected_source: &Path,
+) -> Command {
+    selection_command_with_query_and_expected(
+        workspace,
+        &["--name", "alpha", "--kind", "function"],
+        server_prefix_arguments,
+        scenario,
+        json_output,
+        expected_source,
+    )
+}
+
+fn selection_command_with_query_and_expected(
+    workspace: &Path,
+    query_arguments: &[&str],
     server_prefix_arguments: &[&str],
     scenario: &str,
     json_output: bool,
@@ -309,16 +833,9 @@ fn selection_command_with_expected(
     command
         .args(["--workspace"])
         .arg(workspace)
-        .args([
-            "select",
-            "--path",
-            "source.rs",
-            "--name",
-            "alpha",
-            "--kind",
-            "function",
-            "--server-program",
-        ])
+        .args(["select", "--path", "source.rs"])
+        .args(query_arguments)
+        .arg("--server-program")
         .arg(env::current_exe().expect("current test executable"))
         .args(["--language-id", "fixture-rust"]);
     if json_output {

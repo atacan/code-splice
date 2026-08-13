@@ -269,9 +269,16 @@ fn concrete_error_dtos_should_match_the_frozen_goldens() {
 #[test]
 fn selection_serialization_preflight_should_enforce_exact_response_boundary() {
     let maximum = usize::try_from(MAX_RESPONSE_BYTES).expect("response limit must fit usize");
+    let below_limit = "x".repeat(maximum - 4);
     let at_limit = "x".repeat(maximum - 3);
     let above_limit = "x".repeat(maximum - 2);
 
+    assert_eq!(
+        to_selection_json_line(&below_limit)
+            .expect("response below the limit must serialize")
+            .len(),
+        maximum - 1
+    );
     assert_eq!(
         to_selection_json_line(&at_limit)
             .expect("exact response limit must serialize")

@@ -48,6 +48,8 @@ pub enum FakeLspScenario {
     StderrFlood,
     /// Sends supported and unsupported server requests during symbol lookup.
     ServerRequests,
+    /// Sends more server requests than the production per-selection limit.
+    ServerRequestFlood,
     /// Omits document-symbol support from the initialize result.
     NoDocumentSymbols,
     /// Omits text-document synchronization from the initialize result.
@@ -74,19 +76,25 @@ pub enum FakeLspScenario {
     NullSymbols,
     /// Returns a `selectionRange` outside the enclosing symbol range.
     InvalidSelectionRange,
+    /// Returns a symbol whose enclosing range has its endpoints reversed.
+    MalformedRange,
     /// Returns a hierarchical symbol with a future numeric kind.
     UnknownSymbolKind,
     /// Returns a deeply nested hierarchical symbol tree.
     DeepSymbols,
     /// Returns duplicate hierarchical symbols.
     DuplicateSymbols,
+    /// Returns equal-range symbols with distinct hierarchical paths.
+    AmbiguousSymbols,
     /// Sends a bounded burst of notifications during symbol lookup.
     NotificationFlood,
+    /// Sends more notifications than the production per-selection limit.
+    NotificationLimitExceeded,
 }
 
 impl FakeLspScenario {
     /// All public scenario names accepted by the fixture executable.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 35] = [
         Self::Success,
         Self::SuccessWithConfiguration,
         Self::InitializeError,
@@ -101,6 +109,7 @@ impl FakeLspScenario {
         Self::ResponseAndError,
         Self::StderrFlood,
         Self::ServerRequests,
+        Self::ServerRequestFlood,
         Self::NoDocumentSymbols,
         Self::NoDocumentSync,
         Self::IncrementalSync,
@@ -114,10 +123,13 @@ impl FakeLspScenario {
         Self::FlatSymbols,
         Self::NullSymbols,
         Self::InvalidSelectionRange,
+        Self::MalformedRange,
         Self::UnknownSymbolKind,
         Self::DeepSymbols,
         Self::DuplicateSymbols,
+        Self::AmbiguousSymbols,
         Self::NotificationFlood,
+        Self::NotificationLimitExceeded,
     ];
 
     /// Returns the stable command-line spelling of this scenario.
@@ -138,6 +150,7 @@ impl FakeLspScenario {
             Self::ResponseAndError => "response-and-error",
             Self::StderrFlood => "stderr-flood",
             Self::ServerRequests => "server-requests",
+            Self::ServerRequestFlood => "server-request-flood",
             Self::NoDocumentSymbols => "no-document-symbols",
             Self::NoDocumentSync => "no-document-sync",
             Self::IncrementalSync => "incremental-sync",
@@ -151,10 +164,13 @@ impl FakeLspScenario {
             Self::FlatSymbols => "flat-symbols",
             Self::NullSymbols => "null-symbols",
             Self::InvalidSelectionRange => "invalid-selection-range",
+            Self::MalformedRange => "malformed-range",
             Self::UnknownSymbolKind => "unknown-symbol-kind",
             Self::DeepSymbols => "deep-symbols",
             Self::DuplicateSymbols => "duplicate-symbols",
+            Self::AmbiguousSymbols => "ambiguous-symbols",
             Self::NotificationFlood => "notification-flood",
+            Self::NotificationLimitExceeded => "notification-limit-exceeded",
         }
     }
 }
@@ -351,8 +367,23 @@ pub fn serve_fake_lsp(
         FakeLspScenario::ServerRequests => {
             exercise_server_requests(&mut input, &mut output, &workspace_folder)?;
         }
+        FakeLspScenario::ServerRequestFlood => {
+            exercise_server_request_flood(&mut input, &mut output)?;
+        }
         FakeLspScenario::NotificationFlood => {
             for sequence in 0..64 {
+                write_message(
+                    &mut output,
+                    &json!({
+                        "jsonrpc": "2.0",
+                        "method": "window/logMessage",
+                        "params": {"type": 3, "message": format!("fixture notification {sequence}")}
+                    }),
+                )?;
+            }
+        }
+        FakeLspScenario::NotificationLimitExceeded => {
+            for sequence in 0..=1024 {
                 write_message(
                     &mut output,
                     &json!({
@@ -573,6 +604,12 @@ fn symbol_result(scenario: FakeLspScenario, document_uri: &str) -> Value {
             "range": range(3, 4, 5, 5),
             "selectionRange": range(2, 0, 2, 4)
         }]),
+        FakeLspScenario::MalformedRange => json!([{
+            "name": "alpha",
+            "kind": 12,
+            "range": range(5, 5, 3, 4),
+            "selectionRange": range(3, 11, 3, 16)
+        }]),
         FakeLspScenario::UnknownSymbolKind => json!([{
             "name": "alpha",
             "kind": 999,
@@ -584,6 +621,22 @@ fn symbol_result(scenario: FakeLspScenario, document_uri: &str) -> Value {
             let symbol = alpha_symbol();
             json!([symbol, alpha_symbol()])
         }
+        FakeLspScenario::AmbiguousSymbols => json!([
+            {
+                "name": "First",
+                "kind": 3,
+                "range": range(2, 0, 6, 1),
+                "selectionRange": range(2, 0, 2, 5),
+                "children": [alpha_symbol()]
+            },
+            {
+                "name": "Second",
+                "kind": 3,
+                "range": range(2, 0, 6, 1),
+                "selectionRange": range(2, 0, 2, 6),
+                "children": [alpha_symbol()]
+            }
+        ]),
         _ => json!([{
             "name": "Outer",
             "detail": "fixture class",
@@ -791,6 +844,32 @@ fn exercise_server_requests(
         )?;
         let response = read_required_message(input)?;
         expect_exact_response(&response, &expected_response, method)?;
+    }
+    Ok(())
+}
+
+fn exercise_server_request_flood(
+    input: &mut impl Read,
+    output: &mut impl Write,
+) -> Result<(), FakeLspError> {
+    for sequence in 0..=64 {
+        let id = 8_000_u64 + sequence;
+        write_message(
+            output,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "fixture/unknownRequest",
+                "params": {}
+            }),
+        )?;
+        let expected = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32601, "message": "Method not found"}
+        });
+        let response = read_required_message(input)?;
+        expect_exact_response(&response, &expected, "fixture/unknownRequest")?;
     }
     Ok(())
 }

@@ -327,6 +327,85 @@ fn continuous_valid_notifications_hit_bounded_message_buffer_promptly() {
 }
 
 #[test]
+fn transport_rejects_zero_integration_capacities_before_spawn() {
+    let defaults = TransportLimits::default();
+    let cases = [
+        TransportLimits {
+            max_ready_events: 0,
+            ..defaults
+        },
+        TransportLimits {
+            max_buffered_messages: 0,
+            ..defaults
+        },
+        TransportLimits {
+            max_buffered_message_bytes: 0,
+            ..defaults
+        },
+    ];
+
+    for limits in cases {
+        let result = Transport::spawn(&ProcessSpec::new("/absent"), limits);
+        assert!(matches!(
+            result,
+            Err(TransportError::ResourceLimit {
+                resource: "configured zero capacity",
+                limit: 0
+            })
+        ));
+    }
+}
+
+#[test]
+fn buffered_message_count_accepts_below_and_at_then_rejects_above() {
+    let values = [
+        json!({"jsonrpc":"2.0","method":"one"}),
+        json!({"jsonrpc":"2.0","method":"two"}),
+        json!({"jsonrpc":"2.0","method":"three"}),
+    ];
+    let two_messages = format!("{}{}", frame(&values[0]), frame(&values[1]));
+    for limit in [3, 2] {
+        let limits = TransportLimits {
+            max_buffered_messages: limit,
+            ..TransportLimits::default()
+        };
+        let mut transport = Transport::spawn(&output_then_wait(two_messages.clone()), limits)
+            .expect("bounded transport should spawn");
+        transport
+            .next_incoming(deadline_after(OPERATION))
+            .expect("first notification should fit");
+        transport
+            .next_incoming(deadline_after(OPERATION))
+            .expect("second notification should fit");
+        abort_and_assert_reaped(&mut transport);
+    }
+
+    let three_messages = format!(
+        "{}{}{}",
+        frame(&values[0]),
+        frame(&values[1]),
+        frame(&values[2])
+    );
+    let limits = TransportLimits {
+        max_buffered_messages: 2,
+        ..TransportLimits::default()
+    };
+    let mut transport = Transport::spawn(&output_then_wait(three_messages), limits)
+        .expect("bounded transport should spawn");
+    let error = transport
+        .next_incoming(deadline_after(OPERATION))
+        .expect_err("third ready notification must exceed the two-message limit");
+    assert!(matches!(
+        error,
+        TransportError::ResourceLimit {
+            resource: "buffered incoming messages",
+            limit: 2
+        }
+    ));
+    abort_and_assert_reaped(&mut transport);
+}
+
+#[test]
 fn buffered_message_byte_limit_accepts_at_boundary_and_rejects_above() {
     let first = json!({"jsonrpc":"2.0","method":"one"});
     let second = json!({"jsonrpc":"2.0","method":"two"});
