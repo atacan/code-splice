@@ -136,7 +136,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "codesplice-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "codesplice-core",
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "codesplice-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "sha2",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "codesplice-fs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "codesplice-core",
  "getrandom 0.3.4",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "codesplice-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "codesplice-core",
  "proptest",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "codesplice-test-support"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "colorchoice"

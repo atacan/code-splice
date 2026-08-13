@@ -12,7 +12,7 @@ moving a function to another file, copying a declaration, reordering blocks in
 one file, splitting one source file across several destinations, and preserving
 CRLF, mixed line endings, or non-UTF-8 data.
 
-CodeSplice `v0.1.0` is a deliberately bounded pilot. It is qualified only for
+CodeSplice `v0.1.1` is a deliberately bounded pilot. It is qualified only for
 Linux x86_64 workspaces on local ext4 and macOS arm64 workspaces on local APFS.
 
 ## Why CodeSplice?
@@ -67,17 +67,16 @@ The repository contains release packaging for these two qualified targets:
 - `x86_64-unknown-linux-gnu`
 - `aarch64-apple-darwin`
 
-The native GitHub Release workflow is included; publishing the assets and
-configuring the personal Homebrew tap are still forthcoming. Once published,
-GitHub Releases will host the native archives and checksums used by the tap. The
+Native archives and checksums are published with each current GitHub Release.
+Configuring the personal Homebrew tap is still forthcoming. Once available, the
 intended Homebrew command is:
 
 ```bash
 brew install atacan/tap/codesplice
 ```
 
-Until that publishing setup is live, install from this checkout rather than
-assuming that the release archive or formula is available remotely.
+Until the tap is live, download a supported archive from GitHub Releases or
+install from this checkout.
 
 ## Safe quickstart
 
@@ -195,6 +194,7 @@ See the frozen contracts for exact details:
 - [security boundary](docs/security.md)
 - [qualified platforms](docs/platform-support.md)
 - [`v0.1.0` release contract](docs/release-v0.1.0.md)
+- [`v0.1.1` release notes](docs/release-v0.1.1.md)
 - [release automation and Homebrew handoff](docs/releasing.md)
 
 Protocol version 1, plan-hash version 1, and transaction-record version 1 are
