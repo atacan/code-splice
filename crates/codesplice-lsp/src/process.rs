@@ -754,7 +754,7 @@ impl ManagedProcess {
         self.cancelling_transport.store(true, Ordering::Release);
         terminate_child(&self.child, self.process_id, true);
         if let Some(status) = self.reap_after_termination(midpoint_deadline(cleanup_deadline)) {
-            self.join_workers_until(cleanup_deadline)?;
+            self.wait_for_cleanup(cleanup_deadline)?;
             return Ok(status);
         }
         Err(ProcessError::CleanupDeadlineExceeded)
@@ -773,11 +773,16 @@ impl ManagedProcess {
     pub fn abort(&mut self, cleanup_deadline: Instant) -> Result<ExitStatus, ProcessError> {
         self.input_sender.take();
         self.cancelling_transport.store(true, Ordering::Release);
-        terminate_child(&self.child, self.process_id, true);
+        terminate_child(&self.child, self.process_id, false);
+        let term_deadline = bounded_grace_deadline(cleanup_deadline, DESCENDANT_TERM_GRACE);
+        if !wait_for_process_group_exit(self.process_id, term_deadline) {
+            terminate_child(&self.child, self.process_id, true);
+        }
+        let reap_deadline = midpoint_deadline(cleanup_deadline);
         let status = self
-            .reap_after_termination(midpoint_deadline(cleanup_deadline))
+            .reap_after_termination(reap_deadline)
             .ok_or(ProcessError::CleanupDeadlineExceeded)?;
-        self.join_workers_until(cleanup_deadline)?;
+        self.wait_for_cleanup(cleanup_deadline)?;
         Ok(status)
     }
 
@@ -789,18 +794,15 @@ impl ManagedProcess {
         self.input_sender.take();
         self.cancelling_transport.store(true, Ordering::Release);
 
-        // The direct child can leave descendants in its process group holding
-        // inherited pipes. Give cooperative descendants a brief TERM window,
-        // then force the group down before joining pipe workers.
+        // A reaped direct child can leave descendants in its dedicated process
+        // group. Worker completion is not proof that the group is empty: a
+        // descendant may close inherited pipes and still ignore TERM.
         terminate_child(&self.child, self.process_id, false);
         let term_deadline = bounded_grace_deadline(cleanup_deadline, DESCENDANT_TERM_GRACE);
-        if self.wait_for_workers(term_deadline) {
-            self.join_workers_until(term_deadline)?;
-            return Ok(status);
+        if !wait_for_process_group_exit(self.process_id, term_deadline) {
+            terminate_child(&self.child, self.process_id, true);
         }
-
-        terminate_child(&self.child, self.process_id, true);
-        self.join_workers_until(cleanup_deadline)?;
+        self.wait_for_cleanup(cleanup_deadline)?;
         Ok(status)
     }
 
@@ -835,25 +837,27 @@ impl ManagedProcess {
         }
     }
 
-    fn wait_for_workers(&self, deadline: Instant) -> bool {
-        loop {
-            if self.workers.iter().all(|(_, worker)| worker.is_finished()) {
-                return true;
-            }
-            let Some(wait) = remaining(deadline) else {
-                return false;
-            };
-            if wait.is_zero() {
-                return false;
-            }
-            thread::sleep(wait.min(STATUS_POLL_INTERVAL));
-        }
-    }
-
     fn join_workers_until(&mut self, deadline: Instant) -> Result<(), ProcessError> {
         self.cancelling_transport.store(true, Ordering::Release);
         self.input_sender.take();
         join_worker_handles_until(&mut self.workers, deadline)
+    }
+
+    fn wait_for_cleanup(&mut self, deadline: Instant) -> Result<(), ProcessError> {
+        loop {
+            let workers_finished = self.workers.iter().all(|(_, worker)| worker.is_finished());
+            let process_group_exited = process_group_has_exited(self.process_id);
+            if workers_finished && process_group_exited {
+                return self.join_workers_until(deadline);
+            }
+            let Some(wait) = remaining(deadline) else {
+                return Err(ProcessError::CleanupDeadlineExceeded);
+            };
+            if wait.is_zero() {
+                return Err(ProcessError::CleanupDeadlineExceeded);
+            }
+            thread::sleep(wait.min(STATUS_POLL_INTERVAL));
+        }
     }
 }
 
@@ -867,7 +871,7 @@ impl Drop for ManagedProcess {
         terminate_child(&self.child, self.process_id, true);
         let deadline = Instant::now() + DROP_CLEANUP_TIMEOUT;
         let _ = self.reap_after_termination(midpoint_deadline(deadline));
-        let _ = self.join_workers_until(deadline);
+        let _ = self.wait_for_cleanup(deadline);
     }
 }
 
@@ -1168,6 +1172,43 @@ fn midpoint_deadline(deadline: Instant) -> Instant {
 fn bounded_grace_deadline(deadline: Instant, maximum_grace: Duration) -> Instant {
     let now = Instant::now();
     now + deadline.saturating_duration_since(now).min(maximum_grace)
+}
+
+#[cfg(unix)]
+fn wait_for_process_group_exit(process_id: u32, deadline: Instant) -> bool {
+    loop {
+        if process_group_has_exited(process_id) {
+            return true;
+        }
+        let Some(wait) = remaining(deadline) else {
+            return false;
+        };
+        if wait.is_zero() {
+            return false;
+        }
+        thread::sleep(wait.min(STATUS_POLL_INTERVAL));
+    }
+}
+
+#[cfg(unix)]
+fn process_group_has_exited(process_id: u32) -> bool {
+    use rustix::io::Errno;
+    use rustix::process::{Pid, test_kill_process_group};
+
+    let Some(process_group) = Pid::from_raw(process_id.cast_signed()) else {
+        return true;
+    };
+    matches!(test_kill_process_group(process_group), Err(Errno::SRCH))
+}
+
+#[cfg(not(unix))]
+fn wait_for_process_group_exit(_process_id: u32, _deadline: Instant) -> bool {
+    true
+}
+
+#[cfg(not(unix))]
+fn process_group_has_exited(_process_id: u32) -> bool {
+    true
 }
 
 fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

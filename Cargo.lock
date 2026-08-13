@@ -223,6 +223,7 @@ name = "codesplice-lsp"
 version = "0.2.1"
 dependencies = [
  "codesplice-core",
+ "codesplice-test-support",
  "crossbeam-channel",
  "directories",
  "gen-lsp-types",

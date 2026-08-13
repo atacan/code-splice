@@ -17,8 +17,14 @@ serde_json.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+codesplice-test-support = { path = "../codesplice-test-support" }
 serde.workspace = true
 toml.workspace = true
+
+[[test]]
+name = "session_lifecycle"
+path = "tests/session_lifecycle.rs"
+harness = false
 
 [lints]
 workspace = true

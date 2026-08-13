@@ -252,12 +252,12 @@ pub fn serve_fake_lsp(
         FakeLspScenario::MalformedHeader => {
             output.write_all(b"Content-Length: nope\r\n\r\n")?;
             output.flush()?;
-            return Ok(());
+            hang_forever();
         }
         FakeLspScenario::InvalidJson => {
             output.write_all(b"Content-Length: 1\r\n\r\n{")?;
             output.flush()?;
-            return Ok(());
+            hang_forever();
         }
         FakeLspScenario::InitializeError => {
             write_message(
@@ -268,14 +268,18 @@ pub fn serve_fake_lsp(
                     "error": {"code": -32603, "message": "fixture initialize failure"}
                 }),
             )?;
-            return Ok(());
+            // Keep the process alive so the client can deterministically
+            // observe the JSON-RPC error before its documented higher-priority
+            // unexpected-exit condition. The client aborts this fixture after
+            // receiving the error.
+            hang_forever();
         }
         FakeLspScenario::UnknownResponseId => {
             write_message(
                 &mut output,
                 &json!({"jsonrpc": "2.0", "id": 999999, "result": initialize_result(scenario)}),
             )?;
-            return Ok(());
+            hang_forever();
         }
         FakeLspScenario::ResponseAndError => {
             write_message(
@@ -287,7 +291,7 @@ pub fn serve_fake_lsp(
                     "error": {"code": -32603, "message": "invalid dual response"}
                 }),
             )?;
-            return Ok(());
+            hang_forever();
         }
         _ => {}
     }
@@ -316,7 +320,10 @@ pub fn serve_fake_lsp(
     let initialized = read_required_message(&mut input)?;
     expect_notification(&initialized, "initialized")?;
 
-    if scenario == FakeLspScenario::SuccessWithConfiguration {
+    if matches!(
+        scenario,
+        FakeLspScenario::SuccessWithConfiguration | FakeLspScenario::ServerRequests
+    ) {
         let configuration = read_required_message(&mut input)?;
         expect_notification(&configuration, "workspace/didChangeConfiguration")?;
         if configuration.pointer("/params/settings").is_none() {

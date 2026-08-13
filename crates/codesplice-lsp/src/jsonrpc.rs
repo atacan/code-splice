@@ -90,7 +90,7 @@ pub enum EnvelopeViolation {
     ResponseContainsRequestMembers,
     /// A response contained both or neither of `result` and `error`.
     InvalidResponsePayload,
-    /// The optional `params` member was not an object or array.
+    /// The optional `params` member was not null, an object, or an array.
     InvalidParams,
     /// A JSON-RPC error object had an invalid shape.
     InvalidErrorObject,
@@ -110,7 +110,7 @@ impl fmt::Display for EnvelopeViolation {
             Self::InvalidResponsePayload => {
                 "JSON-RPC response must contain exactly one of result or error"
             }
-            Self::InvalidParams => "JSON-RPC params must be an object or array",
+            Self::InvalidParams => "JSON-RPC params must be null, an object, or an array",
             Self::InvalidErrorObject => "invalid JSON-RPC error object",
         };
         formatter.write_str(message)
@@ -960,7 +960,7 @@ fn validate_params(params: Option<&Value>, limit: usize) -> Result<(), JsonRpcEr
     let Some(params) = params else {
         return Ok(());
     };
-    if !params.is_array() && !params.is_object() {
+    if !params.is_null() && !params.is_array() && !params.is_object() {
         return invalid_envelope(EnvelopeViolation::InvalidParams);
     }
     let length = serde_json::to_vec(params)

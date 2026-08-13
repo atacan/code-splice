@@ -513,6 +513,18 @@ fn validates_request_id_method_and_params_bounds() {
             violation: EnvelopeViolation::InvalidParams
         }
     ));
+
+    let null_params = classify_message(
+        json!({
+            "jsonrpc":"2.0",
+            "id":"folders-request",
+            "method":"workspace/workspaceFolders",
+            "params":null
+        }),
+        EnvelopeLimits::default(),
+    )
+    .expect("parameterless LSP requests may use null params");
+    assert!(matches!(null_params, IncomingMessage::Request(_)));
 }
 
 #[test]

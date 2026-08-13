@@ -5,10 +5,14 @@
 //! This crate will own the LSP transport, lifecycle, and conversion from
 //! language-server positions to validated [`codesplice_core::ByteRange`] values.
 
+/// Frozen client capabilities and validated server capability negotiation.
+pub mod capabilities;
 /// Bounded JSON-RPC framing, envelope validation, and response correlation.
 pub mod jsonrpc;
 /// Bounded child-process transport, supervision, and cleanup.
 pub mod process;
+/// Stateful initialization, synchronization, server-request dispatch, and shutdown.
+pub mod session;
 /// Deadline-aware composition of process supervision and JSON-RPC framing.
 pub mod transport;
 

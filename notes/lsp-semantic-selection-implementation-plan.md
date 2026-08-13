@@ -613,6 +613,7 @@ Freeze these first-release defaults, represented with checked integer conversion
 | Configuration file bytes / JSON depth | 1 MiB / 32 |
 | Server arguments / individual argument / total argument bytes | 128 / 16 KiB / 256 KiB |
 | Initialization-options or settings JSON | 1 MiB each |
+| Workspace configuration items / serialized result | 256 / 1 MiB |
 | Initialize / document-symbol / graceful-shutdown deadline | 10 s / 30 s / 5 s |
 | Total selection wall clock | 60 s |
 
@@ -665,28 +666,35 @@ Exit criterion: the external behavior is reviewable before production implementa
 - [x] Add `codesplice-lsp` and workspace dependencies.
 - [x] Implement separately bounded inbound/outbound `Content-Length` framing, incremental header-limit enforcement, bounded Crossbeam channels, a writer thread, deterministic simultaneous-event precedence, and exact outbound-message preflight.
 - [x] Implement request IDs, response correlation, stderr draining, deadlines, dedicated process groups, thread joins, child reaping, and transport-level graceful/forced cleanup.
-- [ ] Implement stateful server-request dispatch, per-selection request/notification rate limits, and protocol-level `shutdown`/`exit` in the Phase 2 session client.
+- [x] Implement stateful server-request dispatch, per-selection request/notification rate limits, and protocol-level `shutdown`/`exit` in the Phase 2 session client.
 - [x] Add non-gating `cargo-fuzz` targets for framing/header parsing and JSON-RPC envelope classification, with minimized failures checked into the deterministic regression corpus.
 - [x] Test malformed and overlong unterminated headers, oversized frames, invalid JSON, unknown response IDs, channel saturation, simultaneous failures, blocked stdin/stdout/stderr, early exit, timeout, descendant cleanup, forced cleanup, JSON depth, live producers, and decoded-message byte bounds.
-- [ ] Exercise the complete successful, early-exit, timeout, ignored-shutdown, server-request, and descendant-cleanup lifecycles through the fake LSP executable in Phase 2.
+- [x] Exercise the complete successful, early-exit, timeout, ignored-shutdown, server-request, and descendant-cleanup lifecycles through the fake LSP executable in Phase 2.
 
 Exit criterion: the fake server can complete and fail every lifecycle path without leaking a process or thread.
 
-Checkpoint: the independently reviewed transport foundation is complete. The
-literal Phase 1 exit criterion remains open until the Phase 2 session client
-adds stateful server-request handling and drives the full fake-server
-lifecycle. The two standalone fuzz targets and corpora compile on stable Rust;
-runtime fuzz campaigns remain non-gating and were not run because
-`cargo-fuzz` was unavailable in the implementation environment.
+Checkpoint: the independently reviewed transport foundation is complete, and
+the Phase 2 session client closes the remaining Phase 1 lifecycle criterion
+with bounded stateful server-request handling and the full fake-server matrix.
+The two standalone fuzz targets and corpora compile on stable Rust; runtime
+fuzz campaigns remain non-gating and were not run because `cargo-fuzz` was
+unavailable in the implementation environment.
 
 ### Phase 2: initialization and document synchronization
 
-- [ ] Implement initialize/initialized/shutdown/exit.
-- [ ] Advertise hierarchical symbols, all supported position encodings, no dynamic registration or progress, and no apply-edit capability.
-- [ ] Implement workspace/configuration and workspaceFolders responses.
-- [ ] Validate text-synchronization capability and implement didOpen/didClose with exact snapshot text.
-- [ ] Send bounded workspace/didChangeConfiguration when settings are configured.
-- [ ] Reject workspace/applyEdit.
+- [x] Implement initialize/initialized/shutdown/exit.
+- [x] Advertise hierarchical symbols, all supported position encodings, no dynamic registration or progress, and no apply-edit capability.
+- [x] Implement workspace/configuration and workspaceFolders responses.
+- [x] Validate text-synchronization capability and implement didOpen/didClose with exact snapshot text.
+- [x] Send bounded workspace/didChangeConfiguration when settings are configured.
+- [x] Reject workspace/applyEdit.
+
+Checkpoint: the session client negotiates the frozen capability surface, sends
+the immutable snapshot exactly once through `didOpen`, bounds source and
+configuration payloads, rejects server edits, and completes or forcibly cleans
+up all 25 fake-server lifecycle variants. The phase gate requires independent
+review plus green workspace-wide tests, Clippy, rustdoc, formatting, and diff
+checks.
 
 Exit criterion: CodeSplice can negotiate capabilities and open a captured document against the fake server.
 

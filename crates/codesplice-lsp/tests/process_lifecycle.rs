@@ -21,6 +21,20 @@ fn deadline_after(duration: Duration) -> Instant {
     Instant::now() + duration
 }
 
+fn wait_for_pid_disappearance(pid: rustix::process::Pid) -> bool {
+    use rustix::io::Errno;
+    use rustix::process::test_kill_process;
+
+    (0..100).any(|_| {
+        if matches!(test_kill_process(pid), Err(Errno::SRCH)) {
+            true
+        } else {
+            thread::sleep(Duration::from_millis(10));
+            false
+        }
+    })
+}
+
 #[test]
 fn completion_capacity_requires_one_slot_per_terminal_producer() {
     let below = ProcessLimits {
@@ -223,17 +237,40 @@ fn exit_is_delivered_before_ready_stdout() {
 
 #[test]
 fn natural_parent_exit_terminates_pipe_holding_process_group_descendant() {
+    use rustix::process::{Pid, test_kill_process};
+
     let mut process = shell(
-        "(trap '' TERM; printf ready; while :; do sleep 1; done) & exit 0",
+        "trap '' TERM; sleep 60 & printf '%s\\n' \"$!\"; exit 0",
         ProcessLimits::default(),
     );
-    thread::sleep(Duration::from_millis(100));
+    let event_deadline = deadline_after(CLEANUP);
+    let descendant_pid = loop {
+        let event = process
+            .next_event(event_deadline)
+            .expect("descendant pid should be written before cleanup");
+        if let ProcessEvent::Stdout(bytes) = event {
+            let pid_text = std::str::from_utf8(&bytes)
+                .expect("descendant pid should be ASCII")
+                .trim();
+            let raw_pid: i32 = pid_text.parse().expect("descendant pid should be numeric");
+            break Pid::from_raw(raw_pid).expect("descendant pid should be positive");
+        }
+    };
+    assert!(
+        test_kill_process(descendant_pid).is_ok(),
+        "TERM-ignoring descendant should be alive before finish"
+    );
+
     let started = Instant::now();
     let status = process
         .finish(deadline_after(SHORT), deadline_after(CLEANUP))
         .expect("natural parent exit should still clean up its process group");
     assert!(status.success());
     assert!(started.elapsed() < CLEANUP);
+    assert!(
+        wait_for_pid_disappearance(descendant_pid),
+        "finish must not return while the TERM-ignoring descendant survives"
+    );
 }
 
 #[test]
@@ -246,7 +283,7 @@ fn process_worker_enum_remains_exhaustive_for_diagnostics() {
 
 #[test]
 fn forced_cleanup_terminates_descendants_in_dedicated_process_group() {
-    use rustix::process::{Pid, test_kill_process};
+    use rustix::process::Pid;
 
     let mut process = shell("sleep 60 & printf '%s' $!; wait", ProcessLimits::default());
     let event = process
@@ -262,14 +299,7 @@ fn forced_cleanup_terminates_descendants_in_dedicated_process_group() {
     process
         .abort(deadline_after(CLEANUP))
         .expect("process group should be terminated and direct child reaped");
-    let disappeared = (0..100).any(|_| {
-        if test_kill_process(pid).is_err() {
-            true
-        } else {
-            thread::sleep(Duration::from_millis(10));
-            false
-        }
-    });
+    let disappeared = wait_for_pid_disappearance(pid);
     assert!(
         disappeared,
         "descendant should not survive process-group cleanup"
