@@ -265,10 +265,23 @@ jobs:
           test -n "$remote_commit"
           test "$remote_commit" = "${RELEASE_SOURCE_SHA}"
 
-          existing="$(
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
-              --jq .draft 2>/dev/null || true
-          )"
+          release_headers=""
+          if release_headers="$(
+            gh api --include --silent \
+              "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" 2>&1
+          )"; then
+            existing="$(
+              gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
+                --jq .draft
+            )"
+          else
+            http_status="$(printf '%s\n' "$release_headers" | awk 'NR == 1 { print $2 }')"
+            if test "$http_status" != 404; then
+              printf '%s\n' "$release_headers" >&2
+              exit 1
+            fi
+            existing=""
+          fi
           case "$existing" in
             false)
               printf 'release %s is already published; refusing to replace it\n' "$tag" >&2
