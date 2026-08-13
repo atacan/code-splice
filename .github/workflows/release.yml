@@ -85,9 +85,11 @@ jobs:
               | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
           )"
           test "$tag" = "v${version}"
-          printf 'RELEASE_TAG=%s\n' "$tag" >>"${GITHUB_ENV}"
-          printf 'RELEASE_SOURCE_SHA=%s\n' "$source_sha" >>"${GITHUB_ENV}"
-          printf 'VERSION=%s\n' "$version" >>"${GITHUB_ENV}"
+          {
+            printf 'RELEASE_TAG=%s\n' "$tag"
+            printf 'RELEASE_SOURCE_SHA=%s\n' "$source_sha"
+            printf 'VERSION=%s\n' "$version"
+          } >>"${GITHUB_ENV}"
           printf 'version=%s\n' "$version" >>"${GITHUB_OUTPUT}"
 
       - name: Install pinned Rust toolchain
@@ -300,8 +302,8 @@ jobs:
           esac
 
           gh release create "$tag" \
-            dist/codesplice-v${VERSION}-aarch64-apple-darwin.tar.gz \
-            dist/codesplice-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz \
+            "dist/codesplice-v${VERSION}-aarch64-apple-darwin.tar.gz" \
+            "dist/codesplice-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
             dist/SHA256SUMS \
             --draft \
             --notes-from-tag \
@@ -323,3 +325,96 @@ jobs:
           remote_commit="$(resolve_remote_tag)"
           test "$remote_commit" = "${RELEASE_SOURCE_SHA}"
           gh release edit "$tag" --draft=false
+
+  notify-homebrew:
+    name: Notify Homebrew tap
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Verify the published stable release
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_EVENT_NAME}" in
+            push)
+              test "${GITHUB_REF_TYPE}" = tag
+              tag="${GITHUB_REF_NAME}"
+              ;;
+            workflow_dispatch)
+              tag="${DISPATCH_TAG}"
+              ;;
+            *)
+              printf 'unsupported release event: %s\n' "${GITHUB_EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${tag#v}"
+
+          tag_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}")"
+          test "$(jq -r .object.type <<<"$tag_ref")" = tag
+          tag_object="$(jq -r .object.sha <<<"$tag_ref")"
+          source_sha="$({
+            gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object}" \
+              --jq 'select(.object.type == "commit") | .object.sha'
+          })"
+          test -n "$source_sha"
+          if test "${GITHUB_EVENT_NAME}" = push; then
+            test "$source_sha" = "${GITHUB_SHA}"
+          fi
+
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
+          test "$(jq -r .tag_name <<<"$release_json")" = "$tag"
+          test "$(jq -r .draft <<<"$release_json")" = false
+          test "$(jq -r .prerelease <<<"$release_json")" = false
+          test "$(jq -r .published_at <<<"$release_json")" != null
+          release_url="$(jq -r .html_url <<<"$release_json")"
+
+          actual_assets="$(jq -r '.assets[].name' <<<"$release_json" | LC_ALL=C sort)"
+          expected_assets="$({
+            printf '%s\n' \
+              SHA256SUMS \
+              "codesplice-v${version}-aarch64-apple-darwin.tar.gz" \
+              "codesplice-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
+              | LC_ALL=C sort
+          })"
+          test "$actual_assets" = "$expected_assets"
+
+          {
+            printf 'VERSION=%s\n' "$version"
+            printf 'RELEASE_TAG=%s\n' "$tag"
+            printf 'RELEASE_URL=%s\n' "$release_url"
+            printf 'RELEASE_SOURCE_SHA=%s\n' "$source_sha"
+          } >>"${GITHUB_ENV}"
+
+      - name: Dispatch the verified release to the Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg tag "$RELEASE_TAG" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg release_url "$RELEASE_URL" \
+            --arg source_sha "$RELEASE_SOURCE_SHA" \
+            '{
+              event_type: "codesplice_release_published",
+              client_payload: {
+                version: $version,
+                tag: $tag,
+                repository: $repository,
+                release_url: $release_url,
+                source_sha: $source_sha
+              }
+            }' \
+            | gh api --method POST repos/atacan/homebrew-tap/dispatches --input -
