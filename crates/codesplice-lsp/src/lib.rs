@@ -7,6 +7,8 @@
 
 /// Frozen client capabilities and validated server capability negotiation.
 pub mod capabilities;
+/// Trusted server descriptors, bounded configuration, and language discovery.
+pub mod config;
 /// Bounded JSON-RPC framing, envelope validation, and response correlation.
 pub mod jsonrpc;
 /// Exact conversion between immutable snapshot bytes and LSP positions.

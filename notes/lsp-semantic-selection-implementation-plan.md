@@ -721,11 +721,23 @@ Exit criterion: every accepted match yields a validated, nonempty `ByteRange` ov
 
 ### Phase 4: filesystem and CLI integration
 
-- [ ] Add single-read unconditioned existing-file snapshot acquisition.
-- [ ] Add `Command::Select`, argument validation, configuration loading, and server discovery.
-- [ ] Release the diagnostic context after snapshot capture and prove a slow server does not block a later CodeSplice commit.
-- [ ] Compute source and selected-payload digests.
-- [ ] Render selection-v1 JSON and human output, including both raw LSP ranges, with exact response limits.
+- [x] Add single-read unconditioned existing-file snapshot acquisition.
+- [x] Add `Command::Select`, argument validation, configuration loading, and server discovery.
+- [x] Release the diagnostic context after snapshot capture and prove a slow server does not block a later CodeSplice commit.
+- [x] Compute source and selected-payload digests.
+- [x] Render selection-v1 JSON and human output, including both raw LSP ranges, with exact response limits.
+
+Checkpoint: the CLI captures one stable file snapshot while holding the
+diagnostic context, releases that context before process launch, and sends the
+captured UTF-8 bytes through `didOpen`. A delayed fake-server test changes the
+selected file after capture, verifies the server still receives the original
+text, and completes an unrelated CodeSplice commit while selection is active.
+The emitted `request_source` is copied unchanged into a protocol-v1 request and
+successfully previewed. Trusted configuration and built-in discovery reject
+relative, empty, and workspace-local automatic `PATH` candidates; explicit
+program selection remains the shell-free escape hatch. JSON and human response
+construction enforce the frozen response budget before retaining oversized
+output.
 
 Exit criterion: a fake-server integration test emits a source fragment accepted unchanged by protocol-v1 request parsing and preview.
 

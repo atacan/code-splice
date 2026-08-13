@@ -29,6 +29,7 @@ pub const DEFAULT_MAXIMUM_CANDIDATE_STORAGE_BYTES: u64 = 64 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_MATCHES: usize = 1_000;
 /// Default maximum number of candidates retained in an ambiguity error.
 pub const DEFAULT_MAXIMUM_AMBIGUITY_CANDIDATES: usize = 50;
+const MAXIMUM_LSP_UINTEGER: u32 = 2_147_483_647;
 
 /// Resource bounds applied while normalizing and resolving document symbols.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -496,6 +497,9 @@ pub fn normalize_hierarchical_symbols(
             children,
             ..
         } = pending.symbol;
+        if name.is_empty() || !wire_range_is_valid(range) || !wire_range_is_valid(selection_range) {
+            return Err(SymbolError::MalformedDocumentSymbols);
+        }
         enforce_byte_length(&name, limits.maximum_name_bytes, "symbol_name_bytes")?;
         if let Some(detail) = detail.as_deref() {
             enforce_byte_length(detail, limits.maximum_detail_bytes, "symbol_detail_bytes")?;
@@ -603,6 +607,12 @@ pub fn normalize_hierarchical_symbols(
     Ok(normalized)
 }
 
+fn wire_range_is_valid(range: Range) -> bool {
+    [range.start, range.end].into_iter().all(|position| {
+        position.line <= MAXIMUM_LSP_UINTEGER && position.character <= MAXIMUM_LSP_UINTEGER
+    })
+}
+
 /// Resolves an exact, case-sensitive name query.
 ///
 /// Duplicate records are removed by `(range, kind, symbol_path, name)` before
@@ -633,8 +643,7 @@ pub fn resolve_name(
 ///
 /// Unique mode retains only the shortest containing range and reports equally
 /// short distinct symbols as ambiguous. All mode returns every containing
-/// symbol ordered by increasing range length and then deterministic candidate
-/// order.
+/// symbol in the frozen start/end/kind/path/name candidate order.
 ///
 /// # Errors
 ///
@@ -662,13 +671,12 @@ pub fn resolve_position(
         kind_matches(symbol.kind, kind)
             && contains_position(symbol.byte_range, byte_offset, file_length)
     }));
-    candidates.sort_by(|left, right| {
-        range_length(left.byte_range)
-            .cmp(&range_length(right.byte_range))
-            .then_with(|| compare_candidates(left, right))
-    });
-
     if mode == MatchMode::Unique && !candidates.is_empty() {
+        candidates.sort_by(|left, right| {
+            range_length(left.byte_range)
+                .cmp(&range_length(right.byte_range))
+                .then_with(|| compare_candidates(left, right))
+        });
         let shortest = range_length(candidates[0].byte_range);
         candidates.truncate(
             candidates.partition_point(|candidate| range_length(candidate.byte_range) == shortest),

@@ -433,6 +433,32 @@ fn every_range_is_validated_before_name_filtering() {
 }
 
 #[test]
+fn empty_names_and_lsp_uintegers_above_the_wire_limit_are_rejected() {
+    let empty_name = symbol(
+        "",
+        SymbolKind::Function,
+        range(0, 0, 0, 1),
+        range(0, 0, 0, 1),
+        None,
+    );
+    let oversized = symbol(
+        "future",
+        SymbolKind::Function,
+        range(0, 0, 0, u32::MAX),
+        range(0, 0, 0, 1),
+        None,
+    );
+
+    for invalid in [empty_name, oversized] {
+        let error = with_converter("x", |converter| {
+            normalize_hierarchical_symbols(vec![invalid], converter, SymbolLimits::default())
+        })
+        .expect_err("schema-invalid server fields must fail normalization");
+        assert_eq!(error, SymbolError::MalformedDocumentSymbols);
+    }
+}
+
+#[test]
 fn selection_range_must_be_nonempty_and_contained() {
     let outside = symbol(
         "f",
@@ -600,6 +626,50 @@ fn position_resolution_selects_smallest_and_treats_equal_smallest_as_ambiguous()
 
     assert!(matches!(error, SymbolError::Ambiguous { total: 2, .. }));
     assert_eq!(outer[0].name, "outer");
+}
+
+#[test]
+fn all_position_matches_use_the_frozen_start_end_candidate_order() {
+    let text = "abcdefghij";
+    let roots = vec![
+        symbol(
+            "outer",
+            SymbolKind::Class,
+            range(0, 0, 0, 10),
+            range(0, 0, 0, 1),
+            None,
+        ),
+        symbol(
+            "inner",
+            SymbolKind::Method,
+            range(0, 2, 0, 7),
+            range(0, 2, 0, 3),
+            None,
+        ),
+    ];
+    let symbols = with_converter(text, |converter| {
+        normalize_hierarchical_symbols(roots, converter, SymbolLimits::default())
+    })
+    .expect("symbols should normalize");
+
+    let matches = resolve_position(
+        &symbols,
+        text,
+        4,
+        None,
+        SelectionExtent::Symbol,
+        MatchMode::All,
+        SymbolLimits::default(),
+    )
+    .expect("all position matches should resolve");
+
+    assert_eq!(
+        matches
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["outer", "inner"]
+    );
 }
 
 #[test]

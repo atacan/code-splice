@@ -188,12 +188,16 @@ dependencies = [
  "clap",
  "codesplice-core",
  "codesplice-fs",
+ "codesplice-lsp",
  "codesplice-protocol",
+ "codesplice-test-support",
+ "gen-lsp-types",
  "proptest",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "url",
 ]
 
 [[package]]
