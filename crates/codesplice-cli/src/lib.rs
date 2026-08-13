@@ -26,8 +26,8 @@ use codesplice_protocol::{
     CapabilitiesResponse, CommitResponse, ErrorCode, ErrorDto, InspectPathResponse,
     InspectResponse, MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
     OutputResponse, ProtocolVersionResponse, RecoveryEntryResponse, RecoveryListResponse,
-    RecoveryStatusResponse, ResolvedOperationResponse, WarningCode, WarningDto,
-    escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
+    RecoveryStatusResponse, ResolvedOperationResponse, SelectionCapabilitiesResponse, WarningCode,
+    WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
 };
 use serde_json::json;
 
@@ -71,6 +71,7 @@ enum Command {
     Apply(ApplyArgs),
     Recover(RecoverArgs),
     Capabilities(JsonOnlyArgs),
+    SelectionCapabilities(JsonOnlyArgs),
     ProtocolVersion(JsonOnlyArgs),
 }
 
@@ -206,6 +207,12 @@ fn execute(cli: Cli, stdin: &mut dyn Read, startup_umask: u32) -> Result<String,
             reject_workspace_for_target_independent(has_workspace, arguments.json)
                 .map_err(|(report, json)| CommandFailure::Edit(report, json))?;
             serialize_success(&CapabilitiesResponse::v0_1_0(), arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))
+        }
+        Command::SelectionCapabilities(arguments) => {
+            reject_workspace_for_target_independent(has_workspace, arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))?;
+            serialize_success(&SelectionCapabilitiesResponse::current(), arguments.json)
                 .map_err(|(report, json)| CommandFailure::Edit(report, json))
         }
         Command::ProtocolVersion(arguments) => {

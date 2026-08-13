@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Value, json};
 
 mod selection;
+mod selection_capabilities;
 
 pub use selection::{
     SELECTION_PROTOCOL_VERSION, SelectionByteSelectorDto, SelectionErrorCategory,
@@ -28,6 +29,7 @@ pub use selection::{
     SelectionProtocolError, SelectionQueryDto, SelectionRequestSourceDto, SelectionResponse,
     SelectionServerDto, SelectionSourceDto, SelectionSymbolKindDto, to_selection_json_line,
 };
+pub use selection_capabilities::SelectionCapabilitiesResponse;
 
 /// The only request protocol version supported by this release.
 pub const PROTOCOL_VERSION: u64 = 1;

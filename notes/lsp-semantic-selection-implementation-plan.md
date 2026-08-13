@@ -743,24 +743,36 @@ Exit criterion: a fake-server integration test emits a source fragment accepted 
 
 ### Phase 5: hardening and compatibility
 
-- [ ] Add below/at/above tests for every new resource limit.
-- [ ] Expand the Phase 1 and Phase 3 fuzz corpora and promote every minimized finding into the checked-in deterministic regression suite.
-- [ ] Add server-request flood, notification flood, deep symbol tree, flat-response rejection, duplicate symbol, malformed range, invalid selectionRange, and non-UTF-8 tests.
-- [ ] Add source-size, JSON-expansion, frame-size, queue-byte, channel-saturation, and PATH-poisoning tests.
-- [ ] Verify no mutation command is sent or accepted during selection.
-- [ ] Add optional, non-gating qualification tests for a small set of real installed servers; CI correctness must continue to rely on fake servers.
-- [ ] Measure startup and document-symbol latency before considering batching or a daemon.
+- [x] Add below/at/above tests for every new resource limit.
+- [x] Expand the Phase 1 and Phase 3 fuzz corpora and promote every minimized finding into the checked-in deterministic regression suite.
+- [x] Add server-request flood, notification flood, deep symbol tree, flat-response rejection, duplicate symbol, malformed range, invalid selectionRange, and non-UTF-8 tests.
+- [x] Add source-size, JSON-expansion, frame-size, queue-byte, channel-saturation, and PATH-poisoning tests.
+- [x] Verify no mutation command is sent or accepted during selection.
+- [x] Add optional, non-gating qualification tests for a small set of real installed servers; CI correctness must continue to rely on fake servers.
+- [x] Measure startup and document-symbol latency before considering batching or a daemon.
+
+Checkpoint: lowerable size, count, depth, and capacity limits have exact
+below/at/above regression coverage; timing and concurrent occupancy limits are
+covered by successful-under, saturation, timeout, and cleanup tests because an
+exact scheduler boundary is not deterministic. The fake-server suite covers
+malformed and adversarial lifecycle cases and proves that server-requested edits
+are rejected without changing workspace bytes or control state. Fuzz targets
+compile with checked-in boundary corpora; runtime fuzz campaigns remain
+non-gating when `cargo-fuzz` is unavailable. The optional qualification harness
+reports process-start-through-initialize, document-symbol, and shutdown timing;
+the host qualification run completed successfully with installed `clangd`, while
+fake servers remain the correctness oracle.
 
 Exit criterion: all failure modes are typed, bounded, deterministic, and leave the workspace untouched by CodeSplice.
 
 ### Phase 6: documentation and release
 
-- [ ] Document configuration, discovery, trust, range semantics, ambiguity, and composition with edit requests.
-- [ ] Document the mixed-time workspace model: immutable selected-document bytes with potentially live observations of other project files by the trusted server.
-- [ ] Update `README.md`, `docs/protocol.md`, `docs/resource-limits.md`, `docs/security.md`, and agent integration guidance.
-- [ ] Add runnable examples using a fake or explicitly supplied server.
-- [ ] Report selection support through a new independently versioned discovery surface; do not change the frozen v0.1.0 capabilities JSON.
-- [ ] Add release notes identifying supported platforms and the trusted-language-server boundary.
+- [x] Document configuration, discovery, trust, range semantics, ambiguity, and composition with edit requests.
+- [x] Document the mixed-time workspace model: immutable selected-document bytes with potentially live observations of other project files by the trusted server.
+- [x] Update `README.md`, `docs/protocol.md`, `docs/resource-limits.md`, `docs/security.md`, and agent integration guidance.
+- [x] Add runnable examples using a fake or explicitly supplied server.
+- [x] Report selection support through a new independently versioned discovery surface; do not change the frozen v0.1.0 capabilities JSON.
+- [x] Add release notes identifying supported platforms and the trusted-language-server boundary.
 
 Exit criterion: a user can configure an installed server, select a symbol, preview the resulting move, and commit it using only documented commands.
 

@@ -30,6 +30,89 @@ knows the value and uses checked arithmetic before allocation or I/O.
 | Recovery bytes read per command | 256 MiB |
 | Human or JSON diff bytes | 4 MiB |
 
+## Semantic-selection limits
+
+Selection protocol v1 is separately bounded. These defaults apply to one
+`codesplice select` invocation. Lowerable limits are used in boundary tests;
+trusted user configuration controls only the documented lifecycle deadlines and
+cannot make the versioned response exceed its schema maxima.
+
+| Resource | Limit |
+|---|---:|
+| UTF-8 workspace-relative source path | 4,096 bytes |
+| Source snapshot / `didOpen` text | 8 MiB |
+| Source files captured | 1 |
+| Source line count | 5,000,000 |
+| Source line-index memory | 256 MiB |
+| Selection query name | 4,096 bytes |
+| Position-conversion Unicode scalars examined | 16,777,216 |
+| Raw document-symbol nodes | 100,000 |
+| Flattened document-symbol candidates | 100,000 |
+| Symbol hierarchy / breadcrumb elements | 256 |
+| One symbol name | 4 KiB |
+| One symbol detail | 16 KiB |
+| One symbol breadcrumb | 64 KiB |
+| Candidate-owned string storage | 64 MiB |
+| Successful `--all` matches | 1,000 |
+| Ambiguity candidates reported | 50 |
+| Observation warnings reported | 16 |
+| Serialized selection JSON or human output | 16 MiB |
+
+Position work is cumulative across conversion of the selected snapshot and all
+server ranges. UTF-16, UTF-32, and user scalar-column scans charge one unit per
+Unicode scalar examined. UTF-8 boundary checks that can be performed in
+constant time do not consume that work budget.
+
+The language-server configuration and session have independent bounds:
+
+| Resource | Limit |
+|---|---:|
+| User TOML configuration | 1 MiB |
+| TOML or configured JSON nesting depth | 32 |
+| Server descriptors | bounded by the 1 MiB document |
+| Server ID or language ID / extension | 255 bytes |
+| Program value | 16 KiB |
+| Literal server arguments | 128 |
+| One literal argument | 16 KiB |
+| All literal arguments | 256 KiB |
+| Initialization options | 1 MiB |
+| Settings | 1 MiB |
+| `workspace/configuration` items | 256 |
+| Serialized configuration response | 1 MiB |
+| Server-initiated requests | 64 per selection |
+| Server notifications | 1,024 per selection |
+
+Default initialization and document-symbol deadlines are 10 and 30 seconds.
+Graceful shutdown and forced cleanup each receive 5 seconds. The total deadline
+adds those four phase budgets plus a 10-second scheduling allowance, yielding a
+60-second default. A trusted descriptor may configure the initialization and
+request timeouts from 100 through 300000 milliseconds; the session total is
+recomputed from those values, the two cleanup intervals, and the same allowance.
+
+The stdio JSON-RPC transport enforces these defaults before retaining untrusted
+server data:
+
+| Resource | Limit |
+|---|---:|
+| LSP header including terminator | 16 KiB |
+| Inbound JSON-RPC body | 16 MiB |
+| Outbound JSON-RPC body | 64 MiB |
+| JSON nesting depth | 64 |
+| Request ID / method name | 256 bytes each |
+| Request or notification parameters | 1 MiB |
+| Pending client requests | 8 |
+| Buffered validated messages | 1,024 / 32 MiB total body bytes |
+| Ready process events drained per wake | 4,096 |
+| Queued stdout | 32 chunks / 32 MiB |
+| Queued stdin | 16 frames / 64 MiB |
+| Completion events | 16 |
+| Retained stderr tail | 64 KiB |
+
+The response never includes source text, the server command line, initialization
+options, settings, absolute workspace paths, or stderr. Exceeding a selection or
+LSP bound fails closed with `LSP_RESOURCE_LIMIT_EXCEEDED`; output is not
+partially emitted.
+
 Detailed diff input is limited to 8 MiB per side and 10,000,000 explicitly
 counted input-and-render work units. The linear-memory text comparison removes a
 common exact prefix and suffix and reports the changed middle with original
