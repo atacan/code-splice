@@ -94,6 +94,12 @@ struct ApplyArgs {
     json: bool,
     #[arg(long, requires = "preview")]
     no_diff: bool,
+    #[arg(
+        long,
+        requires = "preview",
+        help = "Include complete typed review metadata under diff.summary.review"
+    )]
+    summary: bool,
 }
 
 #[derive(Debug, Args)]
@@ -659,6 +665,7 @@ fn execute_apply(
         &edit_plan,
         workspace.identity_hash(),
         arguments.no_diff,
+        arguments.summary,
         warnings,
     )
     .map_err(|error| (filesystem_error(error), arguments.json))?;

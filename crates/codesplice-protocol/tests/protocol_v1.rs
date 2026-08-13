@@ -6,8 +6,10 @@ use std::path::PathBuf;
 
 use codesplice_core::{Anchor, Operation, Precondition, Selector};
 use codesplice_protocol::{
-    CapabilitiesResponse, ErrorCode, MAX_REQUEST_BYTES, ProtocolVersionResponse, RequestLimits,
-    WarningCode, WarningDto, parse_request, parse_request_with_limits, to_json_line,
+    CapabilitiesResponse, ErrorCode, InsertionGroupResponse, MAX_REQUEST_BYTES,
+    ProtocolVersionResponse, RequestLimits, ReviewOperationResponse, ReviewOutputResponse,
+    ReviewSummaryResponse, WarningCode, WarningDto, parse_request, parse_request_with_limits,
+    parse_sha256, to_json_line,
 };
 use serde_json::{Value, json};
 
@@ -211,6 +213,35 @@ fn implemented_query_responses_should_match_golden_json_lines() {
 }
 
 #[test]
+fn review_summary_v1_should_match_its_independent_golden_vector() {
+    let digest = parse_sha256(DIGEST, "fixture").expect("fixture digest should parse");
+    let review = ReviewSummaryResponse::v1(
+        digest,
+        vec![
+            ReviewOperationResponse::new(0, 5, 2),
+            ReviewOperationResponse::new(3, 7, 1),
+        ],
+        vec![
+            ReviewOutputResponse::new(
+                0,
+                Some(3),
+                5,
+                vec![InsertionGroupResponse::new(2, vec![0, 3])],
+            ),
+            ReviewOutputResponse::new(1, None, 0, Vec::new()),
+        ],
+    );
+    let expected =
+        fs::read_to_string(repository_root().join("tests/golden/review-summary-v1/review.json"))
+            .expect("review golden must be readable");
+
+    assert_eq!(
+        to_json_line(&review).expect("review summary must serialize"),
+        expected
+    );
+}
+
+#[test]
 fn normative_schemas_should_be_valid_json_and_cover_the_registries() {
     let request_schema: Value = serde_json::from_str(
         &fs::read_to_string(repository_root().join("docs/schema/v1/request.schema.json"))
@@ -222,6 +253,11 @@ fn normative_schemas_should_be_valid_json_and_cover_the_registries() {
             .expect("response schema must be readable"),
     )
     .expect("response schema must be JSON");
+    let review_schema: Value = serde_json::from_str(
+        &fs::read_to_string(repository_root().join("docs/schema/review-summary-v1/schema.json"))
+            .expect("review summary schema must be readable"),
+    )
+    .expect("review summary schema must be JSON");
 
     assert_eq!(request_schema["properties"]["protocol_version"]["const"], 1);
     let schema_codes = response_schema["$defs"]["error"]["properties"]["code"]["enum"]
@@ -232,4 +268,6 @@ fn normative_schemas_should_be_valid_json_and_cover_the_registries() {
         .as_array()
         .expect("warning code enum must be an array");
     assert_eq!(json!(schema_warnings), json!(WarningCode::ALL));
+    assert_eq!(review_schema["properties"]["version"]["const"], 1);
+    assert_eq!(review_schema["properties"]["plan_hash_version"]["const"], 1);
 }

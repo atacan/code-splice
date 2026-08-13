@@ -37,6 +37,16 @@ terminator labels; it never allocates a quadratic matrix. Both human text and th
 JSON-encoded diff string are capped at 4 MiB. Diff truncation never changes the
 plan digest or commit.
 
+An opt-in review summary is complete or preview fails; its rows are never
+truncated. Indexed selected-range metrics and composable output-segment metrics
+avoid rescanning or materializing output bytes solely for line counts. The
+planner's conservative response projection charges 1,024 bytes per operation,
+512 bytes per output, and 512 bytes per output segment, covering the
+nonduplicative summary supplements and insertion groups. Summary metadata is
+reserved within the 16 MiB serialized-response limit before the remaining budget
+is assigned to detailed diff text. A response-driven reduction uses the existing
+`DIFF_TRUNCATED` warning with reason `response_budget`.
+
 Phase 4 charges every resulting output byte and retained segment. Changed-target
 count uses byte classification, so an effectful but byte-identical output is not a
 target. Planning memory excludes immutable snapshot storage and charges retained

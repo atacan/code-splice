@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codesplice.dev/schema/review-summary-v1/schema.json",
+  "title": "CodeSplice review summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "plan_hash_version",
+    "plan_sha256",
+    "operations",
+    "outputs"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "plan_hash_version": { "const": 1 },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_index",
+          "selected_byte_length",
+          "selected_logical_line_count"
+        ],
+        "properties": {
+          "operation_index": { "type": "integer", "minimum": 0 },
+          "selected_byte_length": { "type": "integer", "minimum": 1 },
+          "selected_logical_line_count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "output_index",
+          "before_logical_line_count",
+          "after_logical_line_count",
+          "insertion_groups_in_output_order"
+        ],
+        "properties": {
+          "output_index": { "type": "integer", "minimum": 0 },
+          "before_logical_line_count": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "after_logical_line_count": { "type": "integer", "minimum": 0 },
+          "insertion_groups_in_output_order": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["destination_offset", "operation_indices"],
+              "properties": {
+                "destination_offset": { "type": "integer", "minimum": 0 },
+                "operation_indices": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

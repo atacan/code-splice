@@ -581,6 +581,169 @@ impl OutputResponse {
     }
 }
 
+/// Versioned review metadata for an opt-in preview summary.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReviewSummaryResponse {
+    version: u64,
+    plan_hash_version: u64,
+    plan_sha256: String,
+    operations: Vec<ReviewOperationResponse>,
+    outputs: Vec<ReviewOutputResponse>,
+}
+
+impl ReviewSummaryResponse {
+    /// Creates a complete review-summary-v1 record for one immutable plan.
+    #[must_use]
+    pub fn v1(
+        plan_sha256: Sha256Digest,
+        operations: Vec<ReviewOperationResponse>,
+        outputs: Vec<ReviewOutputResponse>,
+    ) -> Self {
+        Self {
+            version: 1,
+            plan_hash_version: PLAN_HASH_VERSION,
+            plan_sha256: plan_sha256.to_prefixed_hex(),
+            operations,
+            outputs,
+        }
+    }
+
+    /// Returns operation supplements in request order.
+    #[must_use]
+    pub fn operations(&self) -> &[ReviewOperationResponse] {
+        &self.operations
+    }
+
+    /// Returns output supplements in normalized output order.
+    #[must_use]
+    pub fn outputs(&self) -> &[ReviewOutputResponse] {
+        &self.outputs
+    }
+}
+
+/// Nonduplicative review metrics for one resolved operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReviewOperationResponse {
+    operation_index: u64,
+    selected_byte_length: u64,
+    selected_logical_line_count: u64,
+}
+
+impl ReviewOperationResponse {
+    /// Creates one request-indexed operation supplement.
+    #[must_use]
+    pub const fn new(
+        operation_index: u64,
+        selected_byte_length: u64,
+        selected_logical_line_count: u64,
+    ) -> Self {
+        Self {
+            operation_index,
+            selected_byte_length,
+            selected_logical_line_count,
+        }
+    }
+
+    /// Returns the request-order operation index.
+    #[must_use]
+    pub const fn operation_index(&self) -> u64 {
+        self.operation_index
+    }
+
+    /// Returns the exact selected byte length.
+    #[must_use]
+    pub const fn selected_byte_length(&self) -> u64 {
+        self.selected_byte_length
+    }
+
+    /// Returns the selected payload's standalone logical-line count.
+    #[must_use]
+    pub const fn selected_logical_line_count(&self) -> u64 {
+        self.selected_logical_line_count
+    }
+}
+
+/// Review metrics and assembly events for one planned output.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReviewOutputResponse {
+    output_index: u64,
+    before_logical_line_count: Option<u64>,
+    after_logical_line_count: u64,
+    insertion_groups_in_output_order: Vec<InsertionGroupResponse>,
+}
+
+impl ReviewOutputResponse {
+    /// Creates one normalized-output-indexed supplement.
+    #[must_use]
+    pub fn new(
+        output_index: u64,
+        before_logical_line_count: Option<u64>,
+        after_logical_line_count: u64,
+        insertion_groups_in_output_order: Vec<InsertionGroupResponse>,
+    ) -> Self {
+        Self {
+            output_index,
+            before_logical_line_count,
+            after_logical_line_count,
+            insertion_groups_in_output_order,
+        }
+    }
+
+    /// Returns the zero-based index into the enclosing preview's outputs.
+    #[must_use]
+    pub const fn output_index(&self) -> u64 {
+        self.output_index
+    }
+
+    /// Returns the existing snapshot's logical-line count, or `None` for a new path.
+    #[must_use]
+    pub const fn before_logical_line_count(&self) -> Option<u64> {
+        self.before_logical_line_count
+    }
+
+    /// Returns the planned output's logical-line count.
+    #[must_use]
+    pub const fn after_logical_line_count(&self) -> u64 {
+        self.after_logical_line_count
+    }
+
+    /// Returns effectful insertion groups in final output traversal order.
+    #[must_use]
+    pub fn insertion_groups_in_output_order(&self) -> &[InsertionGroupResponse] {
+        &self.insertion_groups_in_output_order
+    }
+}
+
+/// Effectful payload insertions assembled at one immutable destination offset.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InsertionGroupResponse {
+    destination_offset: u64,
+    operation_indices: Vec<u64>,
+}
+
+impl InsertionGroupResponse {
+    /// Creates one insertion group in its exact final assembly order.
+    #[must_use]
+    pub fn new(destination_offset: u64, operation_indices: Vec<u64>) -> Self {
+        Self {
+            destination_offset,
+            operation_indices,
+        }
+    }
+
+    /// Returns the byte offset resolved against the immutable destination snapshot.
+    #[must_use]
+    pub const fn destination_offset(&self) -> u64 {
+        self.destination_offset
+    }
+
+    /// Returns request-order operation indices in final byte order at the offset.
+    #[must_use]
+    pub fn operation_indices(&self) -> &[u64] {
+        &self.operation_indices
+    }
+}
+
 /// Bounded preview diff or summary.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct DiffResponse {
@@ -617,6 +780,16 @@ impl DiffResponse {
             kind: "omitted",
             text: None,
             summary: None,
+        }
+    }
+
+    /// Creates an omitted diff carrying an opt-in summary extension.
+    #[must_use]
+    pub fn omitted_with_summary(summary: Value) -> Self {
+        Self {
+            kind: "omitted",
+            text: None,
+            summary: Some(summary),
         }
     }
 }

@@ -41,6 +41,8 @@ Keep this exact request unchanged between preview and commit. The request does n
 codesplice --workspace /absolute/path/to/repo apply \
   --request /absolute/path/to/request.json \
   --preview \
+  --summary \
+  --no-diff \
   --json
 ```
 
@@ -52,7 +54,11 @@ Require exit status 0. Review:
 - All warnings.
 - `plan_hash_version` and `plan_sha256`.
 
-Use `--no-diff` only when a diff is intentionally unnecessary. It changes only the diff field, not the plan digest.
+Beginning with v0.2.0, `--summary --no-diff` is the concise review mode. Review
+the complete `diff.summary.review` operation metrics, output line counts, and
+insertion groups. Omit `--no-diff` when detailed bounded diff evidence is useful.
+Omitting `--summary` preserves the earlier preview shape. Neither option changes
+the plan digest.
 
 Stop if the resolved coordinates, output set, or diff do not exactly match the requested edit. Correct the request, then preview again.
 
