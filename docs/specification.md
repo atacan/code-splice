@@ -64,7 +64,7 @@ lengths. Maps, tags, floats, negative integers, and indefinite-length items are
 forbidden. Unsigned integers use their shortest representation. SHA-256 values
 are 32-byte CBOR byte strings, not hexadecimal text.
 
-The positional record is unchanged from the implementation plan:
+The positional record is:
 
 ```text
 plan_record = [

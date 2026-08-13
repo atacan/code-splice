@@ -147,8 +147,7 @@ The repository includes a progressively disclosed agent skill under
 [`skills/codesplice/`](skills/codesplice/). Its short `SKILL.md` routes agents to
 focused references only when a task needs them.
 
-After the repository is publicly available, install it for Codex with the open
-[Skills CLI](https://skills.sh/docs/cli):
+Install it for Codex with the open [Skills CLI](https://skills.sh/docs/cli):
 
 ```bash
 npx skills add atacan/code-splice --skill codesplice -g -a codex
@@ -159,8 +158,6 @@ From a local checkout, omit `-g` to install it for the current project:
 ```bash
 npx skills add . --skill codesplice -a codex
 ```
-
-The command is `npx skills`, not `mpx skills`.
 
 ## Guarantees and boundaries
 
@@ -211,9 +208,6 @@ version.
 - `examples/`: runnable user-facing demonstrations.
 - `skills/codesplice/`: reusable instructions for coding agents.
 - `docs/`: public behavior, support, and release contracts.
-
-The detailed implementation record is
-[`notes/implementation_plan.md`](notes/implementation_plan.md).
 
 ## Development
 
