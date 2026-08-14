@@ -32,7 +32,7 @@ Before use, confirm `codesplice` is available and query `capabilities --json` wh
 ## Load only the needed detail
 
 - Read [references/request-construction.md](references/request-construction.md) when selecting lines or bytes, choosing anchors, creating a new destination, composing multiple operations, or interpreting a no-op.
-- Read [references/semantic-selection.md](references/semantic-selection.md) when asked to select a function, class, or declaration by name or source position, or when composing a selection result into an edit request.
+- Read [references/semantic-selection.md](references/semantic-selection.md) when asked to select one or several functions, classes, or declarations by name or source position, or when composing selection results into an edit request.
 - Read [references/safety-and-exactness.md](references/safety-and-exactness.md) before multi-file work, binary or mixed-line-ending work, metadata-sensitive changes, or when a path, platform, alias, resource, or precondition check fails.
 - Read [references/recovery.md](references/recovery.md) only when recovery is requested or a transaction is unfinished, busy, interrupted, or corrupt. Do not choose completion versus rollback without explicit user intent.
 

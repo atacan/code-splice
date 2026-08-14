@@ -43,8 +43,24 @@ Do not recalculate its byte selector or source digest. Inspect the destination,
 compose the request structurally, then follow [workflow.md](workflow.md). If the
 source changes, rerun selection instead of weakening its precondition.
 
+For several declarations, inspect every destination and run every `select`
+before applying anything, for example:
+
+```bash
+codesplice --workspace "$WORKSPACE" select --path "$SOURCE" \
+  --at-line 4 --at-column 1 --json > protocol.json
+codesplice --workspace "$WORKSPACE" select --path "$SOURCE" \
+  --at-line 13 --at-column 1 --json > extension.json
+```
+
+Require one intended match in each response and create one request operation per
+match, assigning its `source` from that response's `request_source` unchanged.
+Repeated selections of one file must carry the same source SHA-256, and moved
+byte ranges must not overlap. Preview the complete multi-operation request once,
+then commit that unchanged request with its reviewed `plan_sha256`.
+
 Automatic discovery supports installed trusted server descriptors; language
 servers are not bundled or sandboxed. Treat `--server-program` and user-enabled
 workspace programs as explicit trust decisions. See the repository's
 `docs/agent-integration.md` for complete composition and server configuration,
-and `examples/10-lsp-semantic-selection/` for Rust, Python, TypeScript, and Swift.
+and `examples/10-lsp-semantic-selection/` for runnable multilingual batching.
