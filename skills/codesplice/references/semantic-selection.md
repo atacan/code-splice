@@ -18,6 +18,13 @@ Unicode-scalar `--at-column` (default 1). Add `--kind` to disambiguate. Prefer a
 precise position over choosing the first ambiguous result. Use `--all` only when
 the task explicitly needs every match; it may return none.
 
+Accepted `--kind` values are exact lowercase spellings:
+`file`, `module`, `namespace`, `package`, `class`, `method`, `property`, `field`,
+`constructor`, `enum`, `interface`, `function`, `variable`, `constant`, `string`,
+`number`, `boolean`, `array`, `object`, `key`, `null`, `enum_member`, `struct`,
+`event`, `operator`, and `type_parameter`. There is no `trait`, `protocol`,
+`impl`, or `extension`; use the server's standardized mapping or a position query.
+
 The default `--extent declaration_lines` suits moving a standalone declaration.
 Use `--extent symbol` for the language server's exact symbol range.
 
