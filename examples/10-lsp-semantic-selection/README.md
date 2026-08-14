@@ -3,8 +3,8 @@
 This example selects declarations from an immutable workspace snapshot, copies
 each response's `request_source` object unchanged into a normal protocol-v1
 request, then uses the usual inspect, preview, digest, and guarded-commit
-workflow. The Swift case composes four selections into one move request. It
-runs only in an ignored disposable workspace below
+workflow. Each language composes four selections into one move request. It runs
+only in an ignored disposable workspace below
 `examples/.work/`; source fixtures are never modified.
 
 Run one language from the repository root:
@@ -16,12 +16,12 @@ examples/10-lsp-semantic-selection/run.sh typescript
 examples/10-lsp-semantic-selection/run.sh swift
 ```
 
-The script writes `inspect.json`, `selection.json`, generated `request.json`,
-`preview.json`, and `commit.json` under its reported `reports/` directory, then
-compares the resulting workspace with the checked-in expected tree. It is not
-included in the offline example suite: language servers are user-installed,
-and CodeSplice does not claim that all four are installed or compatible on a
-given machine.
+The script writes `inspect.json`, four selection reports, generated
+`request.json`, `preview.json`, and `commit.json` under its reported `reports/`
+directory, then compares the resulting workspace with the checked-in expected
+tree. It is not included in the offline example suite: language servers are
+user-installed, and CodeSplice does not claim that all four are installed or
+compatible on a given machine.
 
 ## Server prerequisites and selection commands
 
@@ -31,19 +31,20 @@ rejects workspace-local candidates and does not run a shell. Swift uses the
 explicit-program escape hatch because SourceKit-LSP is not a CodeSplice built-in
 descriptor. That explicit command is a user trust decision.
 
-| Language | Install or expose on `PATH` | Exact selection invocation |
+| Language | Install or expose on `PATH` | Selection arguments after `select --path SOURCE` |
 |---|---|---|
-| Rust | `rust-analyzer` | `codesplice --workspace WORKSPACE select --path src/lib.rs --name select_greeting --kind function --json` |
-| Python | `pylsp` (python-lsp-server) | `codesplice --workspace WORKSPACE select --path src/example.py --name select_greeting --kind function --json` |
-| TypeScript | `typescript-language-server` (and its TypeScript runtime) | `codesplice --workspace WORKSPACE select --path src/example.ts --name selectGreeting --kind function --json` |
-| Swift | A `sourcekit-lsp` build that starts its stdio server when launched directly | Four position queries at lines 4, 7, 13, and 18; see `run.sh` |
+| Rust | `rust-analyzer` | `--name Greets --kind interface`; `--name Person --kind struct`; `--at-line 10 --at-column 1`; `--at-line 15 --at-column 1` |
+| Python | `pylsp` (python-lsp-server) | `--name Named --kind class`; `--name Person --kind class`; `--name GreetingAdapter --kind class`; `--name UppercaseGreetingAdapter --kind class` |
+| TypeScript | `typescript-language-server` (and its TypeScript runtime) | `--name Named --kind interface`; `--name Person --kind class`; `--at-line 10 --at-column 1`; `--name formatGreeting --kind function` |
+| Swift | A `sourcekit-lsp` build that starts its stdio server when launched directly | `--at-line 4 --at-column 1`; `--at-line 7 --at-column 1`; `--at-line 13 --at-column 1`; `--at-line 18 --at-column 1` |
 
-The Swift fixture moves a protocol, its conforming struct, an extension of the
-struct, and an extension of the protocol into four new files. It intentionally
-uses position queries without `--kind`: SourceKit-LSP display names and the
-symbol-kind mapping for protocols/extensions vary by release, while each
-declaration-opening position is unambiguous here. `--at-line` is one-based and
-`--at-column` counts Unicode scalar insertion columns.
+The fixtures move related declarations into separate files: Rust has a trait,
+struct, inherent `impl`, and trait `impl`; Python has a `Protocol`, concrete
+class, adapter, and adapter subclass; TypeScript has an interface, implementing
+class, merged namespace, and formatter; Swift has a protocol, struct, and both
+extension forms. Position queries omit `--kind` where implementation,
+extension, or namespace symbol reporting varies by server release. `--at-line`
+is one-based and `--at-column` counts Unicode scalar insertion columns.
 SourceKit-LSP packaging varies between toolchains; an executable that exposes
 only diagnostic/debug subcommands is not a compatible stdio server. Point the
 runner at another trusted build with
@@ -84,8 +85,8 @@ its precondition instead of copying from a mixed-time snapshot. Selection itself
 is read-only with respect to CodeSplice's workspace edits and transaction state;
 the language server remains a separately trusted, installed program. Review
 `preview.json`, extract its `plan_sha256`, and commit only with
-`--expect-plan`, as the runner does. The Swift run has four operations in the
-same request, so the preview and commit cover the whole reorganization.
+`--expect-plan`, as the runner does. Every run has four operations in the same
+request, so the preview and commit cover the whole reorganization.
 
 CodeSplice does not write while it selects, but the server is not sandboxed and
 may create its own build or index state. The runner excludes only known
@@ -93,6 +94,9 @@ server/tool artifact directories (`.build`, `.swiftpm`, and `target`) plus
 CodeSplice's own `.codesplice` control tree from its final tree comparison; it
 still compares every checked-in fixture file byte-for-byte, including the
 source after the moves and every new destination.
+The exact moves deliberately do not synthesize Rust module declarations or
+Python/TypeScript imports; make those semantic follow-up edits before compiling
+or running the reorganized output.
 
 For a manual run, replace `WORKSPACE` with a disposable copy of one `before/`
 fixture, run the table's selection command, and compose the response:
@@ -106,10 +110,9 @@ PLAN_SHA=$(sed -n 's/.*"plan_sha256":"\([^"]*\)".*/\1/p' preview.json)
 codesplice --workspace WORKSPACE apply --request request.json --commit --expect-plan "$PLAN_SHA" --json
 ```
 
-The `src/` paths in the final snippet are the Rust case; use the table and the
-corresponding destination path from `run.sh` for the other three languages.
-For Swift, pass four `SELECTION_JSON DESTINATION_PATH` pairs to
-`compose-request.py`; the runner shows the exact order.
+The `src/` paths in the final snippet are illustrative. Pass four
+`SELECTION_JSON DESTINATION_PATH` pairs to `compose-request.py`; `run.sh` shows
+the exact order for every language.
 
 ## Offline fixture validation
 

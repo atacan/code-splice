@@ -1,6 +1,17 @@
 export function keep(): string {
   return "kept";
 }
-export function selectGreeting(name: string): string {
-  return `Hello, ${name}!`;
+export interface Named {
+  name: string;
+}
+export class Person implements Named {
+  constructor(public readonly name: string) {}
+}
+export namespace Person {
+  export function guest(): Person {
+    return new Person("Guest");
+  }
+}
+export function formatGreeting(named: Named): string {
+  return `Hello, ${named.name}!`;
 }

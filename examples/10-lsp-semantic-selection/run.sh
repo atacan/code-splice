@@ -16,25 +16,34 @@ language=${1:-}
 case "$language" in
   rust)
     source_path=src/lib.rs
-    destination_path=src/extracted.rs
-    symbol_name=select_greeting
-    selector=(--name "$symbol_name" --kind function)
+    selection_files=(trait.json struct.json inherent-impl.json trait-impl.json)
+    destination_paths=(src/greets.rs src/person.rs src/person_inherent.rs src/person_greets.rs)
+    selection_query_kinds=(name name position position)
+    selection_names=(Greets Person '' '')
+    selection_symbol_kinds=(interface struct '' '')
+    selection_lines=(0 0 10 15)
     server_command=(select --path "$source_path")
     prerequisite=rust-analyzer
     ;;
   python)
     source_path=src/example.py
-    destination_path=src/extracted.py
-    symbol_name=select_greeting
-    selector=(--name "$symbol_name" --kind function)
+    selection_files=(protocol.json person.json greeting-adapter.json uppercase-greeting-adapter.json)
+    destination_paths=(src/named.py src/person.py src/greeting_adapter.py src/uppercase_greeting_adapter.py)
+    selection_query_kinds=(name name name name)
+    selection_names=(Named Person GreetingAdapter UppercaseGreetingAdapter)
+    selection_symbol_kinds=(class class class class)
+    selection_lines=(0 0 0 0)
     server_command=(select --path "$source_path")
     prerequisite=pylsp
     ;;
   typescript)
     source_path=src/example.ts
-    destination_path=src/extracted.ts
-    symbol_name=selectGreeting
-    selector=(--name "$symbol_name" --kind function)
+    selection_files=(interface.json class.json namespace.json formatter.json)
+    destination_paths=(src/named.ts src/person.ts src/person-namespace.ts src/format-greeting.ts)
+    selection_query_kinds=(name name position name)
+    selection_names=(Named Person '' formatGreeting)
+    selection_symbol_kinds=(interface class '' function)
+    selection_lines=(0 0 10 0)
     server_command=(select --path "$source_path")
     prerequisite=typescript-language-server
     ;;
@@ -56,6 +65,10 @@ case "$language" in
       Sources/SemanticDemo/Account+Greeting.swift
       Sources/SemanticDemo/DisplayNamed+Formatting.swift
     )
+    selection_query_kinds=(position position position position)
+    selection_names=('' '' '' '')
+    selection_symbol_kinds=('' '' '' '')
+    selection_lines=(4 7 13 18)
     server_command=(select --path "$source_path" --server-program "$swift_lsp" --language-id swift)
     prerequisite=$swift_lsp
     ;;
@@ -99,44 +112,39 @@ workspace="$case_root/workspace"
 reports="$case_root/reports"
 cp -R "$example_dir/before/$language" "$workspace"
 
-# Inspect before mutation, including the intentionally absent destination.
+# Inspect before mutation, including every intentionally absent destination.
 inspect_paths=(--path "$source_path")
-if [[ $language == swift ]]; then
-  for destination_path in "${destination_paths[@]}"; do
-    inspect_paths+=(--path "$destination_path")
-  done
-else
+for destination_path in "${destination_paths[@]}"; do
   inspect_paths+=(--path "$destination_path")
-fi
+done
 "$codesplice_bin" --workspace "$workspace" inspect "${inspect_paths[@]}" --json > "$reports/inspect.json"
 
 # Selection is read-only. Rust, Python, and TypeScript use trusted built-ins;
 # Swift makes the direct `sourcekit-lsp` trust decision explicit.
-if [[ $language == swift ]]; then
-  swift_lines=(4 7 13 18)
-  for index in "${!swift_lines[@]}"; do
-    "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
-      --at-line "${swift_lines[$index]}" --at-column 1 --json \
-      > "$reports/${selection_files[$index]}"
-  done
-else
-  "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
-    "${selector[@]}" --json > "$reports/selection.json"
-fi
+for index in "${!selection_files[@]}"; do
+  case "${selection_query_kinds[$index]}" in
+    name)
+      "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
+        --name "${selection_names[$index]}" --kind "${selection_symbol_kinds[$index]}" --json \
+        > "$reports/${selection_files[$index]}"
+      ;;
+    position)
+      "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
+        --at-line "${selection_lines[$index]}" --at-column 1 --json \
+        > "$reports/${selection_files[$index]}"
+      ;;
+    *) printf 'invalid checked-in selection query type\n' >&2; exit 1 ;;
+  esac
+done
 
 # This copies every `matches[0].request_source` without changing it into
-# protocol-v1. Swift deliberately composes four independently discovered
+# protocol-v1. Each language composes four independently discovered
 # declarations into one guarded multi-operation move.
-if [[ $language == swift ]]; then
-  compose_args=()
-  for index in "${!selection_files[@]}"; do
-    compose_args+=("$reports/${selection_files[$index]}" "${destination_paths[$index]}")
-  done
-  python3 "$example_dir/compose-request.py" "${compose_args[@]}" > "$reports/request.json"
-else
-  python3 "$example_dir/compose-request.py" "$reports/selection.json" "$destination_path" \
-    > "$reports/request.json"
-fi
+compose_args=()
+for index in "${!selection_files[@]}"; do
+  compose_args+=("$reports/${selection_files[$index]}" "${destination_paths[$index]}")
+done
+python3 "$example_dir/compose-request.py" "${compose_args[@]}" > "$reports/request.json"
 "$codesplice_bin" --workspace "$workspace" apply --request "$reports/request.json" \
   --preview --json > "$reports/preview.json"
 plan=$(sed -n 's/.*"plan_sha256":"\([^"]*\)".*/\1/p' "$reports/preview.json")
