@@ -41,8 +41,21 @@ case "$language" in
   swift)
     swift_lsp=${CODESPLICE_SWIFT_LSP:-sourcekit-lsp}
     source_path=Sources/SemanticDemo/SemanticDemo.swift
-    destination_path=Sources/SemanticDemo/Extracted.swift
-    selector=(--at-line 4 --at-column 1 --kind function)
+    # Position queries avoid relying on SourceKit-LSP's display names or its
+    # varying protocol/extension kind mapping. Each line is a declaration's
+    # opening `public` keyword in the checked-in fixture.
+    selection_files=(
+      protocol.json
+      struct.json
+      struct-extension.json
+      protocol-extension.json
+    )
+    destination_paths=(
+      Sources/SemanticDemo/DisplayNamed.swift
+      Sources/SemanticDemo/Account.swift
+      Sources/SemanticDemo/Account+Greeting.swift
+      Sources/SemanticDemo/DisplayNamed+Formatting.swift
+    )
     server_command=(select --path "$source_path" --server-program "$swift_lsp" --language-id swift)
     prerequisite=$swift_lsp
     ;;
@@ -87,17 +100,43 @@ reports="$case_root/reports"
 cp -R "$example_dir/before/$language" "$workspace"
 
 # Inspect before mutation, including the intentionally absent destination.
-"$codesplice_bin" --workspace "$workspace" inspect \
-  --path "$source_path" --path "$destination_path" --json > "$reports/inspect.json"
+inspect_paths=(--path "$source_path")
+if [[ $language == swift ]]; then
+  for destination_path in "${destination_paths[@]}"; do
+    inspect_paths+=(--path "$destination_path")
+  done
+else
+  inspect_paths+=(--path "$destination_path")
+fi
+"$codesplice_bin" --workspace "$workspace" inspect "${inspect_paths[@]}" --json > "$reports/inspect.json"
 
 # Selection is read-only. Rust, Python, and TypeScript use trusted built-ins;
 # Swift makes the direct `sourcekit-lsp` trust decision explicit.
-"$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
-  "${selector[@]}" --json > "$reports/selection.json"
+if [[ $language == swift ]]; then
+  swift_lines=(4 7 13 18)
+  for index in "${!swift_lines[@]}"; do
+    "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
+      --at-line "${swift_lines[$index]}" --at-column 1 --json \
+      > "$reports/${selection_files[$index]}"
+  done
+else
+  "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
+    "${selector[@]}" --json > "$reports/selection.json"
+fi
 
-# This copies `matches[0].request_source` without changing it into protocol-v1.
-python3 "$example_dir/compose-request.py" "$reports/selection.json" "$destination_path" \
-  > "$reports/request.json"
+# This copies every `matches[0].request_source` without changing it into
+# protocol-v1. Swift deliberately composes four independently discovered
+# declarations into one guarded multi-operation move.
+if [[ $language == swift ]]; then
+  compose_args=()
+  for index in "${!selection_files[@]}"; do
+    compose_args+=("$reports/${selection_files[$index]}" "${destination_paths[$index]}")
+  done
+  python3 "$example_dir/compose-request.py" "${compose_args[@]}" > "$reports/request.json"
+else
+  python3 "$example_dir/compose-request.py" "$reports/selection.json" "$destination_path" \
+    > "$reports/request.json"
+fi
 "$codesplice_bin" --workspace "$workspace" apply --request "$reports/request.json" \
   --preview --json > "$reports/preview.json"
 plan=$(sed -n 's/.*"plan_sha256":"\([^"]*\)".*/\1/p' "$reports/preview.json")

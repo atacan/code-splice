@@ -1,9 +1,10 @@
 # 10 — Semantic selection with installed language servers
 
-This example selects one function from an immutable workspace snapshot, copies
-the response's `request_source` object unchanged into a normal protocol-v1
+This example selects declarations from an immutable workspace snapshot, copies
+each response's `request_source` object unchanged into a normal protocol-v1
 request, then uses the usual inspect, preview, digest, and guarded-commit
-workflow. It runs only in an ignored disposable workspace below
+workflow. The Swift case composes four selections into one move request. It
+runs only in an ignored disposable workspace below
 `examples/.work/`; source fixtures are never modified.
 
 Run one language from the repository root:
@@ -35,11 +36,13 @@ descriptor. That explicit command is a user trust decision.
 | Rust | `rust-analyzer` | `codesplice --workspace WORKSPACE select --path src/lib.rs --name select_greeting --kind function --json` |
 | Python | `pylsp` (python-lsp-server) | `codesplice --workspace WORKSPACE select --path src/example.py --name select_greeting --kind function --json` |
 | TypeScript | `typescript-language-server` (and its TypeScript runtime) | `codesplice --workspace WORKSPACE select --path src/example.ts --name selectGreeting --kind function --json` |
-| Swift | A `sourcekit-lsp` build that starts its stdio server when launched directly | `codesplice --workspace WORKSPACE select --path Sources/SemanticDemo/SemanticDemo.swift --at-line 4 --at-column 1 --kind function --server-program sourcekit-lsp --language-id swift --json` |
+| Swift | A `sourcekit-lsp` build that starts its stdio server when launched directly | Four position queries at lines 4, 7, 13, and 18; see `run.sh` |
 
-The Swift example intentionally uses a position query: document-symbol display
-names for Swift overloads commonly include parameter labels, while a position
-unambiguously identifies the enclosing function. `--at-line` is one-based and
+The Swift fixture moves a protocol, its conforming struct, an extension of the
+struct, and an extension of the protocol into four new files. It intentionally
+uses position queries without `--kind`: SourceKit-LSP display names and the
+symbol-kind mapping for protocols/extensions vary by release, while each
+declaration-opening position is unambiguous here. `--at-line` is one-based and
 `--at-column` counts Unicode scalar insertion columns.
 SourceKit-LSP packaging varies between toolchains; an executable that exposes
 only diagnostic/debug subcommands is not a compatible stdio server. Point the
@@ -55,10 +58,10 @@ codesplice selection-capabilities --json
 
 ## Composition and mixed-time safety
 
-The helper makes this protocol-v1 request shape; it assigns
-`matches[0].request_source` from `selection.json` directly, without changing
+The helper makes protocol-v1 move operations; it assigns every
+`matches[0].request_source` directly from its selection report, without changing
 the path, byte selector, or SHA-256 precondition. The selected bytes are then
-*moved* to a deliberately absent destination:
+*moved* to deliberately absent destinations:
 
 ```json
 {
@@ -81,14 +84,15 @@ its precondition instead of copying from a mixed-time snapshot. Selection itself
 is read-only with respect to CodeSplice's workspace edits and transaction state;
 the language server remains a separately trusted, installed program. Review
 `preview.json`, extract its `plan_sha256`, and commit only with
-`--expect-plan`, as the runner does.
+`--expect-plan`, as the runner does. The Swift run has four operations in the
+same request, so the preview and commit cover the whole reorganization.
 
 CodeSplice does not write while it selects, but the server is not sandboxed and
 may create its own build or index state. The runner excludes only known
 server/tool artifact directories (`.build`, `.swiftpm`, and `target`) plus
 CodeSplice's own `.codesplice` control tree from its final tree comparison; it
 still compares every checked-in fixture file byte-for-byte, including the
-source after the move and the new destination.
+source after the moves and every new destination.
 
 For a manual run, replace `WORKSPACE` with a disposable copy of one `before/`
 fixture, run the table's selection command, and compose the response:
@@ -104,6 +108,8 @@ codesplice --workspace WORKSPACE apply --request request.json --commit --expect-
 
 The `src/` paths in the final snippet are the Rust case; use the table and the
 corresponding destination path from `run.sh` for the other three languages.
+For Swift, pass four `SELECTION_JSON DESTINATION_PATH` pairs to
+`compose-request.py`; the runner shows the exact order.
 
 ## Offline fixture validation
 
