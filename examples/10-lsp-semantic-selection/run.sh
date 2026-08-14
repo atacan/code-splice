@@ -18,33 +18,18 @@ case "$language" in
     source_path=src/lib.rs
     selection_files=(trait.json struct.json inherent-impl.json trait-impl.json)
     destination_paths=(src/greets.rs src/person.rs src/person_inherent.rs src/person_greets.rs)
-    selection_query_kinds=(name name position position)
-    selection_names=(Greets Person '' '')
-    selection_symbol_kinds=(interface struct '' '')
-    selection_lines=(0 0 10 15)
-    server_command=(select --path "$source_path")
     prerequisite=rust-analyzer
     ;;
   python)
     source_path=src/example.py
     selection_files=(protocol.json person.json greeting-adapter.json uppercase-greeting-adapter.json)
     destination_paths=(src/named.py src/person.py src/greeting_adapter.py src/uppercase_greeting_adapter.py)
-    selection_query_kinds=(name name name name)
-    selection_names=(Named Person GreetingAdapter UppercaseGreetingAdapter)
-    selection_symbol_kinds=(class class class class)
-    selection_lines=(0 0 0 0)
-    server_command=(select --path "$source_path")
     prerequisite=pylsp
     ;;
   typescript)
     source_path=src/example.ts
     selection_files=(interface.json class.json namespace.json formatter.json)
     destination_paths=(src/named.ts src/person.ts src/person-namespace.ts src/format-greeting.ts)
-    selection_query_kinds=(name name position name)
-    selection_names=(Named Person '' formatGreeting)
-    selection_symbol_kinds=(interface class '' function)
-    selection_lines=(0 0 10 0)
-    server_command=(select --path "$source_path")
     prerequisite=typescript-language-server
     ;;
   swift)
@@ -65,11 +50,6 @@ case "$language" in
       Sources/SemanticDemo/Account+Greeting.swift
       Sources/SemanticDemo/DisplayNamed+Formatting.swift
     )
-    selection_query_kinds=(position position position position)
-    selection_names=('' '' '' '')
-    selection_symbol_kinds=('' '' '' '')
-    selection_lines=(4 7 13 18)
-    server_command=(select --path "$source_path" --server-program "$swift_lsp" --language-id swift)
     prerequisite=$swift_lsp
     ;;
   -h|--help|"") usage; exit 0 ;;
@@ -119,23 +99,55 @@ for destination_path in "${destination_paths[@]}"; do
 done
 "$codesplice_bin" --workspace "$workspace" inspect "${inspect_paths[@]}" --json > "$reports/inspect.json"
 
-# Selection is read-only. Rust, Python, and TypeScript use trusted built-ins;
-# Swift makes the direct `sourcekit-lsp` trust decision explicit.
-for index in "${!selection_files[@]}"; do
-  case "${selection_query_kinds[$index]}" in
-    name)
-      "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
-        --name "${selection_names[$index]}" --kind "${selection_symbol_kinds[$index]}" --json \
-        > "$reports/${selection_files[$index]}"
-      ;;
-    position)
-      "$codesplice_bin" --workspace "$workspace" "${server_command[@]}" \
-        --at-line "${selection_lines[$index]}" --at-column 1 --json \
-        > "$reports/${selection_files[$index]}"
-      ;;
-    *) printf 'invalid checked-in selection query type\n' >&2; exit 1 ;;
-  esac
-done
+# Selection is read-only. The commands are intentionally explicit so each
+# example shows exactly when a stable name/kind or a position query is used.
+case "$language" in
+  rust)
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name Greets --kind interface --json > "$reports/trait.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name Person --kind struct --json > "$reports/struct.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 10 --at-column 1 --json > "$reports/inherent-impl.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 15 --at-column 1 --json > "$reports/trait-impl.json"
+    ;;
+  python)
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name Named --kind class --json > "$reports/protocol.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name Person --kind class --json > "$reports/person.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name GreetingAdapter --kind class --json > "$reports/greeting-adapter.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name UppercaseGreetingAdapter --kind class --json \
+      > "$reports/uppercase-greeting-adapter.json"
+    ;;
+  typescript)
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name Named --kind interface --json > "$reports/interface.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name Person --kind class --json > "$reports/class.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 10 --at-column 1 --json > "$reports/namespace.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --name formatGreeting --kind function --json > "$reports/formatter.json"
+    ;;
+  swift)
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 4 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
+      > "$reports/protocol.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 7 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
+      > "$reports/struct.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 13 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
+      > "$reports/struct-extension.json"
+    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+      --at-line 18 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
+      > "$reports/protocol-extension.json"
+    ;;
+esac
 
 # This copies every `matches[0].request_source` without changing it into
 # protocol-v1. Each language composes four independently discovered
