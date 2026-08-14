@@ -307,6 +307,30 @@ fn completion_fault_does_not_prevent_forced_cleanup() {
 }
 
 #[test]
+fn live_child_closing_stdin_reports_typed_terminal_closure() {
+    let mut process = shell(
+        "exec 0<&-; printf ready; sleep 60",
+        ProcessLimits::default(),
+    );
+    let ready = process
+        .next_event(deadline_after(CLEANUP))
+        .expect("child should announce that stdin is closed");
+    assert!(matches!(ready, ProcessEvent::Stdout(bytes) if bytes == b"ready"));
+
+    process
+        .send_frame(vec![b'x'], deadline_after(SHORT))
+        .expect("frame should reach the asynchronous writer");
+    let event = process
+        .next_event(deadline_after(CLEANUP))
+        .expect("closed stdin should be observable");
+    assert!(matches!(event, ProcessEvent::StdinClosed));
+
+    process
+        .abort(deadline_after(CLEANUP))
+        .expect("live child with closed stdin should be cleaned up");
+}
+
+#[test]
 fn exit_is_delivered_before_ready_stdout() {
     let mut process = shell("printf data", ProcessLimits::default());
     thread::sleep(Duration::from_millis(80));

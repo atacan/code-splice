@@ -715,10 +715,12 @@ fn map_transport_error(error_value: TransportError) -> SelectionErrorDto {
             SelectionErrorCode::LspStartFailed,
             "the configured language server could not be started",
         ),
-        TransportError::Exited(_) | TransportError::StdoutClosed => error(
-            SelectionErrorCode::LspExited,
-            "the language server exited before selection completed",
-        ),
+        TransportError::Exited(_) | TransportError::StdoutClosed | TransportError::StdinClosed => {
+            error(
+                SelectionErrorCode::LspExited,
+                "the language server exited before selection completed",
+            )
+        }
         TransportError::DeadlineExceeded
         | TransportError::Process(ProcessError::DeadlineExceeded(_)) => error(
             SelectionErrorCode::LspTimeout,
@@ -898,5 +900,26 @@ mod tests {
         }));
 
         assert_eq!(report.code(), SelectionErrorCode::LspResourceLimitExceeded);
+    }
+
+    #[test]
+    fn terminal_pipe_closures_map_to_lsp_exited() {
+        for error_value in [TransportError::StdinClosed, TransportError::StdoutClosed] {
+            let report = map_transport_error(error_value);
+            assert_eq!(report.code(), SelectionErrorCode::LspExited);
+        }
+    }
+
+    #[test]
+    fn unrelated_io_fault_remains_a_protocol_error() {
+        let report = map_transport_error(TransportError::ProcessFault(ProcessFault {
+            worker: ProcessWorker::Stdout,
+            kind: ProcessFaultKind::Io {
+                error_kind: io::ErrorKind::PermissionDenied,
+                message: "fixture I/O failure".to_owned(),
+            },
+        }));
+
+        assert_eq!(report.code(), SelectionErrorCode::LspProtocolError);
     }
 }

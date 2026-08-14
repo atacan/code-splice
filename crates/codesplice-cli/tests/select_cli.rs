@@ -400,7 +400,12 @@ fn initialize_request_failure_is_typed() -> Result<(), String> {
 }
 
 fn early_server_exit_is_typed() -> Result<(), String> {
-    assert_scenario_error("exit-after-initialize", "LSP_EXITED")
+    for iteration in 0..32 {
+        assert_scenario_error("exit-after-initialize", "LSP_EXITED").map_err(|error| {
+            format!("early-exit iteration {iteration} did not remain stable: {error}")
+        })?;
+    }
+    Ok(())
 }
 
 fn malformed_header_is_typed() -> Result<(), String> {

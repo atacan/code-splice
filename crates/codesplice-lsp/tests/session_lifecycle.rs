@@ -87,7 +87,9 @@ fn production_session_executes_planned_matrix() -> Result<(), String> {
             (
                 ExpectedSessionOutcome::EarlyExit,
                 Err(SessionError::Transport(
-                    TransportError::Exited(_) | TransportError::StdoutClosed,
+                    TransportError::Exited(_)
+                    | TransportError::StdoutClosed
+                    | TransportError::StdinClosed,
                 )),
             ) => true,
             (ExpectedSessionOutcome::Timeout, Err(SessionError::Timeout(_))) => true,

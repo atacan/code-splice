@@ -70,6 +70,8 @@ pub enum TransportError {
     ProcessFault(ProcessFault),
     /// Child stdout closed cleanly between frames while a message was expected.
     StdoutClosed,
+    /// Child stdin closed or rejected further writes while a message was expected.
+    StdinClosed,
     /// Process setup, queueing, or cleanup failed.
     Process(ProcessError),
     /// No message or higher-precedence event was ready by the deadline.
@@ -96,6 +98,7 @@ impl fmt::Display for TransportError {
                 fault.worker, fault.kind
             ),
             Self::StdoutClosed => formatter.write_str("language-server stdout closed unexpectedly"),
+            Self::StdinClosed => formatter.write_str("language-server stdin closed unexpectedly"),
             Self::Process(error) => write!(formatter, "language-server process error: {error}"),
             Self::DeadlineExceeded => {
                 formatter.write_str("deadline exceeded while waiting for language server")
@@ -118,6 +121,7 @@ impl std::error::Error for TransportError {
             Self::Exited(_)
             | Self::ProcessFault(_)
             | Self::StdoutClosed
+            | Self::StdinClosed
             | Self::DeadlineExceeded
             | Self::ResourceLimit { .. } => None,
         }
@@ -127,8 +131,13 @@ impl std::error::Error for TransportError {
 #[derive(Debug)]
 enum IoCondition {
     Fault(ProcessFault),
-    Closed,
     Process(ProcessError),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum TerminalCondition {
+    StdinClosed,
+    StdoutClosed,
 }
 
 #[derive(Debug, Default)]
@@ -137,6 +146,7 @@ struct ReadyBatch {
     integration_resource: Option<(&'static str, usize)>,
     resource_violation: Option<ProcessFault>,
     exit: Option<ExitStatus>,
+    terminal_condition: Option<TerminalCondition>,
     io_condition: Option<IoCondition>,
 }
 
@@ -146,6 +156,7 @@ impl ReadyBatch {
             && self.integration_resource.is_none()
             && self.resource_violation.is_none()
             && self.exit.is_none()
+            && self.terminal_condition.is_none()
             && self.io_condition.is_none()
     }
 }
@@ -265,9 +276,10 @@ impl Transport {
     ///
     /// At every wake boundary this method drains all events that are already
     /// ready, then applies the frozen precedence: protocol/resource violation,
-    /// unexpected exit, I/O fault or EOF, validated message, deadline. Thus an
-    /// event observed in the final deadline drain wins over the deadline.
-    /// Multiple valid messages retain byte-stream order across calls.
+    /// unexpected exit, terminal pipe closure, other I/O fault, validated
+    /// message, deadline. Thus an event observed in the final deadline drain
+    /// wins over the deadline. Multiple valid messages retain byte-stream order
+    /// across calls.
     ///
     /// # Errors
     ///
@@ -398,6 +410,11 @@ impl Transport {
             }
             ProcessEvent::Stdout(bytes) => self.decode_chunk(&bytes, ready),
             ProcessEvent::StdoutClosed => self.observe_stdout_closed(ready),
+            ProcessEvent::StdinClosed => {
+                ready
+                    .terminal_condition
+                    .get_or_insert(TerminalCondition::StdinClosed);
+            }
         }
     }
 
@@ -463,9 +480,9 @@ impl Transport {
             ready.protocol_error = Some(error);
             return;
         }
-        if ready.io_condition.is_none() {
-            ready.io_condition = Some(IoCondition::Closed);
-        }
+        ready
+            .terminal_condition
+            .get_or_insert(TerminalCondition::StdoutClosed);
     }
 
     fn choose(&mut self, ready: ReadyBatch) -> Result<IncomingMessage, TransportError> {
@@ -485,11 +502,17 @@ impl Transport {
             self.clear_incoming();
             return Err(TransportError::Exited(status));
         }
+        if let Some(condition) = ready.terminal_condition {
+            self.clear_incoming();
+            return Err(match condition {
+                TerminalCondition::StdinClosed => TransportError::StdinClosed,
+                TerminalCondition::StdoutClosed => TransportError::StdoutClosed,
+            });
+        }
         if let Some(condition) = ready.io_condition {
             self.clear_incoming();
             return Err(match condition {
                 IoCondition::Fault(fault) => TransportError::ProcessFault(fault),
-                IoCondition::Closed => TransportError::StdoutClosed,
                 IoCondition::Process(error) => TransportError::Process(error),
             });
         }

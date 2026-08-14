@@ -88,6 +88,34 @@ fn outbound_frame_is_consumed_before_successful_inbound_message() {
 }
 
 #[test]
+fn live_child_closing_stdin_is_a_terminal_transport_condition() {
+    let ready = json!({"jsonrpc":"2.0","method":"server/ready"});
+    let outgoing = json!({"jsonrpc":"2.0","method":"client/ready"});
+    let specification = ProcessSpec::new("/bin/sh")
+        .args([
+            "-c",
+            "exec 0<&-; printf '%s' \"$1\"; sleep 60",
+            "transport-test",
+        ])
+        .arg(frame(&ready));
+    let mut transport =
+        Transport::spawn(&specification, TransportLimits::default()).expect("child should spawn");
+
+    transport
+        .next_incoming(deadline_after(OPERATION))
+        .expect("server readiness notification should arrive");
+    transport
+        .send_value(&outgoing, deadline_after(OPERATION))
+        .expect("outbound value should reach the asynchronous writer");
+    let error = transport
+        .next_incoming(deadline_after(OPERATION))
+        .expect_err("closed stdin should terminate the transport");
+    assert!(matches!(error, TransportError::StdinClosed));
+
+    abort_and_assert_reaped(&mut transport);
+}
+
+#[test]
 fn concatenated_valid_messages_preserve_stream_order_across_calls() {
     let first = json!({"jsonrpc":"2.0","method":"first"});
     let second = json!({"jsonrpc":"2.0","method":"second"});

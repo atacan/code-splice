@@ -212,6 +212,8 @@ pub struct ProcessFault {
 pub enum ProcessFaultKind {
     /// A standard-I/O or child-status operation failed.
     Io {
+        /// Standard-library category retained without parsing diagnostic text.
+        error_kind: io::ErrorKind,
         /// Stable, user-readable I/O failure detail.
         message: String,
     },
@@ -229,7 +231,7 @@ pub enum ProcessFaultKind {
 impl fmt::Display for ProcessFaultKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io { message } => formatter.write_str(message),
+            Self::Io { message, .. } => formatter.write_str(message),
             Self::ResourceLimit {
                 queue,
                 item_bytes,
@@ -253,6 +255,8 @@ pub enum ProcessEvent {
     Stdout(Vec<u8>),
     /// Child stdout reached end-of-file.
     StdoutClosed,
+    /// The child closed or rejected further stdin writes.
+    StdinClosed,
 }
 
 /// Error returned by process setup, bounded transport, or cleanup.
@@ -337,6 +341,7 @@ enum InputCommand {
 enum Completion {
     Exited(ExitStatus),
     Fault(ProcessFault),
+    StdinClosed,
 }
 
 #[derive(Debug)]
@@ -423,8 +428,9 @@ impl StderrTail {
 /// A running language server with bounded standard-I/O transport and cleanup.
 ///
 /// Event precedence is deterministic whenever [`Self::next_event`] crosses an
-/// orchestration boundary: ready completion events are delivered before ready
-/// stdout chunks, and exit status precedes worker faults within completions.
+/// orchestration boundary: resource faults precede confirmed child exit, which
+/// precedes terminal pipe closure and ordinary worker faults. Ready completion
+/// events are delivered before ready stdout chunks.
 pub struct ManagedProcess {
     child: Arc<Mutex<Child>>,
     process_id: u32,
@@ -437,6 +443,7 @@ pub struct ManagedProcess {
     stderr_tail: Arc<Mutex<StderrTail>>,
     observed_status: Arc<Mutex<Option<ExitStatus>>>,
     exit_event_delivered: AtomicBool,
+    pending_stdin_closed: AtomicBool,
     pending_faults: Mutex<VecDeque<ProcessFault>>,
     cancelling_transport: Arc<AtomicBool>,
     workers: Vec<(ProcessWorker, JoinHandle<()>)>,
@@ -566,6 +573,7 @@ impl ManagedProcess {
             stderr_tail,
             observed_status,
             exit_event_delivered: AtomicBool::new(false),
+            pending_stdin_closed: AtomicBool::new(false),
             pending_faults: Mutex::new(VecDeque::new()),
             cancelling_transport,
             workers,
@@ -660,10 +668,10 @@ impl ManagedProcess {
     /// Returns the highest-precedence process event that is already ready
     /// without waiting.
     ///
-    /// Ready completion events precede ready stdout chunks, and child exit
-    /// precedes worker faults within the completion class. Callers that
-    /// arbitrate across protocol and process event classes should call this
-    /// repeatedly until it returns `Ok(None)`.
+    /// Ready resource faults precede confirmed child exit, followed by terminal
+    /// pipe closure and ordinary worker faults. Completion events precede ready
+    /// stdout chunks. Callers that arbitrate across protocol and process event
+    /// classes should call this repeatedly until it returns `Ok(None)`.
     ///
     /// # Errors
     ///
@@ -673,6 +681,9 @@ impl ManagedProcess {
         loop {
             match self.completion_receiver.try_recv() {
                 Ok(Completion::Exited(status)) => ready_exit = Some(status),
+                Ok(Completion::StdinClosed) => {
+                    self.pending_stdin_closed.store(true, Ordering::Release);
+                }
                 Ok(Completion::Fault(fault)) => match fault.kind {
                     ProcessFaultKind::ResourceLimit { .. } => {
                         lock_or_recover(&self.pending_faults).push_front(fault);
@@ -684,13 +695,46 @@ impl ManagedProcess {
                 Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             }
         }
+
+        let resource_fault = {
+            let mut faults = lock_or_recover(&self.pending_faults);
+            if faults
+                .front()
+                .is_some_and(|fault| matches!(fault.kind, ProcessFaultKind::ResourceLimit { .. }))
+            {
+                faults.pop_front()
+            } else {
+                None
+            }
+        };
+        if let Some(fault) = resource_fault {
+            return Ok(Some(ProcessEvent::Fault(fault)));
+        }
+
         if ready_exit.is_none() {
             ready_exit = *lock_or_recover(&self.observed_status);
         }
         if let Some(status) = ready_exit
-            && !self.exit_event_delivered.swap(true, Ordering::AcqRel)
+            && let Some(event) = self.take_exit_event(status)
         {
-            return Ok(Some(ProcessEvent::Exited(status)));
+            return Ok(Some(event));
+        }
+
+        if self.pending_stdin_closed.load(Ordering::Acquire) {
+            if let Some(status) = self.refresh_child_status()
+                && let Some(event) = self.take_exit_event(status)
+            {
+                return Ok(Some(event));
+            }
+            self.pending_stdin_closed.store(false, Ordering::Release);
+            return Ok(Some(ProcessEvent::StdinClosed));
+        }
+
+        if !lock_or_recover(&self.pending_faults).is_empty()
+            && let Some(status) = self.refresh_child_status()
+            && let Some(event) = self.take_exit_event(status)
+        {
+            return Ok(Some(event));
         }
         if let Some(fault) = lock_or_recover(&self.pending_faults).pop_front() {
             return Ok(Some(ProcessEvent::Fault(fault)));
@@ -700,9 +744,32 @@ impl ManagedProcess {
                 self.inbound_budget.release(bytes.len());
                 Ok(Some(ProcessEvent::Stdout(bytes)))
             }
-            Ok(StdoutItem::Closed) => Ok(Some(ProcessEvent::StdoutClosed)),
+            Ok(StdoutItem::Closed) => {
+                if let Some(status) = self.refresh_child_status()
+                    && let Some(event) = self.take_exit_event(status)
+                {
+                    return Ok(Some(event));
+                }
+                Ok(Some(ProcessEvent::StdoutClosed))
+            }
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => Ok(None),
         }
+    }
+
+    fn take_exit_event(&self, status: ExitStatus) -> Option<ProcessEvent> {
+        (!self.exit_event_delivered.swap(true, Ordering::AcqRel))
+            .then_some(ProcessEvent::Exited(status))
+    }
+
+    fn refresh_child_status(&self) -> Option<ExitStatus> {
+        if let Some(status) = *lock_or_recover(&self.observed_status) {
+            return Some(status);
+        }
+        // The status worker owns reporting `try_wait` failures. This bounded
+        // probe only upgrades an already-ready lower-priority terminal event.
+        let status = lock_or_recover(&self.child).try_wait().ok().flatten()?;
+        *lock_or_recover(&self.observed_status) = Some(status);
+        Some(status)
     }
 
     /// Returns the number of bytes currently reserved in the outbound queue.
@@ -1084,18 +1151,31 @@ fn report_fault(
     worker: ProcessWorker,
     error: io::Error,
 ) {
-    report_fault_message(completions, wake, worker, error.to_string());
+    let error_kind = error.kind();
+    let completion = if worker == ProcessWorker::Stdin && is_terminal_stdin_error(error_kind) {
+        Completion::StdinClosed
+    } else {
+        Completion::Fault(ProcessFault {
+            worker,
+            kind: ProcessFaultKind::Io {
+                error_kind,
+                message: error.to_string(),
+            },
+        })
+    };
+    let _ = completions.try_send(completion);
+    notify(wake);
 }
 
-fn report_fault_message(
-    completions: &Sender<Completion>,
-    wake: &Sender<()>,
-    worker: ProcessWorker,
-    message: String,
-) {
-    let kind = ProcessFaultKind::Io { message };
-    let _ = completions.try_send(Completion::Fault(ProcessFault { worker, kind }));
-    notify(wake);
+fn is_terminal_stdin_error(error_kind: io::ErrorKind) -> bool {
+    matches!(
+        error_kind,
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::WriteZero
+    )
 }
 
 fn report_resource_fault(
@@ -1300,6 +1380,41 @@ fn terminate_child(child: &Arc<Mutex<Child>>, _process_id: u32, _force: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn confirmed_exit_precedes_pending_io_fault() {
+        let specification = ProcessSpec::new("/bin/sh").args(["-c", "exit 7"]);
+        let mut process = ManagedProcess::spawn(&specification, ProcessLimits::default())
+            .expect("fixture process should spawn");
+        let status = process
+            .finish(
+                Instant::now() + Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(3),
+            )
+            .expect("fixture process should exit and be reaped");
+        assert_eq!(status.code(), Some(7));
+
+        lock_or_recover(&process.pending_faults).push_back(ProcessFault {
+            worker: ProcessWorker::Stderr,
+            kind: ProcessFaultKind::Io {
+                error_kind: io::ErrorKind::Other,
+                message: "synthetic worker failure".to_owned(),
+            },
+        });
+        let event = process
+            .try_next_event()
+            .expect("ready process state should remain consumable")
+            .expect("confirmed exit should remain ready");
+        assert!(matches!(event, ProcessEvent::Exited(status) if status.code() == Some(7)));
+    }
+
+    #[test]
+    fn stdin_closure_categories_are_structural_and_narrow() {
+        assert!(is_terminal_stdin_error(io::ErrorKind::BrokenPipe));
+        assert!(is_terminal_stdin_error(io::ErrorKind::WriteZero));
+        assert!(!is_terminal_stdin_error(io::ErrorKind::PermissionDenied));
+    }
 
     #[test]
     fn joining_workers_retains_unfinished_handle_at_deadline() {
