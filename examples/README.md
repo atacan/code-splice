@@ -47,13 +47,18 @@ expand that support or the trusted-user, content-only threat model.
 | CRLF, lone CR, LF, NUL, and non-UTF-8 byte exactness | [`07-exact-bytes`](07-exact-bytes/) |
 | Stale digest, plan mismatch, path escape, and symlink rejection | [`08-safe-failures`](08-safe-failures/) |
 | `recover --list`, status/action guidance, qualified interruption boundary | [`09-recovery`](09-recovery/) |
+| Read-only LSP selection, `request_source` composition, and guarded commit | [`10-lsp-semantic-selection`](10-lsp-semantic-selection/) |
 
 `--accept-current-plan` is a human convenience in the grammar, but these
 examples model the safer preview-and-bind workflow used by coding agents. They
 therefore always commit with `--expect-plan`.
 
+The semantic-selection example has separate user-installed language-server
+prerequisites, so it is intentionally not part of `scripts/check-examples.sh`.
+Its README provides deterministic offline fixture validation and runnable Rust,
+Python, TypeScript, and Swift cases.
+
 Hexadecimal fixture files are used only where Git-friendly text cannot represent
 mixed terminators or non-UTF-8 bytes reliably. For example,
 `before/src/source.bin.hex` materializes as `src/source.bin`; the golden expected
 tree uses the same convention.
-
