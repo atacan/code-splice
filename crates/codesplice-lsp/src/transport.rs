@@ -204,8 +204,8 @@ impl Transport {
                 limit: 0,
             });
         }
-        let process = ManagedProcess::spawn(specification, limits.process)
-            .map_err(TransportError::Process)?;
+        let process =
+            ManagedProcess::spawn(specification, limits.process).map_err(map_process_error)?;
         Ok(Self {
             process,
             framing_limits: limits.framing,
@@ -239,7 +239,7 @@ impl Transport {
         let frame = encode_message(value, self.framing_limits).map_err(TransportError::Protocol)?;
         self.process
             .send_frame(frame, deadline)
-            .map_err(TransportError::Process)
+            .map_err(map_process_error)
     }
 
     /// Allocates an ID, constructs, and queues one client request.
@@ -331,7 +331,7 @@ impl Transport {
     ) -> Result<ExitStatus, TransportError> {
         self.process
             .finish(graceful_deadline, cleanup_deadline)
-            .map_err(TransportError::Process)
+            .map_err(map_process_error)
     }
 
     /// Immediately terminates the process group, reaps the direct child, and
@@ -343,7 +343,7 @@ impl Transport {
     pub fn abort(&mut self, cleanup_deadline: Instant) -> Result<ExitStatus, TransportError> {
         self.process
             .abort(cleanup_deadline)
-            .map_err(TransportError::Process)
+            .map_err(map_process_error)
     }
 
     fn drain_ready(&mut self, first: Option<ProcessEvent>, deadline: Instant) -> ReadyBatch {
@@ -513,7 +513,7 @@ impl Transport {
             self.clear_incoming();
             return Err(match condition {
                 IoCondition::Fault(fault) => TransportError::ProcessFault(fault),
-                IoCondition::Process(error) => TransportError::Process(error),
+                IoCondition::Process(error) => map_process_error(error),
             });
         }
         self.pop_incoming().ok_or(TransportError::DeadlineExceeded)
@@ -545,6 +545,14 @@ impl Transport {
     fn clear_incoming(&mut self) {
         self.incoming.clear();
         self.buffered_message_bytes = 0;
+    }
+}
+
+fn map_process_error(error: ProcessError) -> TransportError {
+    match error {
+        ProcessError::Exited(status) => TransportError::Exited(status),
+        ProcessError::StdinClosed => TransportError::StdinClosed,
+        error => TransportError::Process(error),
     }
 }
 

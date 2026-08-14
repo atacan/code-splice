@@ -44,6 +44,10 @@ fn main() -> ExitCode {
             production_session_executes_planned_matrix,
         ),
         TestCase::new(
+            "early_exit_transport_signals_stay_terminal",
+            early_exit_transport_signals_stay_terminal,
+        ),
+        TestCase::new(
             "session_rate_limits_are_enforced",
             session_rate_limits_are_enforced,
         ),
@@ -52,6 +56,25 @@ fn main() -> ExitCode {
             session_payload_limits_are_checked_before_spawn,
         ),
     ])
+}
+
+fn early_exit_transport_signals_stay_terminal() -> Result<(), String> {
+    for iteration in 0..256 {
+        let result = run_case(FakeLspScenario::ExitAfterInitialize);
+        if !matches!(
+            result,
+            Err(SessionError::Transport(
+                TransportError::Exited(_)
+                    | TransportError::StdoutClosed
+                    | TransportError::StdinClosed
+            ))
+        ) {
+            return Err(format!(
+                "early-exit iteration {iteration} produced nonterminal classification: {result:?}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn production_session_executes_planned_matrix() -> Result<(), String> {

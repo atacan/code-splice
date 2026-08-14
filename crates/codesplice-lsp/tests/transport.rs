@@ -90,7 +90,11 @@ fn outbound_frame_is_consumed_before_successful_inbound_message() {
 #[test]
 fn live_child_closing_stdin_is_a_terminal_transport_condition() {
     let ready = json!({"jsonrpc":"2.0","method":"server/ready"});
-    let outgoing = json!({"jsonrpc":"2.0","method":"client/ready"});
+    let outgoing = json!({
+        "jsonrpc":"2.0",
+        "method":"client/ready",
+        "params":{"payload":"x".repeat(1024 * 1024 + 1)}
+    });
     let specification = ProcessSpec::new("/bin/sh")
         .args([
             "-c",
@@ -106,11 +110,26 @@ fn live_child_closing_stdin_is_a_terminal_transport_condition() {
         .expect("server readiness notification should arrive");
     transport
         .send_value(&outgoing, deadline_after(OPERATION))
-        .expect("outbound value should reach the asynchronous writer");
-    let error = transport
+        .expect("large outbound value should reach the asynchronous writer");
+
+    let event_error = transport
         .next_incoming(deadline_after(OPERATION))
         .expect_err("closed stdin should terminate the transport");
-    assert!(matches!(error, TransportError::StdinClosed));
+    assert!(
+        matches!(event_error, TransportError::StdinClosed),
+        "unexpected queued terminal transport condition: {event_error:?}"
+    );
+
+    let synchronous_error = transport
+        .send_value(
+            &json!({"jsonrpc":"2.0","method":"client/after-close"}),
+            deadline_after(OPERATION),
+        )
+        .expect_err("closed stdin worker should reject a synchronous transport send");
+    assert!(
+        matches!(synchronous_error, TransportError::StdinClosed),
+        "unexpected synchronous transport condition: {synchronous_error:?}"
+    );
 
     abort_and_assert_reaped(&mut transport);
 }

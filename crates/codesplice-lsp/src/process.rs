@@ -283,6 +283,10 @@ pub enum ProcessError {
     },
     /// A lifecycle channel disconnected unexpectedly.
     Disconnected(&'static str),
+    /// The child exited before another stdin command could be queued.
+    Exited(ExitStatus),
+    /// The child closed or rejected stdin before another command could be queued.
+    StdinClosed,
     /// Cleanup did not observe process exit by the supplied deadline.
     CleanupDeadlineExceeded,
     /// A worker panicked during final joining.
@@ -314,6 +318,13 @@ impl fmt::Display for ProcessError {
                 "{queue} item has {item_bytes} bytes but cumulative capacity is {capacity_bytes} bytes"
             ),
             Self::Disconnected(channel) => write!(formatter, "{channel} channel disconnected"),
+            Self::Exited(status) => {
+                write!(
+                    formatter,
+                    "language server exited before stdin queueing: {status}"
+                )
+            }
+            Self::StdinClosed => formatter.write_str("language-server stdin closed unexpectedly"),
             Self::CleanupDeadlineExceeded => {
                 formatter.write_str("language-server cleanup deadline exceeded")
             }
@@ -444,6 +455,7 @@ pub struct ManagedProcess {
     observed_status: Arc<Mutex<Option<ExitStatus>>>,
     exit_event_delivered: AtomicBool,
     pending_stdin_closed: AtomicBool,
+    stdin_closed: Arc<AtomicBool>,
     pending_faults: Mutex<VecDeque<ProcessFault>>,
     cancelling_transport: Arc<AtomicBool>,
     workers: Vec<(ProcessWorker, JoinHandle<()>)>,
@@ -497,6 +509,7 @@ impl ManagedProcess {
         let inbound_budget = Arc::new(ByteBudget::new(limits.inbound_bytes));
         let stderr_tail = Arc::new(Mutex::new(StderrTail::new(limits.stderr_tail_bytes)));
         let observed_status = Arc::new(Mutex::new(None));
+        let stdin_closed = Arc::new(AtomicBool::new(false));
         let cancelling_transport = Arc::new(AtomicBool::new(false));
 
         let mut workers = Vec::with_capacity(4);
@@ -508,6 +521,7 @@ impl ManagedProcess {
                     input_receiver,
                     Arc::clone(&outbound_budget),
                     Arc::clone(&cancelling_transport),
+                    Arc::clone(&stdin_closed),
                     completion_sender.clone(),
                     wake_sender.clone(),
                 )?,
@@ -574,6 +588,7 @@ impl ManagedProcess {
             observed_status,
             exit_event_delivered: AtomicBool::new(false),
             pending_stdin_closed: AtomicBool::new(false),
+            stdin_closed,
             pending_faults: Mutex::new(VecDeque::new()),
             cancelling_transport,
             workers,
@@ -626,10 +641,15 @@ impl ManagedProcess {
         let timeout = remaining(deadline).ok_or(ProcessError::DeadlineExceeded(operation))?;
         sender.send_timeout(command, timeout).map_err(|error| {
             if error.is_timeout() {
-                ProcessError::DeadlineExceeded(operation)
-            } else {
-                ProcessError::Disconnected("stdin")
+                return ProcessError::DeadlineExceeded(operation);
             }
+            if let Some(status) = self.refresh_child_status() {
+                return ProcessError::Exited(status);
+            }
+            if self.stdin_closed.load(Ordering::Acquire) {
+                return ProcessError::StdinClosed;
+            }
+            ProcessError::Disconnected("stdin")
         })
     }
 
@@ -973,6 +993,7 @@ fn spawn_input_worker(
     receiver: Receiver<InputCommand>,
     budget: Arc<ByteBudget>,
     cancelling: Arc<AtomicBool>,
+    stdin_closed: Arc<AtomicBool>,
     completions: Sender<Completion>,
     wake: Sender<()>,
 ) -> Result<JoinHandle<()>, ProcessError> {
@@ -985,6 +1006,9 @@ fn spawn_input_worker(
                         let result = write_all_cancellable(&mut stdin, &bytes, &cancelling);
                         budget.release(bytes.len());
                         if let Err(error) = result {
+                            if is_terminal_stdin_error(error.kind()) {
+                                stdin_closed.store(true, Ordering::Release);
+                            }
                             report_fault(&completions, &wake, ProcessWorker::Stdin, error);
                             break;
                         }

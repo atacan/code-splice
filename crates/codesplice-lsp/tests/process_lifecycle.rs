@@ -307,7 +307,7 @@ fn completion_fault_does_not_prevent_forced_cleanup() {
 }
 
 #[test]
-fn live_child_closing_stdin_reports_typed_terminal_closure() {
+fn stdin_command_channel_disconnect_retains_terminal_cause() {
     let mut process = shell(
         "exec 0<&-; printf ready; sleep 60",
         ProcessLimits::default(),
@@ -318,16 +318,21 @@ fn live_child_closing_stdin_reports_typed_terminal_closure() {
     assert!(matches!(ready, ProcessEvent::Stdout(bytes) if bytes == b"ready"));
 
     process
-        .send_frame(vec![b'x'], deadline_after(SHORT))
-        .expect("frame should reach the asynchronous writer");
+        .send_frame(vec![b'x'; 1024 * 1024 + 1], deadline_after(SHORT))
+        .expect("large frame should reach the asynchronous writer");
     let event = process
         .next_event(deadline_after(CLEANUP))
         .expect("closed stdin should be observable");
     assert!(matches!(event, ProcessEvent::StdinClosed));
 
+    let error = process
+        .send_frame(vec![b'x'], deadline_after(SHORT))
+        .expect_err("closed stdin worker should disconnect its command channel");
+    assert!(matches!(error, ProcessError::StdinClosed));
+
     process
         .abort(deadline_after(CLEANUP))
-        .expect("live child with closed stdin should be cleaned up");
+        .expect("live child with disconnected stdin should be cleaned up");
 }
 
 #[test]
