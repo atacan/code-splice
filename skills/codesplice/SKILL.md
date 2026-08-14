@@ -1,6 +1,6 @@
 ---
 name: codesplice
-description: Safely inspect, preview, move, copy, reorder, or split exact bytes already present in workspace files with the CodeSplice CLI. Use when a coding task asks to relocate existing code or data within or across files, preserve selected bytes exactly, construct protocol-v1 requests, commit an expected preview plan, diagnose CodeSplice conflicts, or inspect and recover an interrupted CodeSplice transaction.
+description: Safely inspect, semantically select, preview, move, copy, reorder, or split exact bytes already present in workspace files with the CodeSplice CLI. Use when a coding task asks to select a function, class, or declaration through an installed language server; relocate existing code or data; preserve selected bytes exactly; construct protocol-v1 requests; commit an expected preview plan; diagnose conflicts; or inspect and recover an interrupted transaction.
 ---
 
 # CodeSplice
@@ -25,13 +25,14 @@ Read [references/workflow.md](references/workflow.md) before executing any mutat
 
 ## Keep the operation in scope
 
-CodeSplice moves or copies byte ranges selected by line or byte coordinates. It does not parse languages, update imports, format code, normalize line endings, create parent directories, or provide atomic multi-file visibility. Treat follow-up semantic edits as separate work and test the final workspace.
+CodeSplice moves or copies line or byte ranges. Its read-only `select` command can discover a declaration's byte range through a trusted, installed language server; selection and editing remain separate invocations. CodeSplice does not bundle language servers, update imports, format code, normalize line endings, create parent directories, or provide atomic multi-file visibility. Treat follow-up semantic edits as separate work and test the final workspace.
 
 Before use, confirm `codesplice` is available and query `capabilities --json` when version or feature support is uncertain. See [references/cli-protocol.md](references/cli-protocol.md) for command grammar, response fields, protocol version, and error categories.
 
 ## Load only the needed detail
 
 - Read [references/request-construction.md](references/request-construction.md) when selecting lines or bytes, choosing anchors, creating a new destination, composing multiple operations, or interpreting a no-op.
+- Read [references/semantic-selection.md](references/semantic-selection.md) when asked to select a function, class, or declaration by name or source position, or when composing a selection result into an edit request.
 - Read [references/safety-and-exactness.md](references/safety-and-exactness.md) before multi-file work, binary or mixed-line-ending work, metadata-sensitive changes, or when a path, platform, alias, resource, or precondition check fails.
 - Read [references/recovery.md](references/recovery.md) only when recovery is requested or a transaction is unfinished, busy, interrupted, or corrupt. Do not choose completion versus rollback without explicit user intent.
 

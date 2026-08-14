@@ -5,6 +5,7 @@
 ```bash
 codesplice --version
 codesplice capabilities --json
+codesplice selection-capabilities --json
 codesplice protocol-version --json
 ```
 
@@ -14,6 +15,7 @@ Release v0.1.0 implements protocol version 1 and plan-hash version 1. Query capa
 
 ```text
 codesplice [--workspace PATH] inspect --path RELATIVE [--path RELATIVE ...] --json
+codesplice [--workspace PATH] select --path RELATIVE (--name NAME | --at-byte OFFSET | --at-line LINE [--at-column COLUMN]) [--kind KIND] [--all] [--extent declaration_lines|symbol] --json
 codesplice [--workspace PATH] apply --request FILE_OR_DASH --preview [--json] [--no-diff] [--summary]
 codesplice [--workspace PATH] apply --request FILE_OR_DASH --commit --expect-plan DIGEST [--json]
 codesplice [--workspace PATH] recover --list [--json]
@@ -21,6 +23,7 @@ codesplice [--workspace PATH] recover ID --status [--json]
 codesplice [--workspace PATH] recover ID --complete [--json]
 codesplice [--workspace PATH] recover ID --rollback [--json]
 codesplice capabilities --json
+codesplice selection-capabilities --json
 codesplice protocol-version --json
 ```
 
@@ -29,6 +32,11 @@ codesplice protocol-version --json
 ## Response fields
 
 `inspect` returns each path's existence, regular/absent type, content digest, byte length, line count, and physical identity hash.
+
+`select` returns validated document-symbol matches from a trusted, installed
+language server. Each match's `request_source` is directly composable as a
+protocol-v1 operation source; preserve it unchanged. See
+[semantic-selection.md](semantic-selection.md).
 
 Preview returns:
 
