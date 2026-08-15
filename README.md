@@ -6,7 +6,9 @@
 [![Rust 1.97+](https://img.shields.io/badge/rust-1.97%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/atacan/code-splice)
 
-CodeSplice is a CLI for moving or copying code from one file to another. I built it mostly for splitting up large source files, especially when a coding agent is doing the refactor.
+## Introduction
+
+CodeSplice is a CLI for moving or copying code from one file to another. Built mostly for splitting up large source files, especially when a coding agent is doing the refactor.
 
 For example, you can:
 
@@ -14,7 +16,7 @@ For example, you can:
 - move a function such as `userInfo` into a new file;
 - move several different blocks into several destination files in one operation.
 
-The last case is where it gets useful.
+To elaborate on the last case:
 
 Suppose you want to move lines 6–10 to `fileA` and lines 11–15 to `fileB`. If you do the first move normally, the original line 11 is no longer line 11. A script or coding agent then has to reread the file or recalculate every later line number.
 
@@ -22,13 +24,15 @@ CodeSplice plans all of the operations against the same original file snapshot. 
 
 You can select code by line or byte range. CodeSplice can also use a language server already installed on your machine to find a symbol, so you can select something like a function by name instead of looking up its exact lines.
 
-The CLI accepts JSON rather than a long list of flags. That makes batches of edits easier to describe, and it also makes CodeSplice straightforward to expose as a tool to a coding agent. The repository includes an installable agent skill under [`skills/codesplice/`](skills/codesplice/).
+The CLI accepts JSON rather than a long list of flags. That makes batches of edits easier to describe, and it also makes CodeSplice straightforward to expose as a tool to a coding agent later. 
+
+The repository includes an installable agent skill under [`skills/codesplice/`](skills/codesplice/).
 
 If you just want to see what it does, start with the runnable examples in [`examples/`](examples/). They create disposable files and show the before-and-after result, so you can try CodeSplice without pointing it at a real project.
 
 The rest of this README documents the exact behavior, safety checks, protocol and current platform limits.
 
-**Exact, byte-preserving code movement for developers and coding agents.**
+## Exact, byte-preserving code movement for developers and coding agents.
 
 CodeSplice is a Rust command-line tool that moves or copies code already present
 in a workspace. It selects line or byte ranges from an immutable snapshot and
