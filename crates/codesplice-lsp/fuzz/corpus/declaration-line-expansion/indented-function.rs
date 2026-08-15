@@ -1,0 +1,2 @@
+	  fn selected() {}
+next();

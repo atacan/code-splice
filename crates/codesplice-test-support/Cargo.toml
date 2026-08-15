@@ -8,5 +8,8 @@ repository.workspace = true
 description = "Shared test foundations for CodeSplice"
 publish = false
 
+[dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

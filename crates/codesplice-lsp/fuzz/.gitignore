@@ -1,0 +1,17 @@
+/target
+/artifacts/*
+!/artifacts/framing-header/
+!/artifacts/jsonrpc-envelope/
+!/artifacts/position-conversion/
+!/artifacts/declaration-line-expansion/
+!/artifacts/hierarchical-symbol-normalization/
+/artifacts/framing-header/*
+!/artifacts/framing-header/.gitkeep
+/artifacts/jsonrpc-envelope/*
+!/artifacts/jsonrpc-envelope/.gitkeep
+/artifacts/position-conversion/*
+!/artifacts/position-conversion/.gitkeep
+/artifacts/declaration-line-expansion/*
+!/artifacts/declaration-line-expansion/.gitkeep
+/artifacts/hierarchical-symbol-normalization/*
+!/artifacts/hierarchical-symbol-normalization/.gitkeep

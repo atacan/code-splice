@@ -30,6 +30,21 @@ the workflow is present in that release's tagged commit.
 1. Update the workspace version in `Cargo.toml`, regenerate `Cargo.lock` if it
    changes, and update version-specific release notes and contracts.
 2. Run the normal qualification and release acceptance checks.
+   Semantic-selection changes additionally require the bounded fake-server test
+   suite on both supported OS rows and the best-effort real-server smoke test on
+   a development host:
+
+   ```console
+   scripts/qualify-lsp.sh
+   ```
+
+   The script exercises installed `clangd` and `rust-analyzer`. If neither is
+   installed it prints a notice and exits successfully; fake-server CI remains
+   authoritative for transport, lifecycle, ranges, limits, and failures. Record
+   the server names and versions used for any real-server qualification in the
+   release evidence. A successful smoke test demonstrates compatibility with
+   those installed versions only; it does not bundle or certify every language
+   server version.
 3. Commit and merge the release candidate to the default branch.
 4. From a clean, synchronized `main`, use the guarded release helper. It
    re-runs the local release acceptance checks, requires a successful CI push
@@ -63,6 +78,13 @@ For each tag, GitHub-hosted native runners:
 - build with the repository's pinned Rust toolchain and `Cargo.lock`;
 - verify the executable format and reported version; and
 - package only `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin`.
+
+When semantic selection is included, release review also confirms that
+`codesplice select --help`, the selection-v1 schemas and golden vectors, the
+documented built-in descriptor table, and configuration defaults agree with the
+tagged source. Selection protocol v1 remains independent of the frozen edit
+protocol: do not alter `capabilities --json`, the protocol-v1 request/response
+schemas, plan-hash encoding, or edit error/warning registries to advertise it.
 
 The publish job waits for both builders, downloads their short-lived workflow
 artifacts, creates a stable `SHA256SUMS`, and uploads all three files to a draft

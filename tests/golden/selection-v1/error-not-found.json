@@ -1,0 +1,12 @@
+{
+  "selection_protocol_version": 1,
+  "code": "SELECTION_NOT_FOUND",
+  "category": "conflict",
+  "retryable": false,
+  "message": "no document symbol matched the selection query",
+  "context": {
+    "query_kind": "name",
+    "name": "missing_function",
+    "symbol_kind": "function"
+  }
+}

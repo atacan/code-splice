@@ -1,0 +1,1 @@
+{"selection_protocol_version":1,"features":["document_symbols","all_matches","request_source_composition"],"queries":["name","position"],"extents":["symbol","declaration_lines"],"position_encodings":["utf-8","utf-16","utf-32"],"language_server":{"bundled":false,"availability":"runtime_dependent","trust":"trusted_local_process"}}

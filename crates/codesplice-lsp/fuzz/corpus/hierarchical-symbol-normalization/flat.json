@@ -1,0 +1,10 @@
+[
+  {
+    "name": "legacy",
+    "kind": 12,
+    "location": {
+      "uri": "file:///workspace/source.rs",
+      "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 3}}
+    }
+  }
+]

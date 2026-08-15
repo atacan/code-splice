@@ -4,6 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod fake_lsp;
+
 /// Repository-owned fixture, golden, and scenario roots.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestRoots {
@@ -29,6 +31,12 @@ impl TestRoots {
     #[must_use]
     pub fn fixtures(&self) -> PathBuf {
         self.workspace_root.join("tests/fixtures")
+    }
+
+    /// Returns the shared fake-LSP fixture directory.
+    #[must_use]
+    pub fn lsp_fixtures(&self) -> PathBuf {
+        self.fixtures().join("lsp")
     }
 
     /// Returns the shared golden-vector directory.
@@ -62,6 +70,16 @@ mod tests {
         let roots = TestRoots::from_workspace_root("/checkout");
 
         assert_eq!(roots.golden(), PathBuf::from("/checkout/tests/golden"));
+    }
+
+    #[test]
+    fn lsp_fixtures_should_be_beneath_shared_fixture_directory() {
+        let roots = TestRoots::from_workspace_root("/checkout");
+
+        assert_eq!(
+            roots.lsp_fixtures(),
+            PathBuf::from("/checkout/tests/fixtures/lsp")
+        );
     }
 
     #[test]

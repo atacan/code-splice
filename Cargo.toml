@@ -3,6 +3,7 @@ members = [
     "crates/codesplice-cli",
     "crates/codesplice-core",
     "crates/codesplice-fs",
+    "crates/codesplice-lsp",
     "crates/codesplice-protocol",
     "crates/codesplice-test-support",
 ]
@@ -17,11 +18,17 @@ repository = "https://github.com/atacan/code-splice"
 
 [workspace.dependencies]
 clap = { version = "4.5.46", features = ["derive"] }
+crossbeam-channel = "=0.5.16"
+directories = "=6.0.0"
+gen-lsp-types = { version = "=0.11.0", features = ["url"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 sha2 = "0.10.9"
 getrandom = "0.3.4"
+jsonschema = { version = "=0.49.9", default-features = false }
 rustix = { version = "1.1.4", features = ["fs", "process"] }
+toml = "=1.1.4"
+url = { version = "=2.5.8", features = ["serde"] }
 
 [workspace.lints.rust]
 missing_docs = "deny"

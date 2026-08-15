@@ -13,9 +13,9 @@ schemas are `docs/schema/v1/request.schema.json` and
 
 ## Command surface
 
-The `codesplice` binary provides the complete grammar for `inspect`, `apply`,
-`recover`, `capabilities`, and `protocol-version`. `apply` is the only mutation
-interface. A commit must use
+The `codesplice` binary provides the complete grammar for `inspect`, `select`,
+`apply`, `recover`, `capabilities`, `selection-capabilities`, and
+`protocol-version`. `apply` is the only mutation interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
 accepts the current plan. Agents use the expected digest.
 
@@ -57,6 +57,214 @@ mixed old/new targets during commit or rollback. Recovery list/status reports us
 
 JSON mode writes exactly one UTF-8 JSON value followed by LF to stdout. Human
 diagnostics use stderr and visibly escape terminal control and bidi characters.
+
+## Read-only semantic selection protocol v1
+
+Semantic selection is an independently versioned, read-only surface. It does
+not change protocol version 1, plan-hash version 1, transaction-record version
+1, `capabilities --json`, or the frozen edit error and warning registries. Its
+normative schemas are
+`docs/schema/selection-v1/response.schema.json` and
+`docs/schema/selection-v1/error.schema.json`.
+
+Automation can discover this surface without a workspace or an installed
+server:
+
+```bash
+codesplice selection-capabilities --json
+```
+
+The bounded response reports `selection_protocol_version: 1`, supported query
+and extent spellings, position encodings, copy-ready composition support, and
+that language-server availability is runtime-dependent. This command is
+independently versioned and does not probe configuration or `PATH`.
+
+The CLI grammar is:
+
+```text
+codesplice [--workspace PATH] select --path RELATIVE QUERY [OPTIONS]
+
+QUERY:
+  --name NAME
+  --at-byte OFFSET
+  --at-line LINE [--at-column COLUMN]
+
+OPTIONS:
+  --kind KIND
+  --all
+  --extent symbol|declaration_lines
+  --server-id ID
+  --server-program PROGRAM --language-id ID [--server-arg ARG]...
+  --json
+```
+
+Exactly one query form is required. `--name` performs exact, case-sensitive,
+unqualified matching. `--kind` optionally restricts either query to one standard
+LSP symbol kind; accepted spellings are the lowercase values in the response
+schema, such as `function`, `method`, `class`, `interface`, `enum`, and `struct`.
+
+`--at-byte` is a zero-based insertion offset into the captured snapshot. It must
+be at a UTF-8 boundary; EOF is valid. `--at-line` and `--at-column` are one-based,
+and the column counts Unicode scalar insertion positions rather than bytes,
+UTF-16 code units, or grapheme clusters. Column 1 is line start, the position
+immediately after the last scalar is valid, line terminators are not columns,
+and `--at-column` defaults to 1. Coordinates are exact and never clamped.
+
+A position query matches nonempty half-open symbol ranges containing the byte
+offset. At ordinary boundaries this means `start <= offset < end`; EOF also
+matches a symbol whose nonempty range ends at EOF. Without `--all`, the shortest
+containing range wins, and distinct equally short candidates are ambiguous.
+Without `--all`, a name query must likewise have exactly one candidate. With
+`--all`, all bounded candidates are returned in deterministic byte-range,
+kind/path/name order; no matches is a successful empty response. Duplicate
+server symbols with the same range, kind, path, and name are coalesced.
+
+`--extent symbol` returns the converted `DocumentSymbol.range` exactly.
+`--extent declaration_lines`, the default, expands the start to physical line
+start only when the preceding bytes on that line are spaces or tabs. It expands
+the end through spaces/tabs and one LF, CRLF, or lone-CR terminator only when no
+other content follows the symbol on that line. Existing terminators and an
+unterminated final line are preserved byte-for-byte. The server's
+`selectionRange` is validated as nonempty and contained by `range`, but it is
+reported for audit rather than used as the payload extent.
+
+CodeSplice accepts hierarchical `DocumentSymbol[]`, `null`, and an empty array.
+Legacy flat `SymbolInformation[]` responses are rejected rather than assigned
+weaker semantics. LSP ranges are zero-based and may use negotiated UTF-8,
+UTF-16, or UTF-32 character units. CodeSplice converts them against the exact
+UTF-8 source snapshot, rejecting nonexistent lines, split code points or
+surrogate pairs, reversed/empty/out-of-file ranges, and invalid
+`selectionRange` containment.
+
+### Success and composition
+
+A successful JSON response contains:
+
+- `selection_protocol_version: 1` and an opaque workspace identity hash;
+- the workspace-relative source path, snapshot SHA-256, and byte length;
+- the normalized name query or canonical byte-position query;
+- a non-secret server descriptor ID, reported server identity, and negotiated
+  position encoding;
+- deterministic matches with symbol breadcrumbs, both raw LSP ranges, the
+  authoritative byte selector, selected-payload digest and length; and
+- existing observation warnings, currently only `OBSERVATION_MAY_BE_STALE`.
+
+Every match contains a `request_source` object whose shape is the unchanged
+protocol-v1 edit request's `source` definition:
+
+```json
+{
+  "path": "src/input.rs",
+  "selector": {"kind": "bytes", "start": 0, "end": 42},
+  "precondition": {
+    "kind": "sha256",
+    "value": "sha256:SOURCE_SNAPSHOT_DIGEST"
+  }
+}
+```
+
+Insert that object unchanged into a normal `move` or `copy` operation, provide a
+destination, and run the ordinary `apply --preview` followed by
+`apply --commit --expect-plan`. Selection neither creates an edit request nor
+commits anything. A source change after selection is rejected by the embedded
+SHA-256 precondition; no language server runs during `apply`.
+
+`--json` writes exactly one bounded JSON value plus LF. Without it, one line per
+match reports the path, half-open bytes, kind, name, breadcrumb, enclosing LSP
+range, and LSP selection range. A successful empty `--all` result prints
+`no matching document symbols`.
+
+### Server choice and trusted configuration
+
+Language servers are installed and maintained independently; CodeSplice does
+not bundle them. `--server-program` selects its program directly. `--server-id`
+looks up that normalized ID in trusted user descriptors and then built-ins. With
+neither option, automatic selection first looks for user descriptors matching
+the extension and then consults the built-in table. `--server-program` requires
+`--language-id`, conflicts with `--server-id`, and accepts repeated
+`--server-arg` values as literal arguments.
+The executable and arguments are passed directly to `std::process::Command`:
+there is no shell parsing, interpolation, glob expansion, or command
+substitution.
+
+`CODESPLICE_CONFIG` overrides the configuration path exactly. Otherwise the
+file is `codesplice/config.toml` under the platform configuration directory:
+typically `$XDG_CONFIG_HOME/codesplice/config.toml` (or
+`~/.config/codesplice/config.toml`) on Linux and
+`~/Library/Application Support/codesplice/config.toml` on macOS. An absent
+default file means no user descriptors; an explicitly named missing or invalid
+file is an error. Loading configuration creates no file or directory.
+
+A descriptor can use this shape; `initialization_options` and `settings` are
+optional and are omitted here, while the other optional members show their
+defaults:
+
+```toml
+version = 1
+
+[[servers]]
+id = "rust-custom"
+extensions = ["rs"]
+language_id = "rust"
+program = "rust-analyzer"
+args = []
+project_root = "."
+allow_workspace_program = false
+startup_timeout_ms = 10000
+request_timeout_ms = 30000
+```
+
+The file is trusted user configuration, bounded to 1 MiB and nesting depth 32,
+and rejects unknown fields. IDs are trimmed, ASCII-case-normalized, and limited
+to letters, digits, `.`, `_`, and `-`; extensions are trimmed, lowercased, and
+may have one leading dot. IDs must be unique, extensions within one descriptor
+must be unique, and automatic selection rejects multiple user descriptors for
+the same extension. `project_root` is workspace-relative, cannot escape, must
+resolve to an existing directory, and becomes the server's working directory.
+Configured timeouts must be from 100 through 300000 milliseconds.
+
+Automatic and built-in discovery searches only absolute `PATH` entries, ignores
+empty and relative entries, requires a regular executable file, canonicalizes
+it, and rejects candidates inside the workspace. This prevents a workspace
+`bin` directory or `PATH=.` from silently selecting repository code. A trusted
+user descriptor may opt into a workspace-local executable with
+`allow_workspace_program = true`. Explicit `--server-program` is the direct
+escape hatch and may name a relative or workspace-local program; using it is an
+explicit trust decision.
+
+Built-in descriptors are convenience metadata, not bundled servers or support
+guarantees:
+
+| ID | Program and arguments | Extensions / language IDs |
+|---|---|---|
+| `rust` | `rust-analyzer` | `rs` / `rust` |
+| `go` | `gopls` | `go` / `go` |
+| `python` | `pylsp` | `py` / `python` |
+| `clangd-c` | `clangd` | `c` / `c` |
+| `clangd-cpp` | `clangd` | `cc`, `cpp`, `cxx` / `cpp` |
+| `typescript` | `typescript-language-server --stdio` | `ts` / `typescript`, `tsx` / `typescriptreact`, `js` / `javascript`, `jsx` / `javascriptreact` |
+
+Ambiguous header extensions such as `h` are intentionally not guessed. Select
+a trusted descriptor with `--server-id` or use an explicit program and language
+ID.
+
+### Selection errors and exits
+
+Command-line grammar failures still use global `INVALID_CLI`. Failures after
+selection dispatch use the independent selection-v1 error envelope and these
+exit categories:
+
+| Exit | Category | Codes |
+|---:|---|---|
+| 2 | Request | `INVALID_SELECTION_QUERY` |
+| 3 | Conflict | `SELECTION_NOT_FOUND`, `SELECTION_AMBIGUOUS` |
+| 4 | Support | `LSP_SERVER_NOT_CONFIGURED`, `UNSUPPORTED_TEXT_ENCODING`, `LSP_CAPABILITY_UNAVAILABLE`, `LSP_FLAT_SYMBOLS_UNSUPPORTED`, `LSP_DOCUMENT_SYNC_UNAVAILABLE`, `LSP_RESOURCE_LIMIT_EXCEEDED`, `LSP_TIMEOUT`, `LSP_START_FAILED`, `LSP_EXITED`, `LSP_PROTOCOL_ERROR`, `LSP_REQUEST_FAILED` |
+| 8 | Internal | `SELECTION_INTERNAL_ERROR` |
+
+Only `LSP_TIMEOUT`, `LSP_START_FAILED`, `LSP_EXITED`, and
+`LSP_REQUEST_FAILED` are marked retryable. `SELECTION_AMBIGUOUS` includes a
+bounded deterministic candidate list; use a more specific `--kind` or position,
+or intentionally request `--all`.
 
 ## Errors and warnings
 

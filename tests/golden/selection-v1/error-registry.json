@@ -1,0 +1,17 @@
+[
+  {"code":"INVALID_SELECTION_QUERY","category":"request","exit":2,"retryable":false},
+  {"code":"LSP_SERVER_NOT_CONFIGURED","category":"support","exit":4,"retryable":false},
+  {"code":"SELECTION_NOT_FOUND","category":"conflict","exit":3,"retryable":false},
+  {"code":"SELECTION_AMBIGUOUS","category":"conflict","exit":3,"retryable":false},
+  {"code":"UNSUPPORTED_TEXT_ENCODING","category":"support","exit":4,"retryable":false},
+  {"code":"LSP_CAPABILITY_UNAVAILABLE","category":"support","exit":4,"retryable":false},
+  {"code":"LSP_FLAT_SYMBOLS_UNSUPPORTED","category":"support","exit":4,"retryable":false},
+  {"code":"LSP_DOCUMENT_SYNC_UNAVAILABLE","category":"support","exit":4,"retryable":false},
+  {"code":"LSP_RESOURCE_LIMIT_EXCEEDED","category":"support","exit":4,"retryable":false},
+  {"code":"LSP_TIMEOUT","category":"support","exit":4,"retryable":true},
+  {"code":"LSP_START_FAILED","category":"support","exit":4,"retryable":true},
+  {"code":"LSP_EXITED","category":"support","exit":4,"retryable":true},
+  {"code":"LSP_PROTOCOL_ERROR","category":"support","exit":4,"retryable":false},
+  {"code":"LSP_REQUEST_FAILED","category":"support","exit":4,"retryable":true},
+  {"code":"SELECTION_INTERNAL_ERROR","category":"internal","exit":8,"retryable":false}
+]

@@ -1,0 +1,8 @@
+{
+  "path": "src/input.rs",
+  "selector": { "kind": "bytes", "start": 0, "end": 42 },
+  "precondition": {
+    "kind": "sha256",
+    "value": "sha256:7e05110a7dcdd32e6048b54848c84deb34c920d17678394730035e93fbd4e5be"
+  }
+}

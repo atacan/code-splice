@@ -26,12 +26,13 @@ use codesplice_protocol::{
     CapabilitiesResponse, CommitResponse, ErrorCode, ErrorDto, InspectPathResponse,
     InspectResponse, MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
     OutputResponse, ProtocolVersionResponse, RecoveryEntryResponse, RecoveryListResponse,
-    RecoveryStatusResponse, ResolvedOperationResponse, WarningCode, WarningDto,
-    escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
+    RecoveryStatusResponse, ResolvedOperationResponse, SelectionCapabilitiesResponse, WarningCode,
+    WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
 };
 use serde_json::json;
 
 mod preview;
+mod select;
 
 static STARTUP_UMASK: OnceLock<u32> = OnceLock::new();
 
@@ -66,9 +67,11 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Inspect(InspectArgs),
+    Select(select::SelectArgs),
     Apply(ApplyArgs),
     Recover(RecoverArgs),
     Capabilities(JsonOnlyArgs),
+    SelectionCapabilities(JsonOnlyArgs),
     ProtocolVersion(JsonOnlyArgs),
 }
 
@@ -187,29 +190,52 @@ where
 
     match execute(cli, stdin, startup_umask) {
         Ok(response) => render_success(&response, stdout, stderr),
-        Err((report, json)) => render_error(&report, json, stdout, stderr),
+        Err(CommandFailure::Edit(report, json)) => render_error(&report, json, stdout, stderr),
+        Err(CommandFailure::Selection(failure)) => render_selection_error(&failure, stdout, stderr),
     }
 }
 
-fn execute(cli: Cli, stdin: &mut dyn Read, startup_umask: u32) -> Result<String, (ErrorDto, bool)> {
+enum CommandFailure {
+    Edit(ErrorDto, bool),
+    Selection(select::SelectionFailure),
+}
+
+fn execute(cli: Cli, stdin: &mut dyn Read, startup_umask: u32) -> Result<String, CommandFailure> {
     let has_workspace = cli.workspace.is_some();
     match cli.command {
         Command::Capabilities(arguments) => {
-            reject_workspace_for_target_independent(has_workspace, arguments.json)?;
+            reject_workspace_for_target_independent(has_workspace, arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))?;
             serialize_success(&CapabilitiesResponse::v0_1_0(), arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))
+        }
+        Command::SelectionCapabilities(arguments) => {
+            reject_workspace_for_target_independent(has_workspace, arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))?;
+            serialize_success(&SelectionCapabilitiesResponse::current(), arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))
         }
         Command::ProtocolVersion(arguments) => {
-            reject_workspace_for_target_independent(has_workspace, arguments.json)?;
+            reject_workspace_for_target_independent(has_workspace, arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))?;
             serialize_success(&ProtocolVersionResponse::current(), arguments.json)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))
         }
         Command::Inspect(arguments) => {
-            validate_inspect_paths(&arguments.paths).map_err(|report| (report, arguments.json))?;
+            validate_inspect_paths(&arguments.paths)
+                .map_err(|report| CommandFailure::Edit(report, arguments.json))?;
             execute_inspect(cli.workspace.as_deref(), arguments)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))
+        }
+        Command::Select(arguments) => {
+            select::execute(cli.workspace.as_deref(), arguments).map_err(CommandFailure::Selection)
         }
         Command::Apply(arguments) => {
             execute_apply(cli.workspace.as_deref(), arguments, stdin, startup_umask)
+                .map_err(|(report, json)| CommandFailure::Edit(report, json))
         }
-        Command::Recover(arguments) => execute_recovery(cli.workspace.as_deref(), arguments),
+        Command::Recover(arguments) => execute_recovery(cli.workspace.as_deref(), arguments)
+            .map_err(|(report, json)| CommandFailure::Edit(report, json)),
     }
 }
 
@@ -302,6 +328,11 @@ fn filesystem_error(error: FsError) -> ErrorDto {
         FsError::UnsupportedFileType { path } => ErrorDto::new(
             ErrorCode::UnsupportedFileType,
             "an inspection path is not a regular file",
+            BTreeMap::from([("path".to_string(), json!(path))]),
+        ),
+        FsError::PathNotFound { path } => ErrorDto::new(
+            ErrorCode::InvalidRequest,
+            "an inspection path does not exist",
             BTreeMap::from([("path".to_string(), json!(path))]),
         ),
         FsError::PreconditionFailed {
@@ -1092,6 +1123,29 @@ fn render_error(
     };
 
     if result { report.exit_code() } else { 8 }
+}
+
+fn render_selection_error(
+    failure: &select::SelectionFailure,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> u8 {
+    let report = failure.report();
+    let written = if failure.json() {
+        match codesplice_protocol::to_selection_json_line(report) {
+            Ok(line) => stdout.write_all(line.as_bytes()).is_ok(),
+            Err(_) => false,
+        }
+    } else {
+        let line = format!(
+            "codesplice: {}: {}\n",
+            report.code().as_str(),
+            escape_terminal_text(report.message())
+        );
+        stderr.write_all(line.as_bytes()).is_ok()
+    };
+
+    if written { report.exit_code() } else { 8 }
 }
 
 #[cfg(test)]

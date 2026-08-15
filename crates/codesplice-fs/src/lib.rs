@@ -277,6 +277,41 @@ impl Workspace {
         self.acquire_snapshot_with_hook(requirements, limits, |_, _| {})
     }
 
+    /// Acquires one existing regular file into an immutable snapshot without a
+    /// caller-supplied digest precondition.
+    ///
+    /// The returned file always has snapshot ID zero. The path is validated as a
+    /// normalized workspace-relative path, and acquisition uses the same strict
+    /// no-symlink walk, bounded stable read, identity capture, digest, line index,
+    /// and accounting rules as [`Self::acquire_snapshot`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::PathNotFound`] when the normalized path is absent, or a
+    /// typed path, type, stability, limit, platform, or I/O error when a trustworthy
+    /// existing-file snapshot cannot be acquired.
+    pub fn acquire_existing_file(
+        &self,
+        path: &WorkspaceRelativePath,
+        limits: SnapshotLimits,
+    ) -> Result<FileSnapshot, FsError> {
+        let normalized = parse_relative_path(&path.value, limits.path_bytes)?;
+        let mut accounting = SnapshotAccounting::default();
+        accounting.charge_identity(limits)?;
+        match self.acquire_path(&normalized, None, limits, &accounting, |_| {})? {
+            AcquiredPath::Existing(mut file) => {
+                let mut aliases = HashMap::new();
+                reject_alias(&mut aliases, file.identity, &normalized)?;
+                accounting.charge_file(&file, limits)?;
+                file.id = SnapshotFileId(0);
+                Ok(file)
+            }
+            AcquiredPath::Absent(_) => Err(FsError::PathNotFound {
+                path: normalized.value,
+            }),
+        }
+    }
+
     fn acquire_snapshot_with_hook<F>(
         &self,
         requirements: &[SnapshotRequirement],
@@ -633,6 +668,11 @@ pub enum FsError {
         /// Safe workspace-relative spelling.
         path: String,
     },
+    /// A required existing workspace-relative path is absent.
+    PathNotFound {
+        /// Normalized workspace-relative spelling.
+        path: String,
+    },
     /// A stable observed state does not match its explicit precondition.
     PreconditionFailed {
         /// Safe workspace-relative spelling.
@@ -749,6 +789,7 @@ impl fmt::Display for FsError {
             Self::UnsupportedFileType { path } => {
                 write!(formatter, "unsupported file type: {path}")
             }
+            Self::PathNotFound { path } => write!(formatter, "path not found: {path}"),
             Self::PreconditionFailed { path, .. } => {
                 write!(formatter, "precondition failed: {path}")
             }
