@@ -20,7 +20,7 @@ moving a function to another file, copying a declaration, reordering blocks in
 one file, splitting one source file across several destinations, and preserving
 CRLF, mixed line endings, or non-UTF-8 data.
 
-CodeSplice `v0.2.1` is a deliberately bounded pilot. It is qualified only for
+CodeSplice `v0.3.0` is a deliberately bounded pilot. It is qualified only for
 Linux x86_64 workspaces on local ext4 and macOS arm64 workspaces on local APFS.
 
 ## Why CodeSplice?
@@ -280,7 +280,7 @@ See the frozen contracts for exact details:
 - [`v0.1.1` release notes](docs/release-v0.1.1.md)
 - [`v0.2.0` release notes](docs/release-v0.2.0.md)
 - [`v0.2.1` release notes](docs/release-v0.2.1.md)
-- [semantic-selection release note draft](docs/release-semantic-selection.md)
+- [`v0.3.0` release notes](docs/release-v0.3.0.md)
 - [release automation and Homebrew handoff](docs/releasing.md)
 
 Protocol version 1, plan-hash version 1, and transaction-record version 1 are

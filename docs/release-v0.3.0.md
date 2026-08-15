@@ -1,4 +1,4 @@
-# Semantic-selection release note draft
+# CodeSplice v0.3.0 release notes
 
 This release adds `codesplice select`, a read-only bridge from an installed
 Language Server Protocol server to CodeSplice's exact byte selectors. Callers
@@ -45,3 +45,17 @@ installed `clangd` and `rust-analyzer`; bounded fake-server tests remain the
 authoritative compatibility and failure qualification. This feature does not
 change `capabilities --json`, protocol version 1, plan-hash version 1,
 transaction-record version 1, or the frozen edit error and warning registries.
+
+Release qualification additionally exercised the best-effort real-server smoke
+test with Apple clangd 21.0.0. This records compatibility with that installed
+server version only; it does not bundle or certify it.
+
+The release contains exactly these assets:
+
+- `codesplice-v0.3.0-x86_64-unknown-linux-gnu.tar.gz`
+- `codesplice-v0.3.0-aarch64-apple-darwin.tar.gz`
+- `SHA256SUMS`
+
+The two archives are built and tested on their matching qualified native GitHub
+runner. Publishing an archive does not extend support beyond Linux x86_64 on
+local ext4 and macOS arm64 on local APFS.
