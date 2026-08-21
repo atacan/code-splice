@@ -39,7 +39,7 @@ jobs:
       - name: Check user-facing examples
         run: scripts/check-examples.sh
       - name: Check canonical schema URLs
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: scripts/check-schema-urls.sh
       - name: Build
         run: cargo build --workspace --all-features

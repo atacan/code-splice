@@ -13,14 +13,16 @@ base='https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/'
 urls="$(
   grep -rhoE "\"${base}[^\"]+\"" docs/schema --include='*.json' \
     | sort -u | tr -d '"'
-)"
-if test -z "$urls"; then
+)"if test -z "$urls"; then
   printf 'check-schema-urls: no absolute schema URLs found under docs/schema\n' >&2
   exit 1
 fi
 
 status=0
-while IFS= read -r url; do
+while IFS= read -r raw; do
+  # Absolute $ref values may carry a JSON-pointer fragment; dereference the
+  # file and let schema validators resolve fragments against tracked bytes.
+  url="${raw%%#*}"
   tracked="docs/schema/${url#"${base}"}"
   if ! test -f "$tracked"; then
     printf 'check-schema-urls: URL has no tracked file: %s\n' "$url" >&2
