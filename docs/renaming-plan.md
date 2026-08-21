@@ -10,6 +10,14 @@ The rename intentionally removes compatibility aliases and migration support.
 The first srcmv release is a new product identity, even though it is derived
 from the current CodeSplice implementation.
 
+srcmv has no users other than its maintainer. There are no external consumers
+of the CLI, schemas, protocol, or Homebrew formula. This is what makes a hard
+cutover acceptable, and it is why stale old-identity state can simply be
+ignored rather than detected or migrated. The README and the first srcmv
+release notes must still name CodeSplice as the former product identity,
+because the historical GitHub releases under atacan/code-splice keep that name
+forever.
+
 ## 1. Contract and decisions
 
 ### 1.1 Canonical names
@@ -75,14 +83,26 @@ https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/
 
 For example, the v1 request schema ID is
 `https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/v1/request.schema.json`.
-These are direct GitHub raw-content URLs, not a separately owned project
-domain; no DNS, HTTPS hosting, or deployment workstream is required.
+The previous `https://codesplice.dev/schema/...` identifiers were never owned,
+registered, or hosted; they were inert placeholders that no consumer could ever
+resolve, so replacing them outright cannot break anyone and requires no
+redirect or compatibility handling. When rewriting identifiers, replace the
+whole `https://codesplice.dev/schema/` prefix with the base URL above so the
+versioned path segments are preserved exactly once. These are direct GitHub
+raw-content URLs, not a separately owned project domain; no DNS, HTTPS
+hosting, or deployment workstream is required.
 
 The schema directories are versioned contracts. Do not change the content of a
 published schema incompatibly in place: add a new versioned schema path when
-needed. Add a CI check that dereferences every absolute `$id` and `$ref` and
-compares the response with its tracked schema file after the source repository
-has been renamed.
+needed. Because the old `codesplice.dev` identifiers never resolved anywhere,
+any URL that dereferences successfully is already using the new namespace, so
+dereferencing is itself an identity check. Add a CI check that dereferences
+every absolute `$id` and `$ref`, compares the response byte-for-byte with its
+tracked schema file, and fails on any drift; this guards the first real
+publication of the schemas. Run it after the source repository has been
+renamed. Schema tests and validators must keep resolving references from the
+tracked files during Phases 1–6, never over the network, so verification stays
+green before the rename lands.
 
 ### 1.5 Historical documentation policy
 
@@ -101,7 +121,9 @@ Record the final allowlist as tracked, machine-readable path-and-reason entries
 in `docs/renaming-allowlist.txt`. Before the final audit, it must contain only:
 
 - `docs/renaming-plan.md` for the explicit before/after mappings in this plan;
-- `docs/release-v*.md` for preserved historical release wording; and
+- `docs/release-v*.md` for preserved historical release wording and for the
+  0.4.0 release notes' required references to the former product name;
+- `README.md` for exactly one formerly-known-as mention of CodeSplice; and
 - the exact source file and test fixture that implement legacy-artifact
   rejection, if Section 1.6 requires an old literal.
 
@@ -113,6 +135,14 @@ short reason; broad directory entries are forbidden.
 
 There is no migration path from .codesplice to .srcmv. A user upgrading in the
 middle of a transaction cannot recover that transaction with srcmv.
+
+Old user-level configuration follows the same hard-cut policy without a guard:
+srcmv resolves configuration only from `SRCMV_CONFIG` and
+`srcmv/config.toml` under the platform configuration directory. A leftover
+user-level `codesplice/config.toml` from the old tool is ignored; it is not
+read, guarded, migrated, or deleted, because configuration carries no
+transaction-safety risk. The release notes must state the new configuration
+locations.
 
 The release notes and documentation must require users to complete or clean up
 all old transactions before upgrading. Before an operation opens, creates,
@@ -143,10 +173,13 @@ The current repository contains old identities in all of these surfaces:
 - JSON Schema URLs, $ref values, titles, and error-registry annotations;
 - examples, fixtures, LSP fake-server names, transcripts, and scripts;
 - the skills/codesplice directory, metadata, prompt, and references;
-- GitHub release workflow, release scripts, archive roots, asset names, and
-  release titles; and
+- the CI workflow as well as the GitHub release workflow, release scripts,
+  archive roots, asset names, and release titles;
+- recorded artifacts such as docs/performance-baseline.json;
 - Homebrew formula, updater, workflow, dispatch payload, branch names, and
-  README instructions.
+  README instructions; and
+- GitHub repository settings metadata and third-party services keyed to the
+  repository name, such as the DeepWiki badge.
 
 The rename must cover both text and filesystem names. A text-only replacement
 will not update Cargo package paths, generated CARGO_BIN_EXE_* names, or
@@ -183,15 +216,23 @@ tag, guessing a checksum, or silently broadening the rename scope.
    every package registry used by this project as well; do not proceed if 0.4.0
    was published under the old identity on any public distribution surface.
 3. Confirm that atacan/srcmv is available for the GitHub rename and that the
-   srcmv command and formula names are acceptable.
+   srcmv command and formula names are acceptable. Confirm that `srcmv` does
+   not collide with a homebrew-core formula name. Decide whether any srcmv_*
+   crate will ever publish to crates.io; if so, verify and reserve those
+   names first. No package is currently published to crates.io, and this plan
+   adds none.
 4. Confirm that the final repository name is `atacan/srcmv` and that the
    GitHub raw-content schema URL policy in Section 1.4 is acceptable.
 5. Ensure no real workspace has an unfinished transaction before testing the
    new implementation. Do not use the rename as a recovery or cleanup tool.
 6. Stop or account for any release, Homebrew, or automation runs that could
    publish using the old identity during the cutover.
-7. Add or update the new release notes before the release tag is created. State
-   clearly that this is a breaking rename with no migration support.
+7. Add or update the new release notes before the release tag is created.
+   State clearly that this is a breaking rename with no migration support;
+   name CodeSplice as the former product identity; list the new persistent
+   state and configuration locations (.srcmv, srcmv/config.toml,
+   SRCMV_CONFIG); and give the Homebrew switch commands (uninstall the old
+   formula, then install atacan/tap/srcmv).
 
 ### Phase 1: rename tracked filesystem paths
 
@@ -306,7 +347,9 @@ CODESPLICE_SWIFT_LSP       → SRCMV_SWIFT_LSP
 Update control-tree constants, default configuration resolution, environment
 variable reads, temporary paths, lock paths, recovery classification, cleanup,
 path validation, and all tests that assert the absence or presence of control
-state.
+state. The config.toml mapping applies to the user-level configuration
+directory as well: the resolved default path becomes
+config_dir/srcmv/config.toml.
 
 The first path component .srcmv, case-insensitively, must be reserved in the
 same places where .codesplice was previously reserved. If the safety guard for
@@ -345,8 +388,8 @@ assume that the resulting checksum is correct.
 Update schema URLs and registry annotations:
 
 ~~~text
-https://codesplice.dev/      → https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/
-x-codesplice-error-registry → x-srcmv-error-registry
+https://codesplice.dev/schema/ → https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/
+x-codesplice-error-registry   → x-srcmv-error-registry
 ~~~
 
 Update all schema $id and absolute $ref values, schema titles, tests that
@@ -373,10 +416,13 @@ Update all current documentation and runnable material:
 
 - README.md, including title, badges, repository links, clone commands,
   installation commands, Homebrew commands, binary invocations, package paths,
-  environment variables, and skill installation instructions;
-- docs/protocol.md, docs/specification.md, docs/security.md,
-  docs/transaction-model.md, docs/agent-integration.md, docs/releasing.md,
-  and platform/support documentation;
+  environment variables, and skill installation instructions. Add exactly one
+  formerly-known-as sentence naming CodeSplice so historical releases stay
+  discoverable; that sentence is allowlisted;
+- every non-historical page under docs/, including protocol.md,
+  specification.md, security.md, transaction-model.md, agent-integration.md,
+  releasing.md, metadata.md, qualification.md, resource-limits.md,
+  unsafe-audit.md, and platform/support documentation;
 - all non-historical examples, shell scripts, fixtures, transcripts, and
   expected output;
 - notes and implementation plans that describe current behavior;
@@ -408,6 +454,9 @@ Preserve historical release-note wording as required by Section 1.5; do not
 rewrite those files during the current-identity documentation update.
 
 ### Phase 6: update main-repository release automation
+
+Update .github/workflows/ci.yml as well: package selections, binary paths,
+version assertions, and artifact or cache keys that embed the old identity.
 
 Update scripts/package-release.sh:
 
@@ -466,6 +515,11 @@ Push and merge the prepared branch through the new remote. Do not modify
 `.git/config` with a bulk text replacement; update the remote with Git and
 verify the result.
 
+After GitHub completes the rename, update the repository settings metadata to
+the new identity: description, topics, and website. Re-check third-party
+services keyed to the repository name, such as the DeepWiki badge, and confirm
+the README badge renders against atacan/srcmv.
+
 Renaming an individual maintainer's local checkout directory is optional
 post-cutover housekeeping, not a repository or release acceptance condition.
 Do it from the parent directory only after operations that depend on the old
@@ -475,6 +529,10 @@ workspaces at the new path.
 ### Phase 8: update Homebrew atomically
 
 In /Users/atacan/Developer/Repositories/homebrew-tap:
+
+The tap also contains unrelated formulas such as record.rb and translate.rb.
+This phase must not modify them, and the tap identity audit must pass with
+them untouched.
 
 #### Formula
 
@@ -557,6 +615,7 @@ blind string replacement:
 - transaction manifest/state encoded records and checksums;
 - schema-derived or schema-validated fixtures;
 - CLI version/error output fixtures;
+- recorded baselines such as docs/performance-baseline.json;
 - LSP transcripts and fake-server metadata;
 - release archive names and SHA256SUMS; and
 - Homebrew formula checksums.
@@ -592,7 +651,7 @@ excluding `.git/**` and generated `target/**` content.
 Run positive checks too:
 
 ~~~bash
-rg --hidden --glob '!.git/**' --glob '!target/**' -n 'srcmv|SRCMV' .
+rg --hidden --glob '!.git/**' --glob '!target/**' -n 'srcmv|Srcmv|SRCMV' .
 cargo metadata --locked --no-deps --format-version 1
 ~~~
 
@@ -650,6 +709,8 @@ Confirm that:
   without enumeration, parsing, locking, migration, or mutation;
 - new configuration is resolved only from SRCMV_CONFIG or srcmv/config.toml
   according to the selected contract;
+- a leftover user-level codesplice/config.toml is ignored, never read, and
+  never removed;
 - plan and identity hashes match regenerated golden values; and
 - schema validators resolve the final canonical $id and $ref values.
 
@@ -694,6 +755,8 @@ idempotency, and verify that a downgrade or checksum mismatch is rejected.
 The rename is complete only when all of the following are true:
 
 - the main repository is atacan/srcmv and the local remote points there;
+- GitHub repository settings metadata (description, topics, website) uses the
+  new identity;
 - all tracked source paths use srcmv; local checkout-directory renaming, if
   desired, has been completed as maintainer housekeeping;
 - all six Rust packages, imports, dependencies, locks, and generated binary
