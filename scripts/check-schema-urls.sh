@@ -13,7 +13,8 @@ base='https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/'
 urls="$(
   grep -rhoE "\"${base}[^\"]+\"" docs/schema --include='*.json' \
     | sort -u | tr -d '"'
-)"if test -z "$urls"; then
+)"
+if test -z "$urls"; then
   printf 'check-schema-urls: no absolute schema URLs found under docs/schema\n' >&2
   exit 1
 fi
