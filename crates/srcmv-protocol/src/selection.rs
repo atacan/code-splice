@@ -3,9 +3,9 @@ use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 
-use srcmv_core::Sha256Digest;
 use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
+use srcmv_core::Sha256Digest;
 
 use crate::{MAX_RESPONSE_BYTES, WarningDto};
 

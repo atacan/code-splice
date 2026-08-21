@@ -3,9 +3,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use srcmv_protocol::parse_request;
 use jsonschema::{Registry, Validator};
 use serde_json::{Value, json};
+use srcmv_protocol::parse_request;
 
 const EDIT_REQUEST_SCHEMA_ID: &str = "https://codesplice.dev/schema/v1/request.schema.json";
 

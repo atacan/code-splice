@@ -5,9 +5,9 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use srcmv_core::ByteRange;
 use gen_lsp_types::{DocumentSymbol, Range, SymbolKind};
 use serde_json::Value;
+use srcmv_core::ByteRange;
 
 use crate::position::{PositionConverter, PositionError};
 

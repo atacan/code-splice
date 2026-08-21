@@ -66,7 +66,7 @@ export CODESPLICE_PILOT_OS="$operating_system"
 export CODESPLICE_PILOT_ARCH="$architecture"
 export CODESPLICE_PILOT_FILESYSTEM="$filesystem"
 
-cargo test -p codesplice-cli --test codex_pilot -- --ignored --exact \
+cargo test -p srcmv-cli --test codex_pilot -- --ignored --exact \
   codex_pilot_should_pass_all_fifteen_scenarios --nocapture
 
 test -s "$pilot_root/evidence.json"

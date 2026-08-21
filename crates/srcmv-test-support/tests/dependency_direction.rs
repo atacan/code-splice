@@ -33,7 +33,7 @@ fn workspace_dependencies(crate_name: &str) -> BTreeSet<String> {
 
             for prefix in ["dependencies.", "build-dependencies."] {
                 if let Some(name) = section.strip_prefix(prefix)
-                    && name.starts_with("codesplice-")
+                    && name.starts_with("srcmv-")
                 {
                     dependencies.insert(name.to_owned());
                 }
@@ -47,7 +47,7 @@ fn workspace_dependencies(crate_name: &str) -> BTreeSet<String> {
             continue;
         };
         let name = name.trim();
-        if name.starts_with("codesplice-") {
+        if name.starts_with("srcmv-") {
             dependencies.insert(name.to_owned());
         }
     }
@@ -58,20 +58,15 @@ fn workspace_dependencies(crate_name: &str) -> BTreeSet<String> {
 #[test]
 fn workspace_crate_dependencies_should_follow_the_declared_architecture() {
     let expected = [
-        ("codesplice-core", &[][..]),
-        ("codesplice-fs", &["codesplice-core"][..]),
-        ("codesplice-lsp", &["codesplice-core"][..]),
-        ("codesplice-protocol", &["codesplice-core"][..]),
+        ("srcmv-core", &[][..]),
+        ("srcmv-fs", &["srcmv-core"][..]),
+        ("srcmv-lsp", &["srcmv-core"][..]),
+        ("srcmv-protocol", &["srcmv-core"][..]),
         (
-            "codesplice-cli",
-            &[
-                "codesplice-core",
-                "codesplice-fs",
-                "codesplice-lsp",
-                "codesplice-protocol",
-            ][..],
+            "srcmv-cli",
+            &["srcmv-core", "srcmv-fs", "srcmv-lsp", "srcmv-protocol"][..],
         ),
-        ("codesplice-test-support", &[][..]),
+        ("srcmv-test-support", &[][..]),
     ];
 
     for (crate_name, expected_dependencies) in expected {

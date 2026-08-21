@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cargo build --manifest-path "$repo_dir/Cargo.toml" -p codesplice-cli
+cargo build --manifest-path "$repo_dir/Cargo.toml" -p srcmv-cli
 export CODESPLICE_BIN="$repo_dir/target/debug/codesplice"
 
 for scenario in \

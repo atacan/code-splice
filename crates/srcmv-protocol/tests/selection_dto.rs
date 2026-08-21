@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+use serde_json::{Value, json};
 use srcmv_protocol::{
     MAX_RESPONSE_BYTES, SelectionByteSelectorDto, SelectionErrorCode, SelectionErrorDto,
     SelectionExtentDto, SelectionKnownSymbolKindDto, SelectionLspPositionDto, SelectionLspRangeDto,
@@ -11,7 +12,6 @@ use srcmv_protocol::{
     SelectionServerDto, SelectionSourceDto, SelectionSymbolKindDto, WarningCode, WarningDto,
     parse_sha256, to_selection_json_line,
 };
-use serde_json::{Value, json};
 
 const COMPOSITION_SOURCE_DIGEST: &str =
     "sha256:7e05110a7dcdd32e6048b54848c84deb34c920d17678394730035e93fbd4e5be";

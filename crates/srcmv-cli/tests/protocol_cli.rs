@@ -34,14 +34,14 @@ fn invoke(arguments: &[&str], stdin: &[u8]) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("codesplice must start");
+        .expect("srcmv must start");
     child
         .stdin
         .take()
         .expect("stdin must be piped")
         .write_all(stdin)
         .expect("request must be written");
-    child.wait_with_output().expect("codesplice must exit")
+    child.wait_with_output().expect("srcmv must exit")
 }
 
 fn json_stdout(output: &Output) -> Value {
@@ -201,5 +201,5 @@ fn invalid_cli_in_human_mode_should_use_stderr_only() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).starts_with("codesplice: INVALID_CLI:"));
+    assert!(String::from_utf8_lossy(&output.stderr).starts_with("srcmv: INVALID_CLI:"));
 }

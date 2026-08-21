@@ -15,11 +15,11 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use sha2::{Digest, Sha256};
 use srcmv_core::{
     AbsentPathSnapshot, CoreError, FileIdentity, FileSnapshot, LineIndex, Sha256Digest,
     SnapshotFileId, WorkspaceRelativePath, WorkspaceSnapshot,
 };
-use sha2::{Digest, Sha256};
 
 mod control;
 mod journal;

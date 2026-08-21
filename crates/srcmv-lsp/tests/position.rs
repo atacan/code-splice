@@ -1,9 +1,9 @@
 //! Exhaustive examples and property-like checks for snapshot position conversion.
 
+use gen_lsp_types::{Position, Range};
 use srcmv_core::{ByteRange, LineIndex};
 use srcmv_lsp::capabilities::SupportedPositionEncoding;
 use srcmv_lsp::position::{PositionConverter, PositionError, PositionLimits};
-use gen_lsp_types::{Position, Range};
 
 struct Snapshot {
     text: String,

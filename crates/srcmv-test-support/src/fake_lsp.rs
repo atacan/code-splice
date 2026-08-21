@@ -1,6 +1,6 @@
 //! Deterministic, dependency-light fake language-server support.
 //!
-//! The fake server deliberately does not depend on `codesplice-lsp`. It speaks
+//! The fake server deliberately does not depend on `srcmv-lsp`. It speaks
 //! enough JSON-RPC over stdio to exercise the production client's framing,
 //! lifecycle, capability, synchronization, and document-symbol behavior.
 
@@ -583,7 +583,7 @@ fn initialize_result(scenario: FakeLspScenario) -> Value {
 
     json!({
         "capabilities": capabilities,
-        "serverInfo": {"name": "codesplice-fake-lsp", "version": "1"}
+        "serverInfo": {"name": "srcmv-fake-lsp", "version": "1"}
     })
 }
 
@@ -821,7 +821,7 @@ fn exercise_server_requests(
                 "id": 7002,
                 "result": {
                     "applied": false,
-                    "failureReason": "CodeSplice selection is read-only"
+                    "failureReason": "srcmv selection is read-only"
                 }
             }),
         ),
@@ -1068,7 +1068,7 @@ mod tests {
                             "textDocumentSync": {"openClose": true, "change": 1},
                             "documentSymbolProvider": true
                         },
-                        "serverInfo": {"name": "codesplice-fake-lsp", "version": "1"}
+                        "serverInfo": {"name": "srcmv-fake-lsp", "version": "1"}
                     }
                 }),
                 json!({
@@ -1224,7 +1224,7 @@ mod tests {
             "id": 7002,
             "result": {
                 "applied": false,
-                "failureReason": "CodeSplice selection is read-only"
+                "failureReason": "srcmv selection is read-only"
             }
         });
         let actual = json!({"jsonrpc": "2.0", "id": 7002, "result": {"applied": true}});

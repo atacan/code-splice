@@ -33,9 +33,9 @@ export TMPDIR="$qualification_tmp"
 
 cargo test --workspace --all-features --tests
 scripts/run-fuzz-regressions.sh
-cargo test -p codesplice-fs --test platform_qualification
-cargo test -p codesplice-cli --test single_target_crash_recovery
-cargo test -p codesplice-cli --test multi_target_crash_recovery
+cargo test -p srcmv-fs --test platform_qualification
+cargo test -p srcmv-cli --test single_target_crash_recovery
+cargo test -p srcmv-cli --test multi_target_crash_recovery
 scripts/audit-unsafe.sh
 
 RUSTC_BOOTSTRAP=1 RUSTFLAGS='-Zsanitizer=address' PROPTEST_CASES=512 \

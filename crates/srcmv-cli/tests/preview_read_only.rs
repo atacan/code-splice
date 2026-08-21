@@ -5,9 +5,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use srcmv_fs::Workspace;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use srcmv_fs::Workspace;
 use tempfile::TempDir;
 
 struct TestWorkspace(TempDir);
@@ -44,7 +44,7 @@ impl TestWorkspace {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("codesplice should start");
+            .expect("srcmv should start");
         if let Some(request) = request {
             serde_json::to_writer(
                 child.stdin.as_mut().expect("stdin should be piped"),
@@ -53,7 +53,7 @@ impl TestWorkspace {
             .expect("request should serialize");
         }
         child.stdin.take();
-        child.wait_with_output().expect("codesplice should exit")
+        child.wait_with_output().expect("srcmv should exit")
     }
 }
 
@@ -147,7 +147,7 @@ fn preview_should_report_safe_contention_before_a_transaction_exists() {
     assert!(human.stdout.is_empty());
     assert_eq!(
         human.stderr,
-        b"codesplice: TRANSACTION_BUSY: an incompatible workspace lock is held; wait and retry; never bypass or remove the lock\n"
+        b"srcmv: TRANSACTION_BUSY: an incompatible workspace lock is held; wait and retry; never bypass or remove the lock\n"
     );
 
     drop(lock);

@@ -3,6 +3,8 @@
 use std::error::Error;
 use std::path::PathBuf;
 
+use gen_lsp_types::WorkspaceFolder;
+use serde_json::json;
 use srcmv_core::LineIndex;
 use srcmv_lsp::position::{PositionConverter, PositionLimits};
 use srcmv_lsp::process::ProcessSpec;
@@ -14,8 +16,6 @@ use srcmv_lsp::symbols::{
     resolve_name,
 };
 use srcmv_lsp::transport::TransportLimits;
-use gen_lsp_types::WorkspaceFolder;
-use serde_json::json;
 use url::Url;
 
 fn main() -> Result<(), Box<dyn Error>> {

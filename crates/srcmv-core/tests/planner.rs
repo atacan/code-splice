@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use proptest::prelude::*;
+use sha2::{Digest, Sha256};
 use srcmv_core::{
     AbsentPathSnapshot, Anchor, BatchSpecification, ByteRange, CoreError, Destination,
     FileIdentity, FileSnapshot, LineIndex, Operation, OperationEffect, OperationSpecification,
@@ -10,8 +12,6 @@ use srcmv_core::{
     SnapshotFileId, SourceSelection, WorkspaceRelativePath, WorkspaceSnapshot, encode_plan_record,
     plan,
 };
-use proptest::prelude::*;
-use sha2::{Digest, Sha256};
 
 fn path(value: &str) -> WorkspaceRelativePath {
     WorkspaceRelativePath {

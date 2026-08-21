@@ -1,7 +1,7 @@
 //! Property coverage for indexed and streaming line metrics.
 
-use srcmv_core::{ByteRange, LineIndex, LineMetrics};
 use proptest::prelude::*;
+use srcmv_core::{ByteRange, LineIndex, LineMetrics};
 
 fn reference_line_count(bytes: &[u8]) -> u64 {
     let mut terminators = 0_u64;

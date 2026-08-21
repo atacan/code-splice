@@ -22,14 +22,14 @@ fn invoke(workspace: &TempDir, arguments: &[&str], request: &Value) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("codesplice should start");
+        .expect("srcmv should start");
     serde_json::to_writer(
         child.stdin.as_mut().expect("stdin should be piped"),
         request,
     )
     .expect("request should serialize");
     child.stdin.take();
-    child.wait_with_output().expect("codesplice should exit")
+    child.wait_with_output().expect("srcmv should exit")
 }
 
 fn invoke_with_umask(
@@ -49,14 +49,14 @@ fn invoke_with_umask(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("codesplice should start beneath selected umask");
+        .expect("srcmv should start beneath selected umask");
     serde_json::to_writer(
         child.stdin.as_mut().expect("stdin should be piped"),
         request,
     )
     .expect("request should serialize");
     child.stdin.take();
-    child.wait_with_output().expect("codesplice should exit")
+    child.wait_with_output().expect("srcmv should exit")
 }
 
 fn report(output: &Output) -> Value {
@@ -326,7 +326,7 @@ fn single_target_commit_should_reject_a_prelock_plan_identity_change_without_tra
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("codesplice should start");
+        .expect("srcmv should start");
     serde_json::to_writer(
         child.stdin.as_mut().expect("stdin should be piped"),
         &request,
@@ -346,7 +346,7 @@ fn single_target_commit_should_reject_a_prelock_plan_identity_change_without_tra
     fs::rename(replacement, workspace.path().join("source"))
         .expect("source identity should be replaced with equal bytes");
     fs::write(&resume, b"continue").expect("hook should resume");
-    let output = child.wait_with_output().expect("codesplice should exit");
+    let output = child.wait_with_output().expect("srcmv should exit");
     let error = report(&output);
 
     assert_eq!(output.status.code(), Some(3));

@@ -66,7 +66,7 @@ fn invoke(workspace: &TempDir, arguments: &[&str], failpoints: Option<&str>) -> 
             .env("CODESPLICE_TEST_FAILPOINT", failpoints)
             .env("CODESPLICE_TEST_FAILPOINT_ACTION", "error");
     }
-    let mut child = command.spawn().expect("codesplice should start");
+    let mut child = command.spawn().expect("srcmv should start");
     if arguments.first() == Some(&"apply") {
         serde_json::to_writer(
             child.stdin.as_mut().expect("stdin should be piped"),
@@ -75,7 +75,7 @@ fn invoke(workspace: &TempDir, arguments: &[&str], failpoints: Option<&str>) -> 
         .expect("request should serialize");
     }
     child.stdin.take();
-    child.wait_with_output().expect("codesplice should exit")
+    child.wait_with_output().expect("srcmv should exit")
 }
 
 fn report(output: &Output) -> Value {

@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use srcmv_core::{ByteRange, LineIndex};
 use gen_lsp_types::{Position, Range};
+use srcmv_core::{ByteRange, LineIndex};
 
 use crate::capabilities::SupportedPositionEncoding;
 

@@ -3,12 +3,12 @@
 use std::fs;
 use std::sync::Arc;
 
+use sha2::{Digest, Sha256};
 use srcmv_core::{
     Anchor, BatchSpecification, Destination, Operation, OperationSpecification, Precondition,
     ResourceBudget, Selector, Sha256Digest, SourceSelection, WorkspaceRelativePath, plan,
 };
 use srcmv_fs::{RequiredPathState, SnapshotLimits, SnapshotRequirement, Workspace};
-use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 fn digest(bytes: &[u8]) -> Sha256Digest {

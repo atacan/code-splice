@@ -3,9 +3,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use srcmv_protocol::{escape_terminal_text, parse_request};
 use proptest::prelude::*;
 use serde_json::Value;
+use srcmv_protocol::{escape_terminal_text, parse_request};
 
 proptest! {
     #[test]

@@ -27,14 +27,14 @@ impl TestWorkspace {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("codesplice should start");
+            .expect("srcmv should start");
         serde_json::to_writer(
             child.stdin.as_mut().expect("stdin should be piped"),
             request,
         )
         .expect("request should serialize");
         child.stdin.take();
-        child.wait_with_output().expect("codesplice should exit")
+        child.wait_with_output().expect("srcmv should exit")
     }
 }
 
@@ -729,7 +729,7 @@ fn apply_help_should_document_summary_as_preview_only() {
     let output = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .args(["apply", "--help"])
         .output()
-        .expect("codesplice help should run");
+        .expect("srcmv help should run");
     let stdout = String::from_utf8(output.stdout).expect("help should be UTF-8");
 
     assert_eq!(output.status.code(), Some(0));

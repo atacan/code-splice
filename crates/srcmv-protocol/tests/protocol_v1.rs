@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+use serde_json::{Value, json};
 use srcmv_core::{Anchor, Operation, Precondition, Selector};
 use srcmv_protocol::{
     CapabilitiesResponse, ErrorCode, InsertionGroupResponse, MAX_REQUEST_BYTES,
@@ -11,7 +12,6 @@ use srcmv_protocol::{
     ReviewSummaryResponse, WarningCode, WarningDto, parse_request, parse_request_with_limits,
     parse_sha256, to_json_line,
 };
-use serde_json::{Value, json};
 
 const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 

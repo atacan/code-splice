@@ -5,11 +5,11 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-use srcmv_core::{FileIdentity, Sha256Digest};
 use rustix::fs::CWD;
 use rustix::fs::{RenameFlags, renameat_with};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use srcmv_core::{FileIdentity, Sha256Digest};
 
 use crate::{FsError, TransactionDirectory};
 

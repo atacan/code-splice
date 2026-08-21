@@ -31,7 +31,7 @@ fn preview(workspace: &Path, request: &[u8]) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("codesplice should start");
+        .expect("srcmv should start");
     child
         .stdin
         .as_mut()
@@ -39,7 +39,7 @@ fn preview(workspace: &Path, request: &[u8]) -> Output {
         .write_all(request)
         .expect("unchanged golden request should be written");
     drop(child.stdin.take());
-    child.wait_with_output().expect("codesplice should exit")
+    child.wait_with_output().expect("srcmv should exit")
 }
 
 #[test]

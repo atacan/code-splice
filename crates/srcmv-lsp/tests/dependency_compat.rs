@@ -3,7 +3,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use srcmv_lsp::{configuration_path_in, default_configuration_path};
 use crossbeam_channel::TrySendError;
 use gen_lsp_types::{
     DocumentSymbolParams, DocumentSymbolRequest, DocumentSymbolResponse, InitializeParams,
@@ -13,6 +12,7 @@ use gen_lsp_types::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use srcmv_lsp::{configuration_path_in, default_configuration_path};
 use url::Url;
 
 #[derive(Debug, Deserialize)]

@@ -6,6 +6,8 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 use srcmv_core::{
     AbsentPathSnapshot, Anchor, BatchSpecification, ByteRange, Destination, EditPlan, FileIdentity,
     FileSnapshot, LineIndex, Operation, OperationSpecification, OutputChange, OutputSegment,
@@ -14,8 +16,6 @@ use srcmv_core::{
     plan,
 };
 use srcmv_fs::Workspace;
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 #[derive(Serialize)]
 struct Baseline {

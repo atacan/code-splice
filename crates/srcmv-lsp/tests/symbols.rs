@@ -1,5 +1,7 @@
 //! Integration coverage for document-symbol normalization and resolution.
 
+use gen_lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+use serde_json::json;
 use srcmv_core::{ByteRange, LineIndex};
 use srcmv_lsp::capabilities::SupportedPositionEncoding;
 use srcmv_lsp::position::{PositionConverter, PositionLimits};
@@ -8,8 +10,6 @@ use srcmv_lsp::symbols::{
     apply_extent, normalize_document_symbols, normalize_hierarchical_symbols, resolve_name,
     resolve_position,
 };
-use gen_lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
-use serde_json::json;
 
 const MAXIMUM_TEST_LINES: u64 = 10_000;
 const MAXIMUM_TEST_INDEX_BYTES: u64 = 1_000_000;

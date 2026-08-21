@@ -998,7 +998,7 @@ fn spawn_input_worker(
     wake: Sender<()>,
 ) -> Result<JoinHandle<()>, ProcessError> {
     thread::Builder::new()
-        .name("codesplice-lsp-stdin".to_owned())
+        .name("srcmv-lsp-stdin".to_owned())
         .spawn(move || {
             while let Ok(command) = receiver.recv() {
                 match command {
@@ -1029,7 +1029,7 @@ fn spawn_stdout_worker(
     wake: Sender<()>,
 ) -> Result<JoinHandle<()>, ProcessError> {
     thread::Builder::new()
-        .name("codesplice-lsp-stdout".to_owned())
+        .name("srcmv-lsp-stdout".to_owned())
         .spawn(move || {
             let mut buffer = vec![0_u8; READ_CHUNK_BYTES];
             loop {
@@ -1115,7 +1115,7 @@ fn spawn_stderr_worker(
     wake: Sender<()>,
 ) -> Result<JoinHandle<()>, ProcessError> {
     thread::Builder::new()
-        .name("codesplice-lsp-stderr".to_owned())
+        .name("srcmv-lsp-stderr".to_owned())
         .spawn(move || {
             let mut buffer = vec![0_u8; READ_CHUNK_BYTES];
             loop {
@@ -1146,7 +1146,7 @@ fn spawn_status_worker(
     wake: Sender<()>,
 ) -> Result<JoinHandle<()>, ProcessError> {
     thread::Builder::new()
-        .name("codesplice-lsp-status".to_owned())
+        .name("srcmv-lsp-status".to_owned())
         .spawn(move || {
             loop {
                 let status_result = lock_or_recover(&child).try_wait();

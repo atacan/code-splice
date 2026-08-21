@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use srcmv_protocol::{MAX_RESPONSE_BYTES, SelectionCapabilitiesResponse, to_json_line};
 use serde_json::Value;
+use srcmv_protocol::{MAX_RESPONSE_BYTES, SelectionCapabilitiesResponse, to_json_line};
 
 fn repository_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

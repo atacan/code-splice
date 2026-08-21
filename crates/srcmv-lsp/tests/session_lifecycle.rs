@@ -8,14 +8,14 @@ use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use gen_lsp_types::{Uri, WorkspaceFolder};
+use serde_json::json;
 use srcmv_lsp::capabilities::CapabilityError;
 use srcmv_lsp::session::{
     ImmutableDocument, SessionDeadlines, SessionError, SessionInput, SessionLimits, run_session,
 };
 use srcmv_lsp::transport::{TransportError, TransportLimits};
 use srcmv_test_support::fake_lsp::FakeLspScenario;
-use gen_lsp_types::{Uri, WorkspaceFolder};
-use serde_json::json;
 use support::{
     ExpectedSessionOutcome, FakeLspCommand, PLANNED_SESSION_CASES, TestCase, repository_fixture,
     run_fixture_if_requested, run_tests,
@@ -128,9 +128,7 @@ fn production_session_executes_planned_matrix() -> Result<(), String> {
     Ok(())
 }
 
-fn run_case(
-    scenario: FakeLspScenario,
-) -> Result<srcmv_lsp::session::SessionOutput, SessionError> {
+fn run_case(scenario: FakeLspScenario) -> Result<srcmv_lsp::session::SessionOutput, SessionError> {
     run_case_with_limits(scenario, SessionLimits::default())
 }
 
@@ -367,7 +365,7 @@ fn fixture_reentry_launches_without_cargo() -> Result<(), String> {
         "method": "initialize",
         "params": {
             "processId": 4242,
-            "clientInfo": {"name": "codesplice", "version": "0.2.1"},
+            "clientInfo": {"name": "srcmv", "version": "0.2.1"},
             "rootUri": "file:///fixture/workspace/",
             "workspaceFolders": [{"uri": "file:///fixture/workspace/", "name": "workspace"}],
             "capabilities": {

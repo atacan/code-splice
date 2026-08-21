@@ -10,14 +10,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use serde::{Deserialize, Serialize, Serializer};
+use serde_json::{Value, json};
 pub use srcmv_core::PLAN_HASH_VERSION;
 use srcmv_core::{
     Anchor, BatchSpecification, Destination, Operation, OperationEffect, OperationKind,
     OperationSpecification, OutputChange, Precondition, ResolvedOperation, Selector, Sha256Digest,
     SourceSelection, WorkspaceRelativePath,
 };
-use serde::{Deserialize, Serialize, Serializer};
-use serde_json::{Value, json};
 
 mod selection;
 mod selection_capabilities;

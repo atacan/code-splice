@@ -6,13 +6,13 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use rustix::fs::{CWD, RenameFlags, renameat_with};
+use rustix::io::Errno;
+use sha2::{Digest, Sha256};
 use srcmv_core::{
     EditPlan, FileIdentity, OutputChange, OutputSegment, Sha256Digest, WorkspaceRelativePath,
     WorkspaceSnapshot,
 };
-use rustix::fs::{CWD, RenameFlags, renameat_with};
-use rustix::io::Errno;
-use sha2::{Digest, Sha256};
 
 use crate::control::acquire_existing_mutation_lock;
 use crate::journal::sync_directory;

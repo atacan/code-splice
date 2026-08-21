@@ -4,10 +4,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use serde_json::Value;
 use srcmv_fs::{
     Manifest, ManifestTarget, MetadataPolicy, PersistedIdentity, TransactionJournal, Workspace,
 };
-use serde_json::Value;
 use tempfile::TempDir;
 
 const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -33,7 +33,7 @@ impl TestWorkspace {
             .arg(self.root.path())
             .args(arguments)
             .output()
-            .expect("codesplice should run")
+            .expect("srcmv should run")
     }
 }
 

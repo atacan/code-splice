@@ -3,12 +3,12 @@
 use std::fs;
 use std::path::Path;
 
+use gen_lsp_types::InitializeResult;
+use serde_json::{Value, json};
 use srcmv_lsp::capabilities::{
     CapabilityError, NegotiatedCapabilities, ServerIdentity, SupportedPositionEncoding,
     client_capabilities, initialize_params, validate_initialize_result,
 };
-use gen_lsp_types::InitializeResult;
-use serde_json::{Value, json};
 use url::Url;
 
 fn initialize_result(capabilities: Value, server_info: Option<Value>) -> InitializeResult {
@@ -95,7 +95,7 @@ fn initialize_params_match_the_frozen_success_transcript() {
 fn accepts_success_and_reports_nullable_server_identity() {
     let negotiated = validate_initialize_result(&initialize_result(
         full_capabilities(),
-        Some(json!({"name": "codesplice-fake-lsp"})),
+        Some(json!({"name": "srcmv-fake-lsp"})),
     ))
     .expect("full capabilities should be accepted");
     assert_eq!(
@@ -105,7 +105,7 @@ fn accepts_success_and_reports_nullable_server_identity() {
     assert_eq!(
         negotiated.server,
         ServerIdentity {
-            name: Some("codesplice-fake-lsp".to_owned()),
+            name: Some("srcmv-fake-lsp".to_owned()),
             version: None,
         }
     );

@@ -84,7 +84,7 @@ fn invoke(
         command.stdin(Stdio::piped());
     }
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().expect("codesplice should start");
+    let mut child = command.spawn().expect("srcmv should start");
     if let Some(request) = request {
         serde_json::to_writer(
             child.stdin.as_mut().expect("request stdin should be piped"),
@@ -93,7 +93,7 @@ fn invoke(
         .expect("request should serialize");
         child.stdin.take();
     }
-    child.wait_with_output().expect("codesplice should exit")
+    child.wait_with_output().expect("srcmv should exit")
 }
 
 fn report(output: &Output, expected_exit: i32) -> Value {
@@ -306,7 +306,7 @@ fn anchor(kind: &str) -> Value {
 }
 
 fn seeded_main(workspace: &Path) -> Vec<u8> {
-    let bytes = real_file("crates/codesplice-cli/src/main.rs");
+    let bytes = real_file("crates/srcmv-cli/src/main.rs");
     write(workspace, "src/source.rs", &bytes);
     bytes
 }
@@ -328,7 +328,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
 
     let workspace = reset_workspace(&root, "scenario-01");
     let main = seeded_main(&workspace);
-    let destination = real_file("crates/codesplice-cli/src/preview.rs");
+    let destination = real_file("crates/srcmv-cli/src/preview.rs");
     write(&workspace, "src/destination.rs", &destination);
     inspect(&workspace, &["src/source.rs", "src/destination.rs"]);
     let selected = main
@@ -380,7 +380,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     );
 
     let workspace = reset_workspace(&root, "scenario-03");
-    let source_bytes = real_file("crates/codesplice-core/src/plan_hash.rs");
+    let source_bytes = real_file("crates/srcmv-core/src/plan_hash.rs");
     let destination = b"// copied declarations\n".to_vec();
     write(&workspace, "src/source.rs", &source_bytes);
     write(&workspace, "src/destination.rs", &destination);
@@ -470,7 +470,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     );
 
     let workspace = reset_workspace(&root, "scenario-07");
-    let source_bytes = real_file("crates/codesplice-core/src/plan_hash.rs");
+    let source_bytes = real_file("crates/srcmv-core/src/plan_hash.rs");
     write(&workspace, "src/source.rs", &source_bytes);
     inspect(&workspace, &["src/source.rs", "src/one.rs", "src/two.rs"]);
     let request = batch(vec![

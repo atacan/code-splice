@@ -8,5 +8,5 @@ cd "$repository_root"
 export PROPTEST_CASES
 
 cargo test --workspace --all-features fuzz_regression
-cargo test -p codesplice-core --test planner line_index_fuzz_property
-cargo test -p codesplice-core --test planner event_composition_fuzz_property
+cargo test -p srcmv-core --test planner line_index_fuzz_property
+cargo test -p srcmv-core --test planner event_composition_fuzz_property

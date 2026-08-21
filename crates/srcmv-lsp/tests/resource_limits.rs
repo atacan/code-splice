@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use gen_lsp_types::{DocumentSymbol, Position, Range, SymbolKind, Uri, WorkspaceFolder};
+use serde_json::{Value, json};
 use srcmv_core::LineIndex;
 use srcmv_lsp::capabilities::SupportedPositionEncoding;
 use srcmv_lsp::jsonrpc::{
@@ -17,8 +19,6 @@ use srcmv_lsp::symbols::{
     resolve_name, resolve_position,
 };
 use srcmv_lsp::transport::{TransportError, TransportLimits};
-use gen_lsp_types::{DocumentSymbol, Position, Range, SymbolKind, Uri, WorkspaceFolder};
-use serde_json::{Value, json};
 
 fn envelope(method_limit: usize, id_limit: usize, params_limit: usize) -> EnvelopeLimits {
     EnvelopeLimits {

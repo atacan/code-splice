@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
+use serde_json::{Value, json};
 use srcmv_core::{
     EditPlan, FileSnapshot, LineMetrics, OperationEffect, OperationKind, OutputChange,
     OutputSegment, PlannedOutput, Sha256Digest, WorkspaceSnapshot,
@@ -10,7 +11,6 @@ use srcmv_protocol::{
     ResolvedOperationResponse, ReviewOperationResponse, ReviewOutputResponse,
     ReviewSummaryResponse, WarningCode, WarningDto, escape_terminal_text, to_json_line,
 };
-use serde_json::{Value, json};
 
 const DETAILED_DIFF_INPUT_BYTES: u64 = 8 * 1024 * 1024;
 const DIFF_WORK_UNITS: u64 = 10_000_000;
@@ -833,7 +833,7 @@ fn render_human(
     review: Option<&ReviewSummaryResponse>,
 ) -> Result<String, FsError> {
     let mut report = format!(
-        "CodeSplice preview\nplan_hash_version: 1\nplan_sha256: {}\nworkspace_identity_hash: {}\nresolved_operations:\n",
+        "srcmv preview\nplan_hash_version: 1\nplan_sha256: {}\nworkspace_identity_hash: {}\nresolved_operations:\n",
         plan.digest.0.to_prefixed_hex(),
         workspace_identity_hash.to_prefixed_hex()
     );

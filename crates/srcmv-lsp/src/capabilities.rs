@@ -12,9 +12,9 @@ use gen_lsp_types::{
 };
 
 /// The client name reported to language servers.
-pub const CLIENT_NAME: &str = "codesplice";
+pub const CLIENT_NAME: &str = "srcmv";
 
-/// A position encoding supported by CodeSplice's byte-range conversion layer.
+/// A position encoding supported by srcmv's byte-range conversion layer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SupportedPositionEncoding {
     /// LSP character offsets count UTF-8 code units.
@@ -50,7 +50,7 @@ pub enum CapabilityError {
     DocumentSymbolsUnavailable,
     /// The server did not advertise usable open/close document synchronization.
     DocumentSyncUnavailable,
-    /// The server selected a position encoding CodeSplice did not offer.
+    /// The server selected a position encoding srcmv did not offer.
     UnsupportedPositionEncoding,
 }
 
@@ -74,7 +74,7 @@ impl std::error::Error for CapabilityError {}
 
 /// Builds the fixed client capabilities advertised by semantic selection.
 ///
-/// CodeSplice deliberately advertises only static hierarchical document
+/// srcmv deliberately advertises only static hierarchical document
 /// symbols and the three encodings its conversion layer understands. It does
 /// not allow the server to apply edits or create progress work.
 #[must_use]

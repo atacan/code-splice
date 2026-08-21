@@ -2,12 +2,12 @@
 
 use std::io::{self, Cursor, Read};
 
+use serde_json::{Value, json};
 use srcmv_lsp::jsonrpc::{
     ClientRequestId, EnvelopeLimits, EnvelopeViolation, FrameDecoder, FrameSection, FramingLimits,
     IncomingMessage, JsonRpcError, ResponseCorrelator, ResponsePayload, ServerRequestId,
     classify_message, decode_body, encode_message, read_body, read_message,
 };
-use serde_json::{Value, json};
 
 fn framing_limits(header: usize, inbound: usize, outbound: usize) -> FramingLimits {
     FramingLimits {

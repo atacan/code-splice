@@ -9,10 +9,10 @@ use std::process::{Command, ExitCode, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use srcmv_fs::Workspace;
-use srcmv_test_support::fake_lsp::run_from_process_args;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use srcmv_fs::Workspace;
+use srcmv_test_support::fake_lsp::run_from_process_args;
 use tempfile::TempDir;
 
 const HOLD_MODE: &str = "--hold-before-success";
@@ -246,7 +246,7 @@ fn slow_server_does_not_hold_diagnostic_lock() -> Result<(), String> {
     let output = child.wait_with_output().map_err(display)?;
     ensure_success(&output, "slow selection")?;
     if fs::read(workspace_directory.path().join("committed.txt")).map_err(display)? != b"c" {
-        return Err("the unrelated CodeSplice commit did not complete".to_owned());
+        return Err("the unrelated srcmv commit did not complete".to_owned());
     }
     Ok(())
 }

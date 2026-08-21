@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
+use sha2::{Digest, Sha256};
 use srcmv_core::{
     AbsentPathSnapshot, Anchor, ByteRange, EditPlan, FileIdentity, FileSnapshot, LineIndex,
     OperationEffect, OperationKind, OutputChange, OutputSegment, PlanDigest, PlannedOutput,
     PlanningUsage, Precondition, ResolvedOperation, Selector, Sha256Digest, SnapshotFileId,
     WorkspaceRelativePath, WorkspaceSnapshot, encode_plan_record, plan_digest,
 };
-use sha2::{Digest, Sha256};
 
 const GOLDEN_HEX: &str =
     include_str!("../../../tests/golden/plan-hash-v1/all-discriminants.cbor.hex");

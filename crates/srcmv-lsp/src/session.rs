@@ -579,7 +579,7 @@ fn dispatch_server_request(
         }
         "workspace/applyEdit" => json!({
             "jsonrpc": "2.0", "id": id,
-            "result": {"applied": false, "failureReason": "CodeSplice selection is read-only"}
+            "result": {"applied": false, "failureReason": "srcmv selection is read-only"}
         }),
         _ => json!({
             "jsonrpc": "2.0", "id": id,

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Command grammar, protocol orchestration, and output discipline for CodeSplice.
+//! Command grammar, protocol orchestration, and output discipline for srcmv.
 //!
 //! Preview and inspection use immutable workspace snapshots coordinated by the
 //! existing diagnostic lock when present. Multi-target commit and recovery use
@@ -17,6 +17,7 @@ use std::sync::OnceLock;
 
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, Parser, Subcommand};
+use serde_json::json;
 use srcmv_core::{Operation, OutputChange, Precondition, ResourceBudget, plan};
 use srcmv_fs::{
     DiagnosticLock, FsError, InspectedState, RecoveryEntryKind, RequiredPathState, SnapshotLimits,
@@ -29,7 +30,6 @@ use srcmv_protocol::{
     RecoveryStatusResponse, ResolvedOperationResponse, SelectionCapabilitiesResponse, WarningCode,
     WarningDto, escape_terminal_text, parse_request, parse_sha256, redact_path, to_json_line,
 };
-use serde_json::json;
 
 mod preview;
 mod select;
@@ -52,7 +52,7 @@ pub fn run() -> ExitCode {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "codesplice",
+    name = "srcmv",
     version,
     about = "Move or copy exact bytes already present in workspace files",
     disable_help_subcommand = true
@@ -181,7 +181,7 @@ where
         Err(error) => {
             let report = ErrorDto::new(
                 ErrorCode::InvalidCli,
-                "the command line does not match the CodeSplice grammar",
+                "the command line does not match the srcmv grammar",
                 BTreeMap::from([("reason".to_string(), json!(error.to_string()))]),
             );
             return render_error(&report, json_requested, stdout, stderr);
@@ -282,7 +282,7 @@ fn diagnostic_context(
             None,
             vec![WarningDto::new(
                 WarningCode::ObservationMayBeStale,
-                "no existing CodeSplice lock coordinated this read-only observation",
+                "no existing srcmv lock coordinated this read-only observation",
                 BTreeMap::new(),
             )],
         ));
@@ -1090,7 +1090,7 @@ fn render_success(response: &str, stdout: &mut dyn Write, stderr: &mut dyn Write
     if stdout.write_all(response.as_bytes()).is_ok() {
         0
     } else {
-        let _ = stderr.write_all(b"codesplice: INTERNAL_ERROR: failed to write stdout\n");
+        let _ = stderr.write_all(b"srcmv: INTERNAL_ERROR: failed to write stdout\n");
         8
     }
 }
@@ -1115,7 +1115,7 @@ fn render_error(
             .is_ok()
     } else {
         let line = format!(
-            "codesplice: {}: {}\n",
+            "srcmv: {}: {}\n",
             report.code().as_str(),
             escape_terminal_text(report.message())
         );
@@ -1138,7 +1138,7 @@ fn render_selection_error(
         }
     } else {
         let line = format!(
-            "codesplice: {}: {}\n",
+            "srcmv: {}: {}\n",
             report.code().as_str(),
             escape_terminal_text(report.message())
         );
@@ -1169,14 +1169,7 @@ mod tests {
         let request = br#"{"protocol_version":1,"operations":[]}"#;
 
         let (status, stdout, stderr) = invoke(
-            &[
-                "codesplice",
-                "apply",
-                "--request",
-                "-",
-                "--commit",
-                "--json",
-            ],
+            &["srcmv", "apply", "--request", "-", "--commit", "--json"],
             request,
         );
 
@@ -1200,7 +1193,7 @@ mod tests {
         assert_eq!(status, 2);
         assert_eq!(
             stderr,
-            b"codesplice: INVALID_CLI: unsafe\\u{202e}\\u{a}message\n"
+            b"srcmv: INVALID_CLI: unsafe\\u{202e}\\u{a}message\n"
         );
     }
 

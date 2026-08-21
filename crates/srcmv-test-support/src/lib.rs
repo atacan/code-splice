@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Common fixture locations and deterministic test values for CodeSplice tests.
+//! Common fixture locations and deterministic test values for srcmv tests.
 
 use std::path::{Path, PathBuf};
 

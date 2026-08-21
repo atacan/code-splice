@@ -3,9 +3,9 @@
 use std::fs;
 use std::process::{Command, Output, Stdio};
 
-use srcmv_fs::decode_manifest_record;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use srcmv_fs::decode_manifest_record;
 use tempfile::TempDir;
 
 fn digest(bytes: &[u8]) -> String {
@@ -55,14 +55,14 @@ fn crash_commit(workspace: &TempDir, failpoint: &str) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("codesplice should start");
+        .expect("srcmv should start");
     serde_json::to_writer(
         child.stdin.as_mut().expect("stdin should be piped"),
         &request(),
     )
     .expect("request should serialize");
     child.stdin.take();
-    child.wait_with_output().expect("codesplice should exit")
+    child.wait_with_output().expect("srcmv should exit")
 }
 
 fn recover(workspace: &TempDir, transaction_id: &str, action: &str) -> Output {

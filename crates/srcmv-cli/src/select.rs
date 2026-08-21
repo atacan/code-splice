@@ -8,6 +8,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use clap::{ArgAction, Args, ValueEnum};
+use gen_lsp_types::{Range, WorkspaceFolder};
+use serde_json::json;
+use sha2::{Digest, Sha256};
 use srcmv_core::{FileSnapshot, Sha256Digest, WorkspaceRelativePath};
 use srcmv_fs::{
     FsError, MAX_LINE_INDEX_MEMORY, MAX_PATH_BYTES, MAX_TOTAL_LINE_COUNT, SnapshotLimits, Workspace,
@@ -36,9 +39,6 @@ use srcmv_protocol::{
     SelectionServerDto, SelectionSourceDto, SelectionSymbolKindDto, WarningDto,
     escape_terminal_text, to_selection_json_line,
 };
-use gen_lsp_types::{Range, WorkspaceFolder};
-use serde_json::json;
-use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::diagnostic_context;
@@ -47,7 +47,7 @@ const MAXIMUM_SOURCE_BYTES: u64 = 8 * 1024 * 1024;
 const MAXIMUM_SERVER_IDENTITY_BYTES: usize = 1024;
 const MAXIMUM_QUERY_NAME_BYTES: usize = 4096;
 
-/// Arguments accepted by `codesplice select`.
+/// Arguments accepted by `srcmv select`.
 #[derive(Debug, Args)]
 pub(crate) struct SelectArgs {
     /// Workspace-relative source path.

@@ -13,7 +13,7 @@ fn invoke(arguments: &[&str]) -> Output {
         .args(arguments)
         .current_dir(repository_root())
         .output()
-        .expect("codesplice must start")
+        .expect("srcmv must start")
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn selection_capabilities_should_require_json_output() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).starts_with("codesplice: INVALID_CLI:"));
+    assert!(String::from_utf8_lossy(&output.stderr).starts_with("srcmv: INVALID_CLI:"));
 }
 
 #[test]

@@ -1,12 +1,12 @@
 //! Phase 9 record, state-folding, and recovery-classifier fuzz properties.
 
+use proptest::prelude::*;
 use srcmv_fs::{
     CandidateKind, CandidateState, CommitKind, CommitState, GlobalState, LocationObservation,
     PersistedIdentity, RollbackKind, RollbackState, StateSnapshot, SyntheticTargetObservation,
     TargetState, classify_recovery, decode_manifest_record, decode_state_record,
     validate_state_transition,
 };
-use proptest::prelude::*;
 
 const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
