@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use codesplice_lsp::{configuration_path_in, default_configuration_path};
+use srcmv_lsp::{configuration_path_in, default_configuration_path};
 use crossbeam_channel::TrySendError;
 use gen_lsp_types::{
     DocumentSymbolParams, DocumentSymbolRequest, DocumentSymbolResponse, InitializeParams,
@@ -361,7 +361,7 @@ fn base_dirs_uses_linux_xdg_configuration_contract() {
 
 #[test]
 fn core_byte_range_and_rustix_process_id_types_are_compatible() {
-    let range = codesplice_core::ByteRange { start: 3, end: 9 };
+    let range = srcmv_core::ByteRange { start: 3, end: 9 };
     let pid = rustix::process::Pid::from_raw(1).expect("one is a valid nonzero process ID");
 
     assert_eq!(

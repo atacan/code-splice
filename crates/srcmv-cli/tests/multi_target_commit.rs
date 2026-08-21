@@ -53,7 +53,7 @@ fn request() -> Value {
 }
 
 fn invoke(workspace: &TempDir, arguments: &[&str], failpoints: Option<&str>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_codesplice"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_srcmv"));
     command
         .arg("--workspace")
         .arg(workspace.path())

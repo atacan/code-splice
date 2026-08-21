@@ -1,8 +1,8 @@
 #![no_main]
 
-use codesplice_core::LineIndex;
-use codesplice_lsp::capabilities::SupportedPositionEncoding;
-use codesplice_lsp::position::{PositionConverter, PositionLimits};
+use srcmv_core::LineIndex;
+use srcmv_lsp::capabilities::SupportedPositionEncoding;
+use srcmv_lsp::position::{PositionConverter, PositionLimits};
 use gen_lsp_types::{Position, Range};
 use libfuzzer_sys::fuzz_target;
 

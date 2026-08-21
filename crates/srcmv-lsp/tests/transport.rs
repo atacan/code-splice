@@ -6,9 +6,9 @@ use std::ffi::OsString;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use codesplice_lsp::jsonrpc::{IncomingMessage, JsonRpcError};
-use codesplice_lsp::process::{ProcessFaultKind, ProcessSpec};
-use codesplice_lsp::transport::{Transport, TransportError, TransportLimits};
+use srcmv_lsp::jsonrpc::{IncomingMessage, JsonRpcError};
+use srcmv_lsp::process::{ProcessFaultKind, ProcessSpec};
+use srcmv_lsp::transport::{Transport, TransportError, TransportLimits};
 use serde_json::{Value, json};
 
 const OPERATION: Duration = Duration::from_secs(2);

@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use codesplice_protocol::{escape_terminal_text, parse_request};
+use srcmv_protocol::{escape_terminal_text, parse_request};
 use proptest::prelude::*;
 use serde_json::Value;
 

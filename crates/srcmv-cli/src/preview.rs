@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use codesplice_core::{
+use srcmv_core::{
     EditPlan, FileSnapshot, LineMetrics, OperationEffect, OperationKind, OutputChange,
     OutputSegment, PlannedOutput, Sha256Digest, WorkspaceSnapshot,
 };
-use codesplice_fs::FsError;
-use codesplice_protocol::{
+use srcmv_fs::FsError;
+use srcmv_protocol::{
     DiffResponse, InsertionGroupResponse, MAX_RESPONSE_BYTES, OutputResponse, PreviewResponse,
     ResolvedOperationResponse, ReviewOperationResponse, ReviewOutputResponse,
     ReviewSummaryResponse, WarningCode, WarningDto, escape_terminal_text, to_json_line,
@@ -307,7 +307,7 @@ fn response_aware_diff_budget(
             invariant: "maximum_response_bytes_fits_usize",
         })?;
     let remaining = maximum_response_bytes.checked_sub(reserved_bytes).ok_or(
-        codesplice_core::CoreError::ResourceLimitExceeded {
+        srcmv_core::CoreError::ResourceLimitExceeded {
             resource: "serialized_json_response",
             actual: u64::try_from(reserved_bytes).unwrap_or(u64::MAX),
             limit: MAX_RESPONSE_BYTES,
@@ -323,7 +323,7 @@ fn enforce_complete_summary_response(response: &PreviewResponse) -> Result<(), F
         })?
         .len();
     if u64::try_from(actual).unwrap_or(u64::MAX) > MAX_RESPONSE_BYTES {
-        return Err(codesplice_core::CoreError::ResourceLimitExceeded {
+        return Err(srcmv_core::CoreError::ResourceLimitExceeded {
             resource: "serialized_json_response",
             actual: u64::try_from(actual).unwrap_or(u64::MAX),
             limit: MAX_RESPONSE_BYTES,
@@ -1065,7 +1065,7 @@ mod tests {
         assert!(matches!(
             enforce_complete_summary_response(&above),
             Err(FsError::Core(
-                codesplice_core::CoreError::ResourceLimitExceeded {
+                srcmv_core::CoreError::ResourceLimitExceeded {
                     resource: "serialized_json_response",
                     actual,
                     limit: MAX_RESPONSE_BYTES,

@@ -34,7 +34,7 @@ fn crash_commit(workspace: &TempDir, failpoint: &str) -> Output {
 }
 
 fn crash_commit_request(workspace: &TempDir, failpoint: &str, request: &Value) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args([
@@ -64,7 +64,7 @@ fn crash_commit_request(workspace: &TempDir, failpoint: &str, request: &Value) -
 }
 
 fn recover(workspace: &TempDir, id: &str, action: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args(["recover", id, action, "--json"])
@@ -73,7 +73,7 @@ fn recover(workspace: &TempDir, id: &str, action: &str) -> Output {
 }
 
 fn crash_recovery(workspace: &TempDir, id: &str, action: &str, failpoint: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args(["recover", id, action, "--json"])

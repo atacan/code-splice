@@ -2,21 +2,21 @@
 
 use std::time::Duration;
 
-use codesplice_core::LineIndex;
-use codesplice_lsp::capabilities::SupportedPositionEncoding;
-use codesplice_lsp::jsonrpc::{
+use srcmv_core::LineIndex;
+use srcmv_lsp::capabilities::SupportedPositionEncoding;
+use srcmv_lsp::jsonrpc::{
     EnvelopeLimits, IncomingMessage, JsonRpcError, ResponseCorrelator, classify_message,
 };
-use codesplice_lsp::position::{PositionConverter, PositionLimits};
-use codesplice_lsp::process::{ProcessError, ProcessSpec};
-use codesplice_lsp::session::{
+use srcmv_lsp::position::{PositionConverter, PositionLimits};
+use srcmv_lsp::process::{ProcessError, ProcessSpec};
+use srcmv_lsp::session::{
     ImmutableDocument, SessionDeadlines, SessionError, SessionInput, SessionLimits, run_session,
 };
-use codesplice_lsp::symbols::{
+use srcmv_lsp::symbols::{
     MatchMode, SelectionExtent, SymbolError, SymbolLimits, normalize_hierarchical_symbols,
     resolve_name, resolve_position,
 };
-use codesplice_lsp::transport::{TransportError, TransportLimits};
+use srcmv_lsp::transport::{TransportError, TransportLimits};
 use gen_lsp_types::{DocumentSymbol, Position, Range, SymbolKind, Uri, WorkspaceFolder};
 use serde_json::{Value, json};
 
@@ -168,7 +168,7 @@ fn session_input(
 }
 
 fn assert_payload_preflight_passed(
-    result: Result<codesplice_lsp::session::SessionOutput, SessionError>,
+    result: Result<srcmv_lsp::session::SessionOutput, SessionError>,
 ) {
     assert!(
         matches!(
@@ -336,7 +336,7 @@ fn document_symbol(
 fn normalize(
     roots: Vec<DocumentSymbol>,
     limits: SymbolLimits,
-) -> Result<Vec<codesplice_lsp::symbols::NormalizedSymbol>, SymbolError> {
+) -> Result<Vec<srcmv_lsp::symbols::NormalizedSymbol>, SymbolError> {
     normalize_text("x", roots, limits)
 }
 
@@ -344,7 +344,7 @@ fn normalize_text(
     text: &str,
     roots: Vec<DocumentSymbol>,
     limits: SymbolLimits,
-) -> Result<Vec<codesplice_lsp::symbols::NormalizedSymbol>, SymbolError> {
+) -> Result<Vec<srcmv_lsp::symbols::NormalizedSymbol>, SymbolError> {
     let index = LineIndex::from_bytes_with_limits(text.as_bytes(), 10, 256)
         .expect("fixture line index should build");
     let mut converter = PositionConverter::new(

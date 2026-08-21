@@ -1,14 +1,14 @@
 [package]
-name = "codesplice-fs"
+name = "srcmv-fs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Filesystem boundary for CodeSplice"
+description = "Filesystem boundary for srcmv"
 
 [dependencies]
-codesplice-core = { path = "../codesplice-core" }
+srcmv-core = { path = "../srcmv-core" }
 getrandom.workspace = true
 rustix.workspace = true
 serde.workspace = true

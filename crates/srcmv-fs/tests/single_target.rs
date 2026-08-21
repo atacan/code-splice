@@ -3,11 +3,11 @@
 use std::fs;
 use std::sync::Arc;
 
-use codesplice_core::{
+use srcmv_core::{
     Anchor, BatchSpecification, Destination, Operation, OperationSpecification, Precondition,
     ResourceBudget, Selector, Sha256Digest, SourceSelection, WorkspaceRelativePath, plan,
 };
-use codesplice_fs::{RequiredPathState, SnapshotLimits, SnapshotRequirement, Workspace};
+use srcmv_fs::{RequiredPathState, SnapshotLimits, SnapshotRequirement, Workspace};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
@@ -109,7 +109,7 @@ fn single_target_engine_should_reject_a_zero_target_plan() {
 
     assert!(matches!(
         error,
-        codesplice_fs::FsError::ResourceLimitExceeded {
+        srcmv_fs::FsError::ResourceLimitExceeded {
             resource: "single_target_commit_targets",
             actual: 0,
             limit: 1

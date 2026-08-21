@@ -1,9 +1,9 @@
 #![no_main]
 
-use codesplice_core::LineIndex;
-use codesplice_lsp::capabilities::SupportedPositionEncoding;
-use codesplice_lsp::position::{PositionConverter, PositionLimits};
-use codesplice_lsp::symbols::{SymbolLimits, normalize_document_symbols};
+use srcmv_core::LineIndex;
+use srcmv_lsp::capabilities::SupportedPositionEncoding;
+use srcmv_lsp::position::{PositionConverter, PositionLimits};
+use srcmv_lsp::symbols::{SymbolLimits, normalize_document_symbols};
 use libfuzzer_sys::fuzz_target;
 use serde_json::Value;
 

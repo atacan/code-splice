@@ -6,7 +6,7 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use codesplice_core::{
+use srcmv_core::{
     EditPlan, FileIdentity, OutputChange, OutputSegment, Sha256Digest, WorkspaceRelativePath,
     WorkspaceSnapshot,
 };
@@ -254,7 +254,7 @@ impl Workspace {
 fn build_manifest(
     snapshot: &WorkspaceSnapshot,
     plan: &EditPlan,
-    outputs: &[&codesplice_core::PlannedOutput],
+    outputs: &[&srcmv_core::PlannedOutput],
     transaction_id: &str,
     new_file_mode: u32,
 ) -> Result<Manifest, FsError> {

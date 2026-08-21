@@ -2,8 +2,8 @@
 
 use std::fs;
 
-use codesplice_core::WorkspaceRelativePath;
-use codesplice_fs::{FsError, SnapshotLimits, Workspace};
+use srcmv_core::WorkspaceRelativePath;
+use srcmv_fs::{FsError, SnapshotLimits, Workspace};
 use tempfile::TempDir;
 
 const SELECTION_SOURCE_BYTES: u64 = 8 * 1024 * 1024;

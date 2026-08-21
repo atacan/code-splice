@@ -1,9 +1,9 @@
 //! Integration coverage for document-symbol normalization and resolution.
 
-use codesplice_core::{ByteRange, LineIndex};
-use codesplice_lsp::capabilities::SupportedPositionEncoding;
-use codesplice_lsp::position::{PositionConverter, PositionLimits};
-use codesplice_lsp::symbols::{
+use srcmv_core::{ByteRange, LineIndex};
+use srcmv_lsp::capabilities::SupportedPositionEncoding;
+use srcmv_lsp::position::{PositionConverter, PositionLimits};
+use srcmv_lsp::symbols::{
     KnownSymbolKind, MatchMode, NormalizedSymbolKind, SelectionExtent, SymbolError, SymbolLimits,
     apply_extent, normalize_document_symbols, normalize_hierarchical_symbols, resolve_name,
     resolve_position,

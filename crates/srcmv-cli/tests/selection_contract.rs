@@ -23,7 +23,7 @@ fn copy_composition_workspace(destination: &Path) {
 }
 
 fn preview(workspace: &Path, request: &[u8]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace)
         .args(["apply", "--request", "-", "--preview", "--json"])

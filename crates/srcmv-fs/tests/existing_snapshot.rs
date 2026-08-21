@@ -3,8 +3,8 @@
 use std::fs;
 use std::os::unix::fs::{MetadataExt, symlink};
 
-use codesplice_core::{FileIdentity, Sha256Digest, SnapshotFileId, WorkspaceRelativePath};
-use codesplice_fs::{FsError, SnapshotLimits, Workspace};
+use srcmv_core::{FileIdentity, Sha256Digest, SnapshotFileId, WorkspaceRelativePath};
+use srcmv_fs::{FsError, SnapshotLimits, Workspace};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 

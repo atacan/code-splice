@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use codesplice_protocol::{MAX_RESPONSE_BYTES, SelectionCapabilitiesResponse, to_json_line};
+use srcmv_protocol::{MAX_RESPONSE_BYTES, SelectionCapabilitiesResponse, to_json_line};
 use serde_json::Value;
 
 fn repository_root() -> PathBuf {

@@ -2,7 +2,7 @@
 
 use std::io::{self, Cursor, Read};
 
-use codesplice_lsp::jsonrpc::{
+use srcmv_lsp::jsonrpc::{
     ClientRequestId, EnvelopeLimits, EnvelopeViolation, FrameDecoder, FrameSection, FramingLimits,
     IncomingMessage, JsonRpcError, ResponseCorrelator, ResponsePayload, ServerRequestId,
     classify_message, decode_body, encode_message, read_body, read_message,

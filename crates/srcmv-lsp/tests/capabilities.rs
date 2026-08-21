@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use codesplice_lsp::capabilities::{
+use srcmv_lsp::capabilities::{
     CapabilityError, NegotiatedCapabilities, ServerIdentity, SupportedPositionEncoding,
     client_capabilities, initialize_params, validate_initialize_result,
 };

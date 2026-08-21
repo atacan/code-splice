@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
-pub use codesplice_core::PLAN_HASH_VERSION;
-use codesplice_core::{
+pub use srcmv_core::PLAN_HASH_VERSION;
+use srcmv_core::{
     Anchor, BatchSpecification, Destination, Operation, OperationEffect, OperationKind,
     OperationSpecification, OutputChange, Precondition, ResolvedOperation, Selector, Sha256Digest,
     SourceSelection, WorkspaceRelativePath,

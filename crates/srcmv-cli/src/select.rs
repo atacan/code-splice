@@ -8,28 +8,28 @@ use std::path::Path;
 use std::time::Duration;
 
 use clap::{ArgAction, Args, ValueEnum};
-use codesplice_core::{FileSnapshot, Sha256Digest, WorkspaceRelativePath};
-use codesplice_fs::{
+use srcmv_core::{FileSnapshot, Sha256Digest, WorkspaceRelativePath};
+use srcmv_fs::{
     FsError, MAX_LINE_INDEX_MEMORY, MAX_PATH_BYTES, MAX_TOTAL_LINE_COUNT, SnapshotLimits, Workspace,
 };
-use codesplice_lsp::capabilities::{CapabilityError, SupportedPositionEncoding};
-use codesplice_lsp::config::{
+use srcmv_lsp::capabilities::{CapabilityError, SupportedPositionEncoding};
+use srcmv_lsp::config::{
     ConfigError, ResolutionRequest, ResolvedServer, ServerSelection, UserConfiguration,
     load_user_configuration, resolve_server, user_configuration_path,
 };
-use codesplice_lsp::position::{PositionConverter, PositionError, PositionLimits};
-use codesplice_lsp::process::{ProcessError, ProcessFaultKind};
-use codesplice_lsp::session::{
+use srcmv_lsp::position::{PositionConverter, PositionError, PositionLimits};
+use srcmv_lsp::process::{ProcessError, ProcessFaultKind};
+use srcmv_lsp::session::{
     ImmutableDocument, SessionDeadlines, SessionError, SessionInput, SessionLimits, SessionPhase,
     run_session,
 };
-use codesplice_lsp::symbols::{
+use srcmv_lsp::symbols::{
     AmbiguityCandidate, KnownSymbolKind, MatchMode, NormalizedSymbolKind, SelectionExtent,
     SymbolError, SymbolLimits, SymbolMatch, normalize_document_symbols, resolve_name,
     resolve_position,
 };
-use codesplice_lsp::transport::{TransportError, TransportLimits};
-use codesplice_protocol::{
+use srcmv_lsp::transport::{TransportError, TransportLimits};
+use srcmv_protocol::{
     MAX_RESPONSE_BYTES, SelectionByteSelectorDto, SelectionErrorCode, SelectionErrorDto,
     SelectionExtentDto, SelectionKnownSymbolKindDto, SelectionLspPositionDto, SelectionLspRangeDto,
     SelectionMatchDto, SelectionPositionEncodingDto, SelectionQueryDto, SelectionResponse,
@@ -266,7 +266,7 @@ fn execute_inner(
     )?;
     if arguments.json {
         to_selection_json_line(&response)
-            .map_err(codesplice_protocol::SelectionProtocolError::into_report)
+            .map_err(srcmv_protocol::SelectionProtocolError::into_report)
     } else {
         render_human(&snapshot.path.value, &matches)
     }
@@ -345,7 +345,7 @@ fn parse_kind(value: Option<&str>) -> Result<Option<KnownSymbolKind>, SelectionE
 }
 
 fn load_optional_configuration() -> Result<Option<UserConfiguration>, SelectionErrorDto> {
-    let explicit = env::var_os(codesplice_lsp::config::CONFIGURATION_PATH_ENVIRONMENT_VARIABLE);
+    let explicit = env::var_os(srcmv_lsp::config::CONFIGURATION_PATH_ENVIRONMENT_VARIABLE);
     let Some(path) = user_configuration_path(explicit.as_deref()) else {
         return Ok(None);
     };
@@ -849,7 +849,7 @@ fn error(code: SelectionErrorCode, message: &'static str) -> SelectionErrorDto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codesplice_lsp::process::{ProcessFault, ProcessWorker};
+    use srcmv_lsp::process::{ProcessFault, ProcessWorker};
 
     #[test]
     fn server_identity_must_be_nonempty_and_bounded_for_the_wire_schema() {

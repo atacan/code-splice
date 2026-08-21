@@ -5,8 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-use codesplice_lsp::process::ProcessSpec;
-use codesplice_test_support::fake_lsp::{FakeLspScenario, run_from_process_args};
+use srcmv_lsp::process::ProcessSpec;
+use srcmv_test_support::fake_lsp::{FakeLspScenario, run_from_process_args};
 
 const FIXTURE_MODE: &str = "--codesplice-lsp-fixture";
 const SLEEP_FOREVER_MODE: &str = "--sleep-forever";

@@ -9,7 +9,7 @@ fn repository_root() -> PathBuf {
 }
 
 fn invoke(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .args(arguments)
         .current_dir(repository_root())
         .output()

@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 
-use codesplice_core::Sha256Digest;
+use srcmv_core::Sha256Digest;
 use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 

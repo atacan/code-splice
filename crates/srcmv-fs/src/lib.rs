@@ -15,7 +15,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use codesplice_core::{
+use srcmv_core::{
     AbsentPathSnapshot, CoreError, FileIdentity, FileSnapshot, LineIndex, Sha256Digest,
     SnapshotFileId, WorkspaceRelativePath, WorkspaceSnapshot,
 };

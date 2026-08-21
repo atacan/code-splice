@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use codesplice_lsp::config::{
+use srcmv_lsp::config::{
     ConfigError, MAX_CONFIGURATION_BYTES, MAX_CONFIGURATION_JSON_BYTES,
     MAX_LANGUAGE_IDENTIFIER_BYTES, MAX_SERVER_ARGUMENT_BYTES, MAX_SERVER_ARGUMENTS,
     MAX_SERVER_ID_BYTES, MAX_SERVER_PROGRAM_BYTES, MAX_TOTAL_SERVER_ARGUMENT_BYTES,

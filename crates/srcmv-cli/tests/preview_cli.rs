@@ -19,7 +19,7 @@ impl TestWorkspace {
     }
 
     fn invoke(&self, arguments: &[&str], request: &Value) -> Output {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
             .arg("--workspace")
             .arg(self.0.path())
             .args(arguments)
@@ -726,7 +726,7 @@ fn human_preview_should_escape_path_controls_and_report_resolved_values() {
 
 #[test]
 fn apply_help_should_document_summary_as_preview_only() {
-    let output = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let output = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .args(["apply", "--help"])
         .output()
         .expect("codesplice help should run");

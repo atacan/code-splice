@@ -1,21 +1,21 @@
 [package]
-name = "codesplice-cli"
+name = "srcmv-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Command-line application for CodeSplice"
+description = "Command-line application for srcmv"
 
 [[bin]]
-name = "codesplice"
+name = "srcmv"
 path = "src/main.rs"
 
 [dependencies]
-codesplice-core = { path = "../codesplice-core" }
-codesplice-fs = { path = "../codesplice-fs" }
-codesplice-lsp = { path = "../codesplice-lsp" }
-codesplice-protocol = { path = "../codesplice-protocol" }
+srcmv-core = { path = "../srcmv-core" }
+srcmv-fs = { path = "../srcmv-fs" }
+srcmv-lsp = { path = "../srcmv-lsp" }
+srcmv-protocol = { path = "../srcmv-protocol" }
 clap.workspace = true
 gen-lsp-types.workspace = true
 serde.workspace = true
@@ -24,7 +24,7 @@ sha2.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-codesplice-test-support = { path = "../codesplice-test-support" }
+srcmv-test-support = { path = "../srcmv-test-support" }
 proptest = "1.7.0"
 tempfile = "3.23.0"
 

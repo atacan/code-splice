@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use codesplice_protocol::parse_request;
+use srcmv_protocol::parse_request;
 use jsonschema::{Registry, Validator};
 use serde_json::{Value, json};
 

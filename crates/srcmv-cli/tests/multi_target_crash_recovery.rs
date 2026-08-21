@@ -3,7 +3,7 @@
 use std::fs;
 use std::process::{Command, Output, Stdio};
 
-use codesplice_fs::decode_manifest_record;
+use srcmv_fs::decode_manifest_record;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
@@ -38,7 +38,7 @@ fn request() -> Value {
 }
 
 fn crash_commit(workspace: &TempDir, failpoint: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args([
@@ -66,7 +66,7 @@ fn crash_commit(workspace: &TempDir, failpoint: &str) -> Output {
 }
 
 fn recover(workspace: &TempDir, transaction_id: &str, action: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args(["recover", transaction_id, action, "--json"])
@@ -80,7 +80,7 @@ fn crash_recovery(
     action: &str,
     failpoint: &str,
 ) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args(["recover", transaction_id, action, "--json"])
@@ -131,7 +131,7 @@ fn status(workspace: &TempDir, transaction_id: &str) -> Value {
     serde_json::from_slice(&output.stdout).expect("status should be JSON")
 }
 
-fn manifest(workspace: &TempDir, transaction_id: &str) -> codesplice_fs::Manifest {
+fn manifest(workspace: &TempDir, transaction_id: &str) -> srcmv_fs::Manifest {
     let bytes = fs::read(
         workspace
             .path()

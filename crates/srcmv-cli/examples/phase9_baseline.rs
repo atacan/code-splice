@@ -6,14 +6,14 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
-use codesplice_core::{
+use srcmv_core::{
     AbsentPathSnapshot, Anchor, BatchSpecification, ByteRange, Destination, EditPlan, FileIdentity,
     FileSnapshot, LineIndex, Operation, OperationSpecification, OutputChange, OutputSegment,
     PlanDigest, PlannedOutput, PlanningUsage, Precondition, ResourceBudget, Selector, Sha256Digest,
     SnapshotFileId, SourceSelection, WorkspaceRelativePath, WorkspaceSnapshot, encode_plan_record,
     plan,
 };
-use codesplice_fs::Workspace;
+use srcmv_fs::Workspace;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

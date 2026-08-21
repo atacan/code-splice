@@ -1,6 +1,6 @@
 //! Property coverage for indexed and streaming line metrics.
 
-use codesplice_core::{ByteRange, LineIndex, LineMetrics};
+use srcmv_core::{ByteRange, LineIndex, LineMetrics};
 use proptest::prelude::*;
 
 fn reference_line_count(bytes: &[u8]) -> u64 {

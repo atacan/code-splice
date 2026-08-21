@@ -3,17 +3,17 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use codesplice_core::LineIndex;
-use codesplice_lsp::position::{PositionConverter, PositionLimits};
-use codesplice_lsp::process::ProcessSpec;
-use codesplice_lsp::session::{
+use srcmv_core::LineIndex;
+use srcmv_lsp::position::{PositionConverter, PositionLimits};
+use srcmv_lsp::process::ProcessSpec;
+use srcmv_lsp::session::{
     ImmutableDocument, SessionDeadlines, SessionInput, SessionLimits, run_session,
 };
-use codesplice_lsp::symbols::{
+use srcmv_lsp::symbols::{
     KnownSymbolKind, MatchMode, SelectionExtent, SymbolLimits, normalize_document_symbols,
     resolve_name,
 };
-use codesplice_lsp::transport::TransportLimits;
+use srcmv_lsp::transport::TransportLimits;
 use gen_lsp_types::WorkspaceFolder;
 use serde_json::json;
 use url::Url;

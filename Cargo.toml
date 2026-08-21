@@ -1,20 +1,20 @@
 [workspace]
 members = [
-    "crates/codesplice-cli",
-    "crates/codesplice-core",
-    "crates/codesplice-fs",
-    "crates/codesplice-lsp",
-    "crates/codesplice-protocol",
-    "crates/codesplice-test-support",
+    "crates/srcmv-cli",
+    "crates/srcmv-core",
+    "crates/srcmv-fs",
+    "crates/srcmv-lsp",
+    "crates/srcmv-protocol",
+    "crates/srcmv-test-support",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
-repository = "https://github.com/atacan/code-splice"
+repository = "https://github.com/atacan/srcmv"
 
 [workspace.dependencies]
 clap = { version = "4.5.46", features = ["derive"] }

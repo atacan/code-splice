@@ -3,7 +3,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use codesplice_fs::{
+use srcmv_fs::{
     CandidateKind, CandidateState, CommitKind, CommitState, FsError, GlobalState, Manifest,
     ManifestInput, ManifestSegment, ManifestTarget, MetadataPolicy, PersistedIdentity,
     RecoveryEntryKind, RollbackKind, RollbackState, StateSnapshot, TargetState, TransactionJournal,

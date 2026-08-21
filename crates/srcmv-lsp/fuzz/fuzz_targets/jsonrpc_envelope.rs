@@ -1,6 +1,6 @@
 #![no_main]
 
-use codesplice_lsp::jsonrpc::{EnvelopeLimits, decode_body};
+use srcmv_lsp::jsonrpc::{EnvelopeLimits, decode_body};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

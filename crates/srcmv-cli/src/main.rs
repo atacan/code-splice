@@ -2,5 +2,5 @@
 //! CodeSplice executable entry point.
 
 fn main() -> std::process::ExitCode {
-    codesplice_cli::run()
+    srcmv_cli::run()
 }

@@ -9,8 +9,8 @@ use std::process::{Command, ExitCode, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use codesplice_fs::Workspace;
-use codesplice_test_support::fake_lsp::run_from_process_args;
+use srcmv_fs::Workspace;
+use srcmv_test_support::fake_lsp::run_from_process_args;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
@@ -185,7 +185,7 @@ fn fake_selection_composes_into_preview() -> Result<(), String> {
         serde_json::to_vec(&request).map_err(display)?,
     )
     .map_err(display)?;
-    let preview = Command::new(codesplice_binary())
+    let preview = Command::new(srcmv_binary())
         .args(["--workspace"])
         .arg(workspace.path())
         .args(["apply", "--request"])
@@ -276,7 +276,7 @@ fn run_unrelated_commit(workspace: &Path) -> Result<(), String> {
         serde_json::to_vec(&request).map_err(display)?,
     )
     .map_err(display)?;
-    let output = Command::new(codesplice_binary())
+    let output = Command::new(srcmv_binary())
         .args(["--workspace"])
         .arg(workspace)
         .args(["apply", "--request"])
@@ -570,7 +570,7 @@ fn extent_controls_final_byte_selector() -> Result<(), String> {
 }
 
 fn help_documents_declaration_lines_extent() -> Result<(), String> {
-    let output = Command::new(codesplice_binary())
+    let output = Command::new(srcmv_binary())
         .args(["select", "--help"])
         .output()
         .map_err(display)?;
@@ -725,7 +725,7 @@ fn write_trusted_config(
 }
 
 fn trusted_selection_command(workspace: &Path, config: &Path, json_output: bool) -> Command {
-    let mut command = Command::new(codesplice_binary());
+    let mut command = Command::new(srcmv_binary());
     command
         .env("CODESPLICE_CONFIG", config)
         .args(["--workspace"])
@@ -834,7 +834,7 @@ fn selection_command_with_query_and_expected(
     let source = workspace.join("source.rs");
     let canonical_source = source.canonicalize().expect("canonical fixture source");
     let uri = url::Url::from_file_path(&canonical_source).expect("absolute fixture URI");
-    let mut command = Command::new(codesplice_binary());
+    let mut command = Command::new(srcmv_binary());
     command
         .args(["--workspace"])
         .arg(workspace)
@@ -861,8 +861,8 @@ fn selection_command_with_query_and_expected(
     command
 }
 
-fn codesplice_binary() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_codesplice"))
+fn srcmv_binary() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_srcmv"))
 }
 
 fn ensure_success(output: &Output, label: &str) -> Result<(), String> {

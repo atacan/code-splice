@@ -1,6 +1,6 @@
 //! Phase 9 record, state-folding, and recovery-classifier fuzz properties.
 
-use codesplice_fs::{
+use srcmv_fs::{
     CandidateKind, CandidateState, CommitKind, CommitState, GlobalState, LocationObservation,
     PersistedIdentity, RollbackKind, RollbackState, StateSnapshot, SyntheticTargetObservation,
     TargetState, classify_recovery, decode_manifest_record, decode_state_record,

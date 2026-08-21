@@ -1,14 +1,14 @@
 [package]
-name = "codesplice-lsp"
+name = "srcmv-lsp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Bounded LSP client and semantic selection for CodeSplice"
+description = "Bounded LSP client and semantic selection for srcmv"
 
 [dependencies]
-codesplice-core = { path = "../codesplice-core" }
+srcmv-core = { path = "../srcmv-core" }
 crossbeam-channel.workspace = true
 directories.workspace = true
 gen-lsp-types.workspace = true
@@ -19,7 +19,7 @@ toml.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-codesplice-test-support = { path = "../codesplice-test-support" }
+srcmv-test-support = { path = "../srcmv-test-support" }
 
 [[test]]
 name = "session_lifecycle"

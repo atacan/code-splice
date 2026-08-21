@@ -3,7 +3,7 @@
 //! Bounded Language Server Protocol support for semantic source selection.
 //!
 //! This crate will own the LSP transport, lifecycle, and conversion from
-//! language-server positions to validated [`codesplice_core::ByteRange`] values.
+//! language-server positions to validated [`srcmv_core::ByteRange`] values.
 
 /// Frozen client capabilities and validated server capability negotiation.
 pub mod capabilities;

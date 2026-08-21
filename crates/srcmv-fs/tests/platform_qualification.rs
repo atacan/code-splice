@@ -1,6 +1,6 @@
 //! Phase 9 qualification checks that must run on each claimed platform row.
 
-use codesplice_fs::{QualifiedFilesystem, Workspace};
+use srcmv_fs::{QualifiedFilesystem, Workspace};
 use tempfile::TempDir;
 
 #[test]

@@ -810,7 +810,7 @@ fn fold_state_chain(
     path: &Path,
     id: &str,
     manifest: &Manifest,
-    manifest_checksum: codesplice_core::Sha256Digest,
+    manifest_checksum: srcmv_core::Sha256Digest,
     state_names: &BTreeMap<u64, String>,
     cumulative: &mut u64,
     limits: TransactionLimits,
@@ -874,7 +874,7 @@ fn validate_manifest_only_entries(
     names: &BTreeSet<String>,
     id: &str,
     manifest: &Manifest,
-    manifest_checksum: codesplice_core::Sha256Digest,
+    manifest_checksum: srcmv_core::Sha256Digest,
     cumulative: &mut u64,
     limits: TransactionLimits,
 ) -> Result<(), FsError> {
@@ -932,7 +932,7 @@ fn validate_active_names(
 
 struct TemporaryContext<'a> {
     manifest: &'a Manifest,
-    manifest_checksum: codesplice_core::Sha256Digest,
+    manifest_checksum: srcmv_core::Sha256Digest,
     last_state: &'a StateSnapshot,
     last_checksum: &'a str,
 }

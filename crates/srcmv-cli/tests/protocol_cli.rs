@@ -27,7 +27,7 @@ fn valid_request() -> Vec<u8> {
 }
 
 fn invoke(arguments: &[&str], stdin: &[u8]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .args(arguments)
         .current_dir(repository_root())
         .stdin(Stdio::piped())

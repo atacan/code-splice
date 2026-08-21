@@ -1,7 +1,7 @@
 #![no_main]
 
-use codesplice_core::ByteRange;
-use codesplice_lsp::symbols::{SelectionExtent, apply_extent};
+use srcmv_core::ByteRange;
+use srcmv_lsp::symbols::{SelectionExtent, apply_extent};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

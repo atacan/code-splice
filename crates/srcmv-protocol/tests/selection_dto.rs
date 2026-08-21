@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use codesplice_protocol::{
+use srcmv_protocol::{
     MAX_RESPONSE_BYTES, SelectionByteSelectorDto, SelectionErrorCode, SelectionErrorDto,
     SelectionExtentDto, SelectionKnownSymbolKindDto, SelectionLspPositionDto, SelectionLspRangeDto,
     SelectionMatchDto, SelectionPositionEncodingDto, SelectionQueryDto, SelectionResponse,
@@ -34,7 +34,7 @@ fn golden(name: &str) -> Value {
         .unwrap_or_else(|error| panic!("{} must contain JSON: {error}", path.display()))
 }
 
-fn digest(value: &str) -> codesplice_core::Sha256Digest {
+fn digest(value: &str) -> srcmv_core::Sha256Digest {
     parse_sha256(value, "test digest").expect("golden digest must parse")
 }
 

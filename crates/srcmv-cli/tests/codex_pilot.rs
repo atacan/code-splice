@@ -73,7 +73,7 @@ fn invoke(
         !arguments.contains(&"--accept-current-plan"),
         "the Phase 10 pilot forbids --accept-current-plan"
     );
-    let mut command = Command::new(env!("CARGO_BIN_EXE_codesplice"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_srcmv"));
     command.arg("--workspace").arg(workspace).args(arguments);
     if let Some(name) = failpoint {
         command

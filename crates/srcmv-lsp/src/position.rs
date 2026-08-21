@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use codesplice_core::{ByteRange, LineIndex};
+use srcmv_core::{ByteRange, LineIndex};
 use gen_lsp_types::{Position, Range};
 
 use crate::capabilities::SupportedPositionEncoding;

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-use codesplice_fs::{
+use srcmv_fs::{
     Manifest, ManifestTarget, MetadataPolicy, PersistedIdentity, TransactionJournal, Workspace,
 };
 use serde_json::Value;
@@ -28,7 +28,7 @@ impl TestWorkspace {
     }
 
     fn invoke(&self, arguments: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_codesplice"))
+        Command::new(env!("CARGO_BIN_EXE_srcmv"))
             .arg("--workspace")
             .arg(self.root.path())
             .args(arguments)

@@ -1,6 +1,6 @@
 //! Exhaustive Phase 5 recovery-classifier tables over synthetic observations.
 
-use codesplice_fs::{
+use srcmv_fs::{
     CandidateKind, CandidateState, CommitKind, CommitState, FsError, GlobalState,
     LocationObservation as L, PersistedIdentity, RollbackKind, RollbackState,
     SyntheticTargetObservation as O, TargetState, classify_recovery,

@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use codesplice_core::{Anchor, Operation, Precondition, Selector};
-use codesplice_protocol::{
+use srcmv_core::{Anchor, Operation, Precondition, Selector};
+use srcmv_protocol::{
     CapabilitiesResponse, ErrorCode, InsertionGroupResponse, MAX_REQUEST_BYTES,
     ProtocolVersionResponse, RequestLimits, ReviewOperationResponse, ReviewOutputResponse,
     ReviewSummaryResponse, WarningCode, WarningDto, parse_request, parse_request_with_limits,

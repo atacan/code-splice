@@ -3,11 +3,11 @@
 use std::fs;
 use std::sync::Arc;
 
-use codesplice_core::{
+use srcmv_core::{
     Anchor, BatchSpecification, Destination, Operation, OperationSpecification, Precondition,
     ResourceBudget, Selector, Sha256Digest, SourceSelection, WorkspaceRelativePath, plan,
 };
-use codesplice_fs::{RequiredPathState, SnapshotLimits, SnapshotRequirement, Workspace};
+use srcmv_fs::{RequiredPathState, SnapshotLimits, SnapshotRequirement, Workspace};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 

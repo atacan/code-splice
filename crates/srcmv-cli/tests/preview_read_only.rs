@@ -5,7 +5,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use codesplice_fs::Workspace;
+use srcmv_fs::Workspace;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
@@ -36,7 +36,7 @@ impl TestWorkspace {
     }
 
     fn invoke(&self, arguments: &[&str], request: Option<&Value>) -> Output {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
             .arg("--workspace")
             .arg(self.0.path())
             .args(arguments)

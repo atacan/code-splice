@@ -14,7 +14,7 @@ fn digest(bytes: &[u8]) -> String {
 }
 
 fn invoke(workspace: &TempDir, arguments: &[&str], request: &Value) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args(arguments)
@@ -38,7 +38,7 @@ fn invoke_with_umask(
     request: &Value,
     umask: &str,
 ) -> Output {
-    let binary = env!("CARGO_BIN_EXE_codesplice");
+    let binary = env!("CARGO_BIN_EXE_srcmv");
     let mut child = Command::new("sh")
         .args(["-c", &format!("umask {umask}; exec \"$0\" \"$@\"")])
         .arg(binary)
@@ -308,7 +308,7 @@ fn single_target_commit_should_reject_a_prelock_plan_identity_change_without_tra
     );
     let ready = workspace.path().join("hook-ready");
     let resume = workspace.path().join("hook-continue");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codesplice"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srcmv"))
         .arg("--workspace")
         .arg(workspace.path())
         .args([

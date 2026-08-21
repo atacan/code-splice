@@ -1,11 +1,11 @@
 [package]
-name = "codesplice-core"
+name = "srcmv-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Pure domain model for CodeSplice"
+description = "Pure domain model for srcmv"
 
 [dependencies]
 sha2.workspace = true

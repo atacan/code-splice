@@ -5,7 +5,7 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use codesplice_lsp::process::{
+use srcmv_lsp::process::{
     ManagedProcess, ProcessError, ProcessEvent, ProcessLimits, ProcessSpec, ProcessWorker,
 };
 
@@ -192,7 +192,7 @@ fn inbound_byte_capacity_accepts_at_limit_and_reports_above() {
     };
     assert!(matches!(
         error.kind,
-        codesplice_lsp::process::ProcessFaultKind::ResourceLimit {
+        srcmv_lsp::process::ProcessFaultKind::ResourceLimit {
             queue: "inbound",
             capacity_bytes: 7,
             ..

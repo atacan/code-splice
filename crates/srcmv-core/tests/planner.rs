@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use codesplice_core::{
+use srcmv_core::{
     AbsentPathSnapshot, Anchor, BatchSpecification, ByteRange, CoreError, Destination,
     FileIdentity, FileSnapshot, LineIndex, Operation, OperationEffect, OperationSpecification,
     OutputChange, OutputSegment, Precondition, ResourceBudget, Selector, Sha256Digest,
@@ -100,7 +100,7 @@ fn batch(operations: Vec<Operation>) -> BatchSpecification {
     }
 }
 
-fn render(plan: &codesplice_core::EditPlan, snapshot: &WorkspaceSnapshot, output: &str) -> Vec<u8> {
+fn render(plan: &srcmv_core::EditPlan, snapshot: &WorkspaceSnapshot, output: &str) -> Vec<u8> {
     let files = snapshot
         .files
         .iter()

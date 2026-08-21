@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use codesplice_core::{
+use srcmv_core::{
     AbsentPathSnapshot, Anchor, ByteRange, EditPlan, FileIdentity, FileSnapshot, LineIndex,
     OperationEffect, OperationKind, OutputChange, OutputSegment, PlanDigest, PlannedOutput,
     PlanningUsage, Precondition, ResolvedOperation, Selector, Sha256Digest, SnapshotFileId,

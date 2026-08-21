@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-use codesplice_core::{FileIdentity, Sha256Digest};
+use srcmv_core::{FileIdentity, Sha256Digest};
 use rustix::fs::CWD;
 use rustix::fs::{RenameFlags, renameat_with};
 use serde::{Deserialize, Serialize};

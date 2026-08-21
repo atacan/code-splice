@@ -5,7 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use codesplice_core::ByteRange;
+use srcmv_core::ByteRange;
 use gen_lsp_types::{DocumentSymbol, Range, SymbolKind};
 use serde_json::Value;
 

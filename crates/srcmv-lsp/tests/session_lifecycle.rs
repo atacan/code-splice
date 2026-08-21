@@ -8,12 +8,12 @@ use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use codesplice_lsp::capabilities::CapabilityError;
-use codesplice_lsp::session::{
+use srcmv_lsp::capabilities::CapabilityError;
+use srcmv_lsp::session::{
     ImmutableDocument, SessionDeadlines, SessionError, SessionInput, SessionLimits, run_session,
 };
-use codesplice_lsp::transport::{TransportError, TransportLimits};
-use codesplice_test_support::fake_lsp::FakeLspScenario;
+use srcmv_lsp::transport::{TransportError, TransportLimits};
+use srcmv_test_support::fake_lsp::FakeLspScenario;
 use gen_lsp_types::{Uri, WorkspaceFolder};
 use serde_json::json;
 use support::{
@@ -130,14 +130,14 @@ fn production_session_executes_planned_matrix() -> Result<(), String> {
 
 fn run_case(
     scenario: FakeLspScenario,
-) -> Result<codesplice_lsp::session::SessionOutput, SessionError> {
+) -> Result<srcmv_lsp::session::SessionOutput, SessionError> {
     run_case_with_limits(scenario, SessionLimits::default())
 }
 
 fn run_case_with_limits(
     scenario: FakeLspScenario,
     limits: SessionLimits,
-) -> Result<codesplice_lsp::session::SessionOutput, SessionError> {
+) -> Result<srcmv_lsp::session::SessionOutput, SessionError> {
     let document_path = repository_fixture("tests/fixtures/lsp/documents/source.rs");
     let text = std::fs::read_to_string(&document_path)
         .map_err(|_| SessionError::InvalidLspPayload("fixture document"))?;
@@ -146,7 +146,7 @@ fn run_case_with_limits(
         .process_spec()
         .map_err(|error| {
             SessionError::Transport(TransportError::Process(
-                codesplice_lsp::process::ProcessError::Spawn(error),
+                srcmv_lsp::process::ProcessError::Spawn(error),
             ))
         })?;
     let short = Duration::from_millis(120);

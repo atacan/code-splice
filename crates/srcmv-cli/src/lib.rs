@@ -17,12 +17,12 @@ use std::sync::OnceLock;
 
 use clap::error::ErrorKind;
 use clap::{ArgAction, Args, Parser, Subcommand};
-use codesplice_core::{Operation, OutputChange, Precondition, ResourceBudget, plan};
-use codesplice_fs::{
+use srcmv_core::{Operation, OutputChange, Precondition, ResourceBudget, plan};
+use srcmv_fs::{
     DiagnosticLock, FsError, InspectedState, RecoveryEntryKind, RequiredPathState, SnapshotLimits,
     SnapshotRequirement, Workspace, capture_startup_umask,
 };
-use codesplice_protocol::{
+use srcmv_protocol::{
     CapabilitiesResponse, CommitResponse, ErrorCode, ErrorDto, InspectPathResponse,
     InspectResponse, MAX_OPERATION_PATHS, MAX_PATH_BYTES, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
     OutputResponse, ProtocolVersionResponse, RecoveryEntryResponse, RecoveryListResponse,
@@ -343,11 +343,11 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             let mut context = BTreeMap::from([("path".to_string(), json!(path))]);
             context.insert(
                 "expected".to_string(),
-                json!(expected.map(codesplice_core::Sha256Digest::to_prefixed_hex)),
+                json!(expected.map(srcmv_core::Sha256Digest::to_prefixed_hex)),
             );
             context.insert(
                 "actual".to_string(),
-                json!(actual.map(codesplice_core::Sha256Digest::to_prefixed_hex)),
+                json!(actual.map(srcmv_core::Sha256Digest::to_prefixed_hex)),
             );
             ErrorDto::new(
                 ErrorCode::PreconditionFailed,
@@ -387,7 +387,7 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             actual,
             limit,
         }
-        | FsError::Core(codesplice_core::CoreError::ResourceLimitExceeded {
+        | FsError::Core(srcmv_core::CoreError::ResourceLimitExceeded {
             resource,
             actual,
             limit,
@@ -467,7 +467,7 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             }
             ErrorDto::new(ErrorCode::IoError, "workspace operation failed", context)
         }
-        FsError::Core(codesplice_core::CoreError::EditConflict {
+        FsError::Core(srcmv_core::CoreError::EditConflict {
             reason,
             operation_index,
         }) => ErrorDto::new(
@@ -478,7 +478,7 @@ fn filesystem_error(error: FsError) -> ErrorDto {
                 ("reason".to_string(), json!(reason)),
             ]),
         ),
-        FsError::Core(codesplice_core::CoreError::HardLinkNotSupported { path, link_count }) => {
+        FsError::Core(srcmv_core::CoreError::HardLinkNotSupported { path, link_count }) => {
             ErrorDto::new(
                 ErrorCode::HardLinkNotSupported,
                 "a changing output has multiple hard links",
@@ -619,7 +619,7 @@ fn execute_recovery(
     ))
 }
 
-fn recovery_entry_response(entry: &codesplice_fs::RecoveryEntry) -> RecoveryEntryResponse {
+fn recovery_entry_response(entry: &srcmv_fs::RecoveryEntry) -> RecoveryEntryResponse {
     RecoveryEntryResponse::new(
         entry.transaction_id(),
         entry.kind().as_str(),
@@ -711,8 +711,8 @@ fn execute_apply(
 
 fn execute_commit(
     workspace: &Workspace,
-    batch: &codesplice_core::BatchSpecification,
-    expected_plan: Option<codesplice_core::Sha256Digest>,
+    batch: &srcmv_core::BatchSpecification,
+    expected_plan: Option<srcmv_core::Sha256Digest>,
     startup_umask: u32,
     json: bool,
 ) -> Result<String, (ErrorDto, bool)> {
@@ -850,8 +850,8 @@ const fn commit_test_hook(_name: &str) -> Result<(), ErrorDto> {
 }
 
 fn expected_plan_mismatch(
-    expected: Option<codesplice_core::Sha256Digest>,
-    actual: codesplice_core::Sha256Digest,
+    expected: Option<srcmv_core::Sha256Digest>,
+    actual: srcmv_core::Sha256Digest,
 ) -> ErrorDto {
     ErrorDto::new(
         ErrorCode::ExpectedPlanMismatch,
@@ -859,7 +859,7 @@ fn expected_plan_mismatch(
         BTreeMap::from([
             (
                 "expected_plan_sha256".to_owned(),
-                json!(expected.map(codesplice_core::Sha256Digest::to_prefixed_hex)),
+                json!(expected.map(srcmv_core::Sha256Digest::to_prefixed_hex)),
             ),
             (
                 "actual_plan_sha256".to_owned(),
@@ -870,8 +870,8 @@ fn expected_plan_mismatch(
 }
 
 fn build_commit_response(
-    snapshot: &codesplice_core::WorkspaceSnapshot,
-    plan: &codesplice_core::EditPlan,
+    snapshot: &srcmv_core::WorkspaceSnapshot,
+    plan: &srcmv_core::EditPlan,
     workspace: &Workspace,
     warnings: Vec<WarningDto>,
     transaction_id: Option<String>,
@@ -949,7 +949,7 @@ fn serialize_commit_response(
 }
 
 fn serialize_preview(
-    response: &codesplice_protocol::PreviewResponse,
+    response: &srcmv_protocol::PreviewResponse,
 ) -> Result<String, (ErrorDto, bool)> {
     let line = to_json_line(response).map_err(|error| (error.into_report(), true))?;
     let actual = u64::try_from(line.len()).unwrap_or(u64::MAX);
@@ -969,7 +969,7 @@ fn enforce_response_bytes(actual: u64) -> Result<(), ErrorDto> {
     }
 }
 
-fn snapshot_requirements(batch: &codesplice_core::BatchSpecification) -> Vec<SnapshotRequirement> {
+fn snapshot_requirements(batch: &srcmv_core::BatchSpecification) -> Vec<SnapshotRequirement> {
     let mut requirements = Vec::with_capacity(batch.operations.len().saturating_mul(2));
     for operation in batch.operations.iter() {
         let specification = match operation {
@@ -1105,7 +1105,7 @@ fn render_error(
         to_json_line(report)
             .and_then(|line| {
                 stdout.write_all(line.as_bytes()).map_err(|_| {
-                    codesplice_protocol::ProtocolError::new(ErrorDto::new(
+                    srcmv_protocol::ProtocolError::new(ErrorDto::new(
                         ErrorCode::InternalError,
                         "failed to write stdout",
                         BTreeMap::new(),
@@ -1132,7 +1132,7 @@ fn render_selection_error(
 ) -> u8 {
     let report = failure.report();
     let written = if failure.json() {
-        match codesplice_protocol::to_selection_json_line(report) {
+        match srcmv_protocol::to_selection_json_line(report) {
             Ok(line) => stdout.write_all(line.as_bytes()).is_ok(),
             Err(_) => false,
         }
