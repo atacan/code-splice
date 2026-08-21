@@ -6,9 +6,9 @@ functions, implementations, and traits before compiling all targets with
 `RUSTFLAGS=-Funsafe-code`.
 
 The no-replace platform boundary is implemented through rustix's safe
-`renameat_with(..., RenameFlags::NOREPLACE)` wrapper. CodeSplice contains no FFI
+`renameat_with(..., RenameFlags::NOREPLACE)` wrapper. srcmv contains no FFI
 or weaker check-then-rename fallback. The wrapper maps collision, cross-device,
-and unavailable-primitive errors to fail-closed CodeSplice errors. Native
+and unavailable-primitive errors to fail-closed srcmv errors. Native
 collision regression tests verify that both source and destination entries remain
 unchanged.
 

@@ -182,81 +182,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "codesplice-cli"
-version = "0.3.0"
-dependencies = [
- "clap",
- "codesplice-core",
- "codesplice-fs",
- "codesplice-lsp",
- "codesplice-protocol",
- "codesplice-test-support",
- "gen-lsp-types",
- "proptest",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "url",
-]
-
-[[package]]
-name = "codesplice-core"
-version = "0.3.0"
-dependencies = [
- "proptest",
- "sha2",
-]
-
-[[package]]
-name = "codesplice-fs"
-version = "0.3.0"
-dependencies = [
- "codesplice-core",
- "getrandom 0.3.4",
- "proptest",
- "rustix",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
-]
-
-[[package]]
-name = "codesplice-lsp"
-version = "0.3.0"
-dependencies = [
- "codesplice-core",
- "codesplice-test-support",
- "crossbeam-channel",
- "directories",
- "gen-lsp-types",
- "rustix",
- "serde",
- "serde_json",
- "toml",
- "url",
-]
-
-[[package]]
-name = "codesplice-protocol"
-version = "0.3.0"
-dependencies = [
- "codesplice-core",
- "jsonschema",
- "proptest",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codesplice-test-support"
-version = "0.3.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1176,6 +1101,81 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "srcmv-cli"
+version = "0.4.0"
+dependencies = [
+ "clap",
+ "gen-lsp-types",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "srcmv-core",
+ "srcmv-fs",
+ "srcmv-lsp",
+ "srcmv-protocol",
+ "srcmv-test-support",
+ "tempfile",
+ "url",
+]
+
+[[package]]
+name = "srcmv-core"
+version = "0.4.0"
+dependencies = [
+ "proptest",
+ "sha2",
+]
+
+[[package]]
+name = "srcmv-fs"
+version = "0.4.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "proptest",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "srcmv-core",
+ "tempfile",
+]
+
+[[package]]
+name = "srcmv-lsp"
+version = "0.4.0"
+dependencies = [
+ "crossbeam-channel",
+ "directories",
+ "gen-lsp-types",
+ "rustix",
+ "serde",
+ "serde_json",
+ "srcmv-core",
+ "srcmv-test-support",
+ "toml",
+ "url",
+]
+
+[[package]]
+name = "srcmv-protocol"
+version = "0.4.0"
+dependencies = [
+ "jsonschema",
+ "proptest",
+ "serde",
+ "serde_json",
+ "srcmv-core",
+]
+
+[[package]]
+name = "srcmv-test-support"
+version = "0.4.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "stable_deref_trait"

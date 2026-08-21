@@ -82,7 +82,7 @@ jobs:
 
           version="$(
             cargo metadata --locked --no-deps --format-version 1 \
-              | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
+              | jq -r '.packages[] | select(.name == "srcmv-cli") | .version'
           )"
           test "$tag" = "v${version}"
           {
@@ -134,14 +134,14 @@ jobs:
         run: scripts/check-examples.sh
 
       - name: Build release binary
-        run: cargo build --locked --release --package codesplice-cli --target "${{ matrix.target }}"
+        run: cargo build --locked --release --package srcmv-cli --target "${{ matrix.target }}"
 
       - name: Verify binary architecture and version
         shell: bash
         run: |
           set -euo pipefail
-          binary="target/${{ matrix.target }}/release/codesplice"
-          test "$("$binary" --version)" = "codesplice ${VERSION}"
+          binary="target/${{ matrix.target }}/release/srcmv"
+          test "$("$binary" --version)" = "srcmv ${VERSION}"
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu)
               file "$binary" | grep -Eq 'ELF 64-bit.*x86-64'
@@ -155,14 +155,14 @@ jobs:
         run: |
           scripts/package-release.sh \
             "${{ matrix.target }}" \
-            "target/${{ matrix.target }}/release/codesplice" \
+            "target/${{ matrix.target }}/release/srcmv" \
             dist
 
       - name: Stage native archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-${{ matrix.target }}
-          path: dist/codesplice-v${{ steps.release.outputs.version }}-${{ matrix.target }}.tar.gz
+          path: dist/srcmv-v${{ steps.release.outputs.version }}-${{ matrix.target }}.tar.gz
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -229,15 +229,15 @@ jobs:
           set -euo pipefail
           version="$(
             cargo metadata --locked --no-deps --format-version 1 \
-              | jq -r '.packages[] | select(.name == "codesplice-cli") | .version'
+              | jq -r '.packages[] | select(.name == "srcmv-cli") | .version'
           )"
           test "${RELEASE_TAG}" = "v${version}"
           test "$(git cat-file -t "refs/tags/${RELEASE_TAG}")" = tag
           test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "${RELEASE_SOURCE_SHA}"
 
           cd dist
-          macos="codesplice-v${version}-aarch64-apple-darwin.tar.gz"
-          linux="codesplice-v${version}-x86_64-unknown-linux-gnu.tar.gz"
+          macos="srcmv-v${version}-aarch64-apple-darwin.tar.gz"
+          linux="srcmv-v${version}-x86_64-unknown-linux-gnu.tar.gz"
           test -f "$macos"
           test -f "$linux"
           test "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l | tr -d ' ')" = 2
@@ -302,12 +302,12 @@ jobs:
           esac
 
           gh release create "$tag" \
-            "dist/codesplice-v${VERSION}-aarch64-apple-darwin.tar.gz" \
-            "dist/codesplice-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            "dist/srcmv-v${VERSION}-aarch64-apple-darwin.tar.gz" \
+            "dist/srcmv-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
             dist/SHA256SUMS \
             --draft \
             --notes-from-tag \
-            --title "CodeSplice ${tag}" \
+            --title "srcmv ${tag}" \
             --verify-tag
 
           actual_assets="$(
@@ -316,8 +316,8 @@ jobs:
           expected_assets="$(
             printf '%s\n' \
               SHA256SUMS \
-              "codesplice-v${VERSION}-aarch64-apple-darwin.tar.gz" \
-              "codesplice-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+              "srcmv-v${VERSION}-aarch64-apple-darwin.tar.gz" \
+              "srcmv-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
               | LC_ALL=C sort
           )"
           test "$actual_assets" = "$expected_assets"
@@ -381,8 +381,8 @@ jobs:
           expected_assets="$({
             printf '%s\n' \
               SHA256SUMS \
-              "codesplice-v${version}-aarch64-apple-darwin.tar.gz" \
-              "codesplice-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
+              "srcmv-v${version}-aarch64-apple-darwin.tar.gz" \
+              "srcmv-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
               | LC_ALL=C sort
           })"
           test "$actual_assets" = "$expected_assets"
@@ -408,7 +408,7 @@ jobs:
             --arg release_url "$RELEASE_URL" \
             --arg source_sha "$RELEASE_SOURCE_SHA" \
             '{
-              event_type: "codesplice_release_published",
+              event_type: "srcmv_release_published",
               client_payload: {
                 version: $version,
                 tag: $tag,

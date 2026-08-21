@@ -1,0 +1,23 @@
+[package]
+name = "srcmv-fs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Filesystem boundary for srcmv"
+
+[dependencies]
+srcmv-core = { path = "../srcmv-core" }
+getrandom.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+proptest = "1.7.0"
+tempfile = "3.23.0"
+
+[lints]
+workspace = true

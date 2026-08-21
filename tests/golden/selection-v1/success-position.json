@@ -48,7 +48,7 @@
   "warnings": [
     {
       "code": "OBSERVATION_MAY_BE_STALE",
-      "message": "no existing CodeSplice lock coordinated this read-only observation",
+      "message": "no existing srcmv lock coordinated this read-only observation",
       "context": {}
     }
   ]

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codesplice.dev/schema/review-summary-v1/schema.json",
-  "title": "CodeSplice review summary v1",
+  "$id": "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/review-summary-v1/schema.json",
+  "title": "srcmv review summary v1",
   "type": "object",
   "additionalProperties": false,
   "required": [

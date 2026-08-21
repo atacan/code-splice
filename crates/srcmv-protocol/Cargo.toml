@@ -1,0 +1,20 @@
+[package]
+name = "srcmv-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Protocol boundary for srcmv"
+
+[dependencies]
+srcmv-core = { path = "../srcmv-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+proptest = "1.7.0"
+
+[lints]
+workspace = true

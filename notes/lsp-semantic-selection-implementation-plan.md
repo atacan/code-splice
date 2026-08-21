@@ -8,9 +8,9 @@ Editing protocol impact: none; protocol v1 `lines` and `bytes` selectors remain 
 
 ## 1. Decision summary
 
-Add a read-only `codesplice select` command that asks an installed language server for document symbols, resolves one symbol to a byte range in an immutable CodeSplice snapshot, and emits a source fragment that can be placed into an ordinary protocol-v1 `move` or `copy` request.
+Add a read-only `srcmv select` command that asks an installed language server for document symbols, resolves one symbol to a byte range in an immutable srcmv snapshot, and emits a source fragment that can be placed into an ordinary protocol-v1 `move` or `copy` request.
 
-The language server identifies structure. CodeSplice remains responsible for:
+The language server identifies structure. srcmv remains responsible for:
 
 - acquiring and hashing the exact source bytes;
 - converting LSP positions to byte offsets;
@@ -21,17 +21,17 @@ The language server identifies structure. CodeSplice remains responsible for:
 
 This feature will use LSP only. It will not bundle grammars, load parser plugins, or provide a parser-based fallback.
 
-Reuse established crates for the standard LSP vocabulary, bounded channel coordination, file-URI construction, and user-configuration plumbing. Keep CodeSplice responsible for the security- and correctness-sensitive boundaries: framed transport, JSON-RPC envelope validation, resource accounting, position conversion, symbol normalization, query resolution, and byte-range validation.
+Reuse established crates for the standard LSP vocabulary, bounded channel coordination, file-URI construction, and user-configuration plumbing. Keep srcmv responsible for the security- and correctness-sensitive boundaries: framed transport, JSON-RPC envelope validation, resource accounting, position conversion, symbol normalization, query resolution, and byte-range validation.
 
 ## 2. Goals
 
 - Select named functions, methods, classes, structs, interfaces, enums, and other standardized LSP symbol kinds.
 - Select the smallest matching declaration that contains a user-provided source position.
 - Work with language servers already installed on the user's machine.
-- Start a private language-server process for CodeSplice instead of attaching to an editor-owned process.
+- Start a private language-server process for srcmv instead of attaching to an editor-owned process.
 - Give agents a deterministic, machine-readable result containing a protocol-v1 byte selector and source SHA-256 precondition.
 - Keep selection read-only and independently versioned from the frozen edit protocol.
-- Preserve CodeSplice's fail-closed behavior for stale files, malformed responses, resource exhaustion, ambiguity, and process failures.
+- Preserve srcmv's fail-closed behavior for stale files, malformed responses, resource exhaustion, ambiguity, and process failures.
 
 ## 3. Non-goals
 
@@ -41,7 +41,7 @@ Reuse established crates for the standard LSP vocabulary, bounded channel coordi
 - Guaranteeing that every installed server implements document symbols consistently.
 - Selecting non-UTF-8 source through LSP.
 - Adding a semantic selector to protocol v1 or changing plan-hash version 1.
-- Maintaining a CodeSplice language-server package registry in the first release.
+- Maintaining a srcmv language-server package registry in the first release.
 - Keeping a language server alive across separate CLI invocations. A daemon may be considered later from measured startup data.
 
 ## 4. User-facing command
@@ -49,8 +49,8 @@ Reuse established crates for the standard LSP vocabulary, bounded channel coordi
 ### 4.1 Query by name
 
 ```console
-codesplice --workspace . select \
-  --path crates/codesplice-protocol/src/lib.rs \
+srcmv --workspace . select \
+  --path crates/srcmv-protocol/src/lib.rs \
   --name parse_request \
   --kind function \
   --json
@@ -61,14 +61,14 @@ Names are exact and case-sensitive in version 1. `--kind` is optional, but omitt
 ### 4.2 Query by containing position
 
 ```console
-codesplice --workspace . select \
-  --path crates/codesplice-protocol/src/lib.rs \
+srcmv --workspace . select \
+  --path crates/srcmv-protocol/src/lib.rs \
   --at-byte 42711 \
   --kind function \
   --json
 ```
 
-`--at-byte` is a zero-based insertion offset into the captured source and is the canonical exact-position interface. For human use, `--at-line` may be combined with `--at-column`; both are one-based, and the column counts Unicode scalar insertion positions rather than bytes or negotiated LSP code units. `--at-column` defaults to 1. CodeSplice converts either input form to a validated snapshot byte offset, independently converts every server range from the negotiated encoding into byte coordinates, and then chooses the smallest converted range containing the query after applying the optional kind filter. The query itself remains in canonical bytes; this preserves EOF queries even when a final line terminator means that EOF has no representable LSP position under CodeSplice's no-phantom-line semantics. The two position forms are mutually exclusive.
+`--at-byte` is a zero-based insertion offset into the captured source and is the canonical exact-position interface. For human use, `--at-line` may be combined with `--at-column`; both are one-based, and the column counts Unicode scalar insertion positions rather than bytes or negotiated LSP code units. `--at-column` defaults to 1. srcmv converts either input form to a validated snapshot byte offset, independently converts every server range from the negotiated encoding into byte coordinates, and then chooses the smallest converted range containing the query after applying the optional kind filter. The query itself remains in canonical bytes; this preserves EOF queries even when a final line terminator means that EOF has no representable LSP position under srcmv's no-phantom-line semantics. The two position forms are mutually exclusive.
 
 User-supplied byte, line, and scalar-column positions must be in range and are never clamped. Clamping described later applies only when normalizing server-returned LSP positions according to the LSP contract.
 
@@ -77,7 +77,7 @@ User-supplied byte, line, and scalar-column positions must be in range and are n
 The safe escape hatch is explicit and does not invoke a shell:
 
 ```console
-codesplice --workspace . select \
+srcmv --workspace . select \
   --path src/lib.rs \
   --name run \
   --server-program rust-analyzer \
@@ -91,7 +91,7 @@ codesplice --workspace . select \
 Resolution precedence is:
 
 1. explicit `--server-id` or `--server-program`, arguments, and language ID;
-2. trusted user-level CodeSplice configuration;
+2. trusted user-level srcmv configuration;
 3. a small built-in table of conventional executable names and language IDs;
 4. otherwise fail with `LSP_SERVER_NOT_CONFIGURED` and show an example configuration.
 
@@ -127,7 +127,7 @@ Example successful response:
   "selection_protocol_version": 1,
   "workspace_identity_hash": "sha256:...",
   "source": {
-    "path": "crates/codesplice-protocol/src/lib.rs",
+    "path": "crates/srcmv-protocol/src/lib.rs",
     "sha256": "sha256:...",
     "byte_length": 81234
   },
@@ -161,7 +161,7 @@ Example successful response:
       "selected_payload_sha256": "sha256:...",
       "selected_byte_length": 1693,
       "request_source": {
-        "path": "crates/codesplice-protocol/src/lib.rs",
+        "path": "crates/srcmv-protocol/src/lib.rs",
         "selector": {"kind": "bytes", "start": 42100, "end": 43793},
         "precondition": {"kind": "sha256", "value": "sha256:..."}
       }
@@ -171,13 +171,13 @@ Example successful response:
 }
 ```
 
-`lsp_range` and `lsp_selection_range` preserve the raw zero-based coordinates from `DocumentSymbol.range` and `DocumentSymbol.selectionRange` for audit. Both ranges are validated and converted, but declaration selection uses the enclosing `lsp_range`. The byte selector is the authoritative CodeSplice coordinate.
+`lsp_range` and `lsp_selection_range` preserve the raw zero-based coordinates from `DocumentSymbol.range` and `DocumentSymbol.selectionRange` for audit. Both ranges are validated and converted, but declaration selection uses the enclosing `lsp_range`. The byte selector is the authoritative srcmv coordinate.
 
 The emitted `matches[0].request_source` is directly composable, without field transformation, into the `source` member of an ordinary edit request:
 
 ```json
 {
-  "path": "crates/codesplice-protocol/src/lib.rs",
+  "path": "crates/srcmv-protocol/src/lib.rs",
   "selector": {"kind": "bytes", "start": 42100, "end": 43793},
   "precondition": {"kind": "sha256", "value": "sha256:..."}
 }
@@ -185,7 +185,7 @@ The emitted `matches[0].request_source` is directly composable, without field tr
 
 The top-level source and per-match selector remain useful for review, while `request_source` is the copy-ready protocol-v1 fragment. Golden composition tests must insert it unchanged into a complete edit request and successfully parse and preview that request. Do not place server command lines, initialization options, stderr, absolute workspace paths, or file contents in the JSON response.
 
-The `warnings` array reuses the existing frozen `WarningDto` only for warnings already defined by CodeSplice, initially `OBSERVATION_MAY_BE_STALE` from snapshot acquisition. Selection v1 introduces no new warning codes. Any future selection-specific warning requires an explicit selection-contract revision rather than modifying the frozen edit warning registry.
+The `warnings` array reuses the existing frozen `WarningDto` only for warnings already defined by srcmv, initially `OBSERVATION_MAY_BE_STALE` from snapshot acquisition. Selection v1 introduces no new warning codes. Any future selection-specific warning requires an explicit selection-contract revision rather than modifying the frozen edit warning registry.
 
 ## 6. Declaration extent
 
@@ -207,7 +207,7 @@ Selection v1 therefore defines two language-independent extents:
 
 The response reports the original LSP range, selected extent, and final byte selector so preview remains auditable. `--extent symbol` exposes the unexpanded behavior.
 
-No language-specific comment, decorator, or attribute inference is performed. CodeSplice relies on the server's symbol range for those constructs.
+No language-specific comment, decorator, or attribute inference is performed. srcmv relies on the server's symbol range for those constructs.
 
 ## 7. Workspace integration
 
@@ -225,7 +225,7 @@ pub fn acquire_existing_snapshot(
 
 It must reuse the existing normalized path walk, stable-read retry, alias detection, file-type checks, line index, identity retention, and resource accounting. It must fail when a requested path is absent. This avoids the inefficient `inspect`-then-conditioned-snapshot double read.
 
-The CLI acquires the diagnostic lock, scans recovery state, captures the source snapshot, and then releases the lock before starting an external process. The captured bytes, digest, identities, and observation warnings remain immutable inputs to selection. A slow or indexing language server therefore cannot make unrelated CodeSplice commits fail with `TRANSACTION_BUSY`; staleness after capture is handled by the emitted SHA-256 precondition. Add a concurrency test in which a slow fake server does not block a CodeSplice commit after snapshot capture.
+The CLI acquires the diagnostic lock, scans recovery state, captures the source snapshot, and then releases the lock before starting an external process. The captured bytes, digest, identities, and observation warnings remain immutable inputs to selection. A slow or indexing language server therefore cannot make unrelated srcmv commits fail with `TRANSACTION_BUSY`; staleness after capture is handled by the emitted SHA-256 precondition. Add a concurrency test in which a slow fake server does not block a srcmv commit after snapshot capture.
 
 ### 7.2 Exact server input
 
@@ -236,11 +236,11 @@ Initialize the server with the canonical configured project root as both `rootUr
 - a fixed document version for the session; and
 - the exact UTF-8 snapshot text.
 
-Language features must be requested for the synchronized document. Do not rely only on the language server rereading the disk path. The source SHA in the response always refers to the CodeSplice snapshot, regardless of later workspace changes.
+Language features must be requested for the synchronized document. Do not rely only on the language server rereading the disk path. The source SHA in the response always refers to the srcmv snapshot, regardless of later workspace changes.
 
 Before sending `didOpen`, require usable synchronization capability. Accept legacy `TextDocumentSyncKind::Full` and `Incremental`. For `TextDocumentSyncOptions`, require `openClose: true`; reject `None`, omitted synchronization, or `openClose: false` with `LSP_DOCUMENT_SYNC_UNAVAILABLE`. Tests must prove the server receives the captured text when the disk file changes after capture.
 
-The consistency model is intentionally mixed-time. The selected document bytes are immutable, hashed, and sent exactly through `didOpen`, but after CodeSplice releases its diagnostic lock the language server may read project configuration, imports, macros, generated sources, or other workspace files from their current live state. Those observations may influence the server's semantic interpretation, but they cannot change the captured bytes or bypass range validation and the emitted SHA-256 precondition. Document this distinction; do not hold the diagnostic lock for the lifetime of the language server.
+The consistency model is intentionally mixed-time. The selected document bytes are immutable, hashed, and sent exactly through `didOpen`, but after srcmv releases its diagnostic lock the language server may read project configuration, imports, macros, generated sources, or other workspace files from their current live state. Those observations may influence the server's semantic interpretation, but they cannot change the captured bytes or bypass range validation and the emitted SHA-256 precondition. Document this distinction; do not hold the diagnostic lock for the lifetime of the language server.
 
 ### 7.3 Existing edit workflow
 
@@ -254,14 +254,14 @@ If the source changes after selection, the ordinary SHA-256 precondition rejects
 
 ## 8. Rust crate and module design
 
-### 8.1 New `codesplice-lsp` crate
+### 8.1 New `srcmv-lsp` crate
 
 Add a workspace library crate with `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]`.
 
 Suggested modules:
 
 ```text
-crates/codesplice-lsp/src/
+crates/srcmv-lsp/src/
   lib.rs
   config.rs       # validated server descriptors and language matching
   error.rs        # typed LspError and SelectionError
@@ -273,7 +273,7 @@ crates/codesplice-lsp/src/
   resolve.rs      # query filtering, ambiguity, extent, deterministic ordering
 ```
 
-Keep this crate independent of `codesplice-fs`. It accepts borrowed snapshot bytes and a canonical URI, and returns typed matches containing `codesplice_core::ByteRange`. Filesystem access and protocol rendering remain CLI concerns.
+Keep this crate independent of `srcmv-fs`. It accepts borrowed snapshot bytes and a canonical URI, and returns typed matches containing `srcmv_core::ByteRange`. Filesystem access and protocol rendering remain CLI concerns.
 
 Use a concrete LSP client implementation internally. Do not introduce trait objects merely for hypothetical alternate parsers or transports. A narrow test-only transport trait is acceptable if it materially simplifies deterministic unit tests; prefer generics at that seam.
 
@@ -288,24 +288,24 @@ Use focused dependencies instead of implementing standard protocol vocabulary an
 - `directories` for platform user-configuration directory discovery; and
 - `std::os::unix::process::CommandExt::process_group(0)` for safe process-group creation and the workspace's existing `rustix` dependency for process-group signalling.
 
-Phase 0 qualifies and exactly pins `gen-lsp-types` 0.11.0 with its `url` feature, `crossbeam-channel` 0.5.16, `url` 2.5.8 with Serde, `toml` 1.1.4 (published as `1.1.4+spec-1.1.0`), and `directories` 6.0.0. Compatibility tests deserialize and reserialize the actual frozen JSONL initialization and document-symbol transcripts to structurally identical JSON; these fixture shapes require no optional/default-field normalization. The generated URI is directly `url::Url`, hierarchical and flat document-symbol responses remain distinguishable, synchronization supports both options and legacy kinds, and future numeric symbol kinds round-trip as `SymbolKind::Custom(u32)`. No CodeSplice-owned wire DTO is currently required for these fields. Keep `gen-lsp-types` exactly pinned because it is generated from an evolving metamodel. If a later generated field prevents tolerant handling, add the smallest possible CodeSplice-owned wire DTO for that field or response union; do not fork or duplicate the whole LSP type model.
+Phase 0 qualifies and exactly pins `gen-lsp-types` 0.11.0 with its `url` feature, `crossbeam-channel` 0.5.16, `url` 2.5.8 with Serde, `toml` 1.1.4 (published as `1.1.4+spec-1.1.0`), and `directories` 6.0.0. Compatibility tests deserialize and reserialize the actual frozen JSONL initialization and document-symbol transcripts to structurally identical JSON; these fixture shapes require no optional/default-field normalization. The generated URI is directly `url::Url`, hierarchical and flat document-symbol responses remain distinguishable, synchronization supports both options and legacy kinds, and future numeric symbol kinds round-trip as `SymbolKind::Custom(u32)`. No srcmv-owned wire DTO is currently required for these fields. Keep `gen-lsp-types` exactly pinned because it is generated from an evolving metamodel. If a later generated field prevents tolerant handling, add the smallest possible srcmv-owned wire DTO for that field or response union; do not fork or duplicate the whole LSP type model.
 
 The parsing boundary is:
 
 ```text
-bounded CodeSplice JSON-RPC envelope
+bounded srcmv JSON-RPC envelope
   -> generated standard LSP types
-  -> CodeSplice validation and normalization
+  -> srcmv validation and normalization
   -> validated internal symbols and byte ranges
 ```
 
-Do not use `lsp-server` for transport: its general-purpose framing does not expose the incremental header and frame limits required here. Do not use a text-document helper for position conversion because CodeSplice's exact LF, CRLF, lone-CR, Unicode-boundary, and fail-closed semantics are part of the selection contract. Do not add `async-lsp` or an async runtime unless measurements justify an explicit architecture change and its resource/lifecycle behavior is re-audited.
+Do not use `lsp-server` for transport: its general-purpose framing does not expose the incremental header and frame limits required here. Do not use a text-document helper for position conversion because srcmv's exact LF, CRLF, lone-CR, Unicode-boundary, and fail-closed semantics are part of the selection contract. Do not add `async-lsp` or an async runtime unless measurements justify an explicit architecture change and its resource/lifecycle behavior is re-audited.
 
 `process-wrap` is not needed for the currently qualified Linux and macOS targets. Re-evaluate it, particularly its Windows Job Object support, only as part of a separately qualified Windows port.
 
 `cargo-fuzz` is development tooling rather than a shipped dependency. Add non-gating fuzz targets early for byte-stream and conversion boundaries; its nightly Rust and Unix-like platform requirements must not affect the stable workspace build or the normal cross-platform test suite. Minimize discovered failures and check them into the existing deterministic fuzz-regression corpus.
 
-### 8.3 `codesplice-protocol` additions
+### 8.3 `srcmv-protocol` additions
 
 Add `SelectionResponse` and a concrete `SelectionErrorDto`, strict serialization tests, schemas, and golden vectors. These types are independent of `ProtocolVersionResponse`, `CapabilitiesResponse::v0_1_0`, edit `ErrorDto`, edit `ErrorCode`, and protocol-v1 request parsing. Do not generalize the frozen edit error types solely to reuse them here.
 
@@ -347,7 +347,7 @@ Top-level Clap grammar failures remain the existing global `INVALID_CLI` behavio
 Add `Command::Select(SelectArgs)` and route it to a dedicated module:
 
 ```text
-crates/codesplice-cli/src/select.rs
+crates/srcmv-cli/src/select.rs
 ```
 
 The module owns orchestration only:
@@ -357,7 +357,7 @@ The module owns orchestration only:
 3. capture one existing source file;
 4. retain the captured observation warnings and release the diagnostic lock;
 5. load and resolve the server configuration;
-6. call `codesplice-lsp`;
+6. call `srcmv-lsp`;
 7. digest each final selected range;
 8. build the selection-v1 response, enforce response limits, and render JSON or human output.
 
@@ -377,7 +377,7 @@ Use `std::process::Command` with piped stdin, stdout, and stderr. The initial im
 - on supported Unix platforms, the direct server starts in a dedicated process group; and
 - an explicit fallible lifecycle method terminates or waits for the process before joining all I/O threads, while `Drop` provides only bounded best-effort cleanup.
 
-On normal completion, send `shutdown`, wait for its response, queue `exit`, and drop the outbound sender. Until the shutdown deadline, observe writer completion and direct-child exit without performing a blocking join. If the deadline expires, terminate the dedicated process group. On any failure, drop all channel senders and the inbound receiver so blocked queue operations wake, terminate the process group immediately, and skip the graceful wait. In every path, wait for and reap the direct child before joining the writer, stdout-reader, and stderr-reader threads; reaping closes the child-side pipes and unblocks pending I/O. The process-group boundary covers ordinary wrapper-spawned helpers; CodeSplice cannot guarantee cleanup of a malicious or independently daemonized descendant, which remains inside the trusted-language-server boundary. Test a fake server that spawns a child and ignores shutdown.
+On normal completion, send `shutdown`, wait for its response, queue `exit`, and drop the outbound sender. Until the shutdown deadline, observe writer completion and direct-child exit without performing a blocking join. If the deadline expires, terminate the dedicated process group. On any failure, drop all channel senders and the inbound receiver so blocked queue operations wake, terminate the process group immediately, and skip the graceful wait. In every path, wait for and reap the direct child before joining the writer, stdout-reader, and stderr-reader threads; reaping closes the child-side pipes and unblocks pending I/O. The process-group boundary covers ordinary wrapper-spawned helpers; srcmv cannot guarantee cleanup of a malicious or independently daemonized descendant, which remains inside the trusted-language-server boundary. Test a fake server that spawns a child and ignores shutdown.
 
 Crossbeam may choose nondeterministically when several channel operations become ready simultaneously. Channel scheduling must not decide an externally visible selection error. At every orchestration wake-up, drain the already-ready events and apply this precedence before producing a result for the current lifecycle phase:
 
@@ -427,7 +427,7 @@ While waiting for a response, the client must continue consuming notifications a
 - `workspace/workspaceFolders`: return the single configured project root;
 - `workspace/configuration`: return exactly one bounded result per request item by resolving its optional `section` against configured settings;
 - `window/showMessageRequest`: return `null`;
-- `workspace/applyEdit`: return `{ "applied": false, "failureReason": "CodeSplice selection is read-only" }`;
+- `workspace/applyEdit`: return `{ "applied": false, "failureReason": "srcmv selection is read-only" }`;
 - unknown requests: return JSON-RPC `MethodNotFound`.
 
 Bound and ignore ordinary logging, diagnostics, telemetry, and progress notifications unless needed for a useful error tail. A language server must never be allowed to turn selection into an edit.
@@ -473,7 +473,7 @@ Requirements:
 - Convert every candidate before filtering by containing position so malformed server output cannot hide behind a query filter.
 - Charge conversion work and candidate storage against explicit limits.
 
-Reuse or extend `codesplice_core::LineIndex` for physical line boundaries. Keep the focused UTF-8/UTF-16/UTF-32 code-unit scanner in `codesplice-lsp::position`, where it can be exhaustively tested without filesystem access. Do not delegate this contract to a text-document library with different rounding or line-ending behavior.
+Reuse or extend `srcmv_core::LineIndex` for physical line boundaries. Keep the focused UTF-8/UTF-16/UTF-32 code-unit scanner in `srcmv-lsp::position`, where it can be exhaustively tested without filesystem access. Do not delegate this contract to a text-document library with different rounding or line-ending behavior.
 
 ## 11. Symbol resolution
 
@@ -526,12 +526,12 @@ Validation rules:
 - the complete configuration file has a byte and nesting-depth limit;
 - timeouts have conservative lower and upper limits;
 - duplicate extension matches require explicit `--server-id` selection;
-- `project_root` is a normalized workspace-relative directory whose canonical target must remain inside the CodeSplice workspace;
+- `project_root` is a normalized workspace-relative directory whose canonical target must remain inside the srcmv workspace;
 - `allow_workspace_program` defaults to false and is permitted only in a trusted user descriptor;
 - environment replacement is not supported initially; a small allowlisted environment overlay may be added later;
 - no secrets or configuration contents are echoed in normal responses.
 
-Use `$CODESPLICE_CONFIG` when explicitly set; otherwise use `directories` to resolve the platform user-configuration directory and append the documented CodeSplice configuration filename. Preserve the expected Linux and macOS paths in compatibility tests. Configuration loading must not create directories or files. Parse the bounded document with `toml` and Serde, then apply the CodeSplice validation and trust rules above. After `initialized`, send `workspace/didChangeConfiguration` when settings are configured. For `workspace/configuration`, resolve each requested section independently.
+Use `$SRCMV_CONFIG` when explicitly set; otherwise use `directories` to resolve the platform user-configuration directory and append the documented srcmv configuration filename. Preserve the expected Linux and macOS paths in compatibility tests. Configuration loading must not create directories or files. Parse the bounded document with `toml` and Serde, then apply the srcmv validation and trust rules above. After `initialized`, send `workspace/didChangeConfiguration` when settings are configured. For `workspace/configuration`, resolve each requested section independently.
 
 Executable discovery rules are:
 
@@ -539,7 +539,7 @@ Executable discovery rules are:
 - ignore empty and relative `PATH` entries during automatic discovery;
 - resolve the executable before changing the child's working directory;
 - require the resolved target to be a regular executable file;
-- reject any automatically resolved executable whose canonical path is inside the CodeSplice workspace; built-in descriptors can never override this; and
+- reject any automatically resolved executable whose canonical path is inside the srcmv workspace; built-in descriptors can never override this; and
 - allow relative or workspace-local executables only through explicit `--server-program` or a trusted user descriptor with `allow_workspace_program = true`.
 
 Add PATH-poisoning tests, including `.`, an empty `PATH` component, an absolute workspace `bin` entry, and a workspace executable shadowing a system server. Automatic discovery must skip or reject every workspace-local candidate.
@@ -547,7 +547,7 @@ Add PATH-poisoning tests, including `.`, an empty `PATH` component, an absolute 
 A read-only diagnostic command may be designed after selection v1 ships; it is not part of the implementation phases in this plan. A likely shape is:
 
 ```console
-codesplice lsp doctor --path src/lib.rs --json
+srcmv lsp doctor --path src/lib.rs --json
 ```
 
 It would report which descriptor matched, whether the executable resolved, its reported server name/version after initialization, negotiated encoding, and document-symbol capability. It must not open or inspect unrelated source files.
@@ -567,7 +567,7 @@ The first release ships a deliberately small built-in descriptor table only for 
 
 Do not guess a language for ambiguous header extensions such as `h`; require `--server-id` or an explicit descriptor. A built-in descriptor is convenience metadata, not a bundled server or a support guarantee. Explicit CLI and trusted user descriptors remain the compatibility escape hatch.
 
-The default user configuration path is the `directories::BaseDirs` configuration directory followed by `codesplice/config.toml`. This yields `$XDG_CONFIG_HOME/codesplice/config.toml` or the standard Linux fallback and `~/Library/Application Support/codesplice/config.toml` on macOS. `$CODESPLICE_CONFIG` overrides it exactly.
+The default user configuration path is the `directories::BaseDirs` configuration directory followed by `srcmv/config.toml`. This yields `$XDG_CONFIG_HOME/srcmv/config.toml` or the standard Linux fallback and `~/Library/Application Support/srcmv/config.toml` on macOS. `$SRCMV_CONFIG` overrides it exactly.
 
 ## 13. Resource limits and security
 
@@ -626,7 +626,7 @@ Security rules:
 - never launch through a shell;
 - do not automatically trust workspace-local executable configuration;
 - drop or reject inherited environment variables only if a documented compatibility study supports doing so; otherwise inherit the environment and document the trusted-local-server assumption;
-- set the child working directory to the canonical configured project root, which is constrained inside the CodeSplice workspace;
+- set the child working directory to the canonical configured project root, which is constrained inside the srcmv workspace;
 - construct canonical project-root and source `file:` URIs with a proven URI implementation rather than hand-written percent encoding; test spaces, `#`, `%`, and non-ASCII path components;
 - reject `workspace/applyEdit` and any other server request that would mutate user files;
 - redact absolute paths and bounded stderr from structured errors;
@@ -636,7 +636,7 @@ Security rules:
 
 ## 14. Error handling
 
-`codesplice-lsp` exposes typed library errors using `Result<T, LspError>` and `Result<T, SelectionError>`. Do not use `anyhow` or erased boxed errors in library APIs. Production paths must not use `unwrap`, `expect`, or panic for malformed external input.
+`srcmv-lsp` exposes typed library errors using `Result<T, LspError>` and `Result<T, SelectionError>`. Do not use `anyhow` or erased boxed errors in library APIs. Production paths must not use `unwrap`, `expect`, or panic for malformed external input.
 
 Errors should retain structured, non-sensitive context such as:
 
@@ -658,14 +658,14 @@ Do not retain source text, complete server stderr, initialization options, envir
 - [x] Run the dependency compatibility spike for `gen-lsp-types`, `url`, `crossbeam-channel`, `toml`, and `directories`; select and pin qualified versions.
 - [x] Verify unknown `SymbolKind` handling and introduce only narrowly scoped tolerant wire DTOs where generated types cannot preserve the required behavior.
 - [x] Add selection-v1 schemas and hand-authored golden examples.
-- [x] Add a fake language-server fixture executable to `codesplice-test-support`.
+- [x] Add a fake language-server fixture executable to `srcmv-test-support`.
 - [x] Freeze representative JSON-RPC transcripts for initialization, configuration, document synchronization, document symbols, and shutdown.
 
 Exit criterion: the external behavior is reviewable before production implementation begins.
 
 ### Phase 1: framed transport and process lifecycle
 
-- [x] Add `codesplice-lsp` and workspace dependencies.
+- [x] Add `srcmv-lsp` and workspace dependencies.
 - [x] Implement separately bounded inbound/outbound `Content-Length` framing, incremental header-limit enforcement, bounded Crossbeam channels, a writer thread, deterministic simultaneous-event precedence, and exact outbound-message preflight.
 - [x] Implement request IDs, response correlation, stderr draining, deadlines, dedicated process groups, thread joins, child reaping, and transport-level graceful/forced cleanup.
 - [x] Implement stateful server-request dispatch, per-selection request/notification rate limits, and protocol-level `shutdown`/`exit` in the Phase 2 session client.
@@ -698,7 +698,7 @@ up all 25 fake-server lifecycle variants. The phase gate requires independent
 review plus green workspace-wide tests, Clippy, rustdoc, formatting, and diff
 checks.
 
-Exit criterion: CodeSplice can negotiate capabilities and open a captured document against the fake server.
+Exit criterion: srcmv can negotiate capabilities and open a captured document against the fake server.
 
 ### Phase 3: position conversion and symbol resolution
 
@@ -723,7 +723,7 @@ Exit criterion: every accepted match yields a validated, nonempty `ByteRange` ov
 
 - [x] Add single-read unconditioned existing-file snapshot acquisition.
 - [x] Add `Command::Select`, argument validation, configuration loading, and server discovery.
-- [x] Release the diagnostic context after snapshot capture and prove a slow server does not block a later CodeSplice commit.
+- [x] Release the diagnostic context after snapshot capture and prove a slow server does not block a later srcmv commit.
 - [x] Compute source and selected-payload digests.
 - [x] Render selection-v1 JSON and human output, including both raw LSP ranges, with exact response limits.
 
@@ -731,7 +731,7 @@ Checkpoint: the CLI captures one stable file snapshot while holding the
 diagnostic context, releases that context before process launch, and sends the
 captured UTF-8 bytes through `didOpen`. A delayed fake-server test changes the
 selected file after capture, verifies the server still receives the original
-text, and completes an unrelated CodeSplice commit while selection is active.
+text, and completes an unrelated srcmv commit while selection is active.
 The emitted `request_source` is copied unchanged into a protocol-v1 request and
 successfully previewed. Trusted configuration and built-in discovery reject
 relative, empty, and workspace-local automatic `PATH` candidates; explicit
@@ -763,7 +763,7 @@ reports process-start-through-initialize, document-symbol, and shutdown timing;
 the host qualification run completed successfully with installed `clangd`, while
 fake servers remain the correctness oracle.
 
-Exit criterion: all failure modes are typed, bounded, deterministic, and leave the workspace untouched by CodeSplice.
+Exit criterion: all failure modes are typed, bounded, deterministic, and leave the workspace untouched by srcmv.
 
 ### Phase 6: documentation and release
 
@@ -798,12 +798,12 @@ Exit criterion: a user can configure an installed server, select a symbol, previ
 
 The first release is complete when all of the following are true:
 
-1. No grammar or parser is bundled or required by CodeSplice.
+1. No grammar or parser is bundled or required by srcmv.
 2. A configured installed LSP server can resolve a named or containing declaration.
 3. The result contains a validated protocol-v1 byte selector and source SHA-256.
 4. Unicode and line-ending conversions are exact and exhaustively tested.
 5. Ambiguity, unsupported capabilities, malformed responses, timeouts, and server exits fail closed.
-6. Selection never accepts a server-requested edit and never mutates through CodeSplice.
+6. Selection never accepts a server-requested edit and never mutates through srcmv.
 7. Protocol v1, plan-hash version 1, transaction records, and frozen capability output are byte-for-byte unchanged.
 8. The direct server and ordinary same-process-group descendants terminate, all I/O threads join, and the direct child is reaped on success and failure.
 9. Existing format, Clippy, test, build, golden-vector, and platform qualification suites remain green.

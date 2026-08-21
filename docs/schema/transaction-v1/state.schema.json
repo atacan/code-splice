@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codesplice.dev/schema/transaction-v1/state.schema.json",
-  "title": "CodeSplice transaction state v1",
+  "$id": "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/transaction-v1/state.schema.json",
+  "title": "srcmv transaction state v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["transaction_version", "sequence", "manifest_checksum", "prior_state_checksum", "global_state", "targets"],

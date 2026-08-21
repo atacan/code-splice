@@ -8,7 +8,7 @@ The runner sends the checked-in JSON through standard input to demonstrate
 `--request -`:
 
 ```bash
-codesplice --workspace examples/.work/02-copy-bytes-new-file/workspace apply \
+srcmv --workspace examples/.work/02-copy-bytes-new-file/workspace apply \
   --request - --preview --json < examples/02-copy-bytes-new-file/request.json
 ```
 
@@ -19,5 +19,5 @@ plus the created destination:
 examples/run.sh 02-copy-bytes-new-file
 ```
 
-CodeSplice creates the file, not its parent directory. The parent must already
+srcmv creates the file, not its parent directory. The parent must already
 exist. A new file receives `0666 & !startup_umask`.

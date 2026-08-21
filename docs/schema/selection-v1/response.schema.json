@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codesplice.dev/schema/selection-v1/response.schema.json",
-  "title": "CodeSplice semantic selection protocol v1 success response",
+  "$id": "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/selection-v1/response.schema.json",
+  "title": "srcmv semantic selection protocol v1 success response",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -239,7 +239,7 @@
         "selected_payload_sha256": { "$ref": "#/$defs/digest" },
         "selected_byte_length": { "$ref": "#/$defs/positive_u64" },
         "request_source": {
-          "$ref": "https://codesplice.dev/schema/v1/request.schema.json#/$defs/source"
+          "$ref": "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/v1/request.schema.json#/$defs/source"
         }
       }
     },

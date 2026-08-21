@@ -23,7 +23,7 @@ case "$operating_system/$architecture" in
     ;;
 esac
 
-pilot_root="${CODESPLICE_PILOT_ROOT:-$repository_root/target/phase10-pilot}"
+pilot_root="${SRCMV_PILOT_ROOT:-$repository_root/target/phase10-pilot}"
 test "$(basename "$pilot_root")" = phase10-pilot
 scenario_fifteen="$pilot_root/scenario-15"
 cross_device="$scenario_fifteen/external"
@@ -47,26 +47,26 @@ trap cleanup_cross_device EXIT
 
 case "$operating_system" in
   Linux)
-    mount -t tmpfs -o size=16m codesplice-phase10 "$cross_device"
+    mount -t tmpfs -o size=16m srcmv-phase10 "$cross_device"
     ;;
   Darwin)
     image="$pilot_root/cross-device.dmg"
     if test -e "$image"; then
       rm -f "$image"
     fi
-    hdiutil create -quiet -size 16m -fs APFS -volname codesplice-phase10 "$image"
+    hdiutil create -quiet -size 16m -fs APFS -volname srcmv-phase10 "$image"
     hdiutil attach "$image" -quiet -nobrowse -mountpoint "$cross_device"
     ;;
 esac
 
-export CODESPLICE_PILOT_ROOT="$pilot_root"
-export CODESPLICE_PILOT_CROSS_DEVICE="$cross_device"
-export CODESPLICE_PILOT_BASELINE="$(git rev-parse HEAD)"
-export CODESPLICE_PILOT_OS="$operating_system"
-export CODESPLICE_PILOT_ARCH="$architecture"
-export CODESPLICE_PILOT_FILESYSTEM="$filesystem"
+export SRCMV_PILOT_ROOT="$pilot_root"
+export SRCMV_PILOT_CROSS_DEVICE="$cross_device"
+export SRCMV_PILOT_BASELINE="$(git rev-parse HEAD)"
+export SRCMV_PILOT_OS="$operating_system"
+export SRCMV_PILOT_ARCH="$architecture"
+export SRCMV_PILOT_FILESYSTEM="$filesystem"
 
-cargo test -p codesplice-cli --test codex_pilot -- --ignored --exact \
+cargo test -p srcmv-cli --test codex_pilot -- --ignored --exact \
   codex_pilot_should_pass_all_fifteen_scenarios --nocapture
 
 test -s "$pilot_root/evidence.json"

@@ -1,7 +1,7 @@
 # Plan-hash version 1 golden vector
 
 `all-discriminants.cbor.hex` is the exact deterministic CBOR payload hashed after
-the ASCII domain prefix `CODESPLICE-PLAN-V1\0`. Whitespace and `#` comments are
+the ASCII domain prefix `SRCMV-PLAN-V1\0`. Whitespace and `#` comments are
 ignored by the test decoder.
 
 The fixture is intentionally semantic-edge data for the encoder rather than a

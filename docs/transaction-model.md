@@ -1,6 +1,6 @@
 # Transaction and recovery model
 
-CodeSplice uses one transaction engine for one or many changed targets. Multi-file
+srcmv uses one transaction engine for one or many changed targets. Multi-file
 visibility is recoverable, not atomic: unrelated readers can observe a mixture
 during commit or rollback.
 
@@ -9,12 +9,12 @@ commands create nothing and use a shared lock only when a valid lock already
 exists. A changing commit refuses an unfinished active transaction. Lock
 contention proves only that an incompatible lock is held: an exclusive request
 can be blocked by a shared reader, and a shared request can be blocked by an
-exclusive holder. CodeSplice therefore does not infer holder kind, transaction
+exclusive holder. srcmv therefore does not infer holder kind, transaction
 identity, phase, or recovery need from contention. The persistent lock file is a
 rendezvous object, not evidence of a stale lock; the OS releases the advisory
 lock when its holder exits.
 
-Transaction records live below `.codesplice/transactions/<id>/`. A manifest is
+Transaction records live below `.srcmv/transactions/<id>/`. A manifest is
 published before candidate creation. Append-only state records contain full
 snapshots linked by checksums and progress through:
 
@@ -36,12 +36,12 @@ or rolls back only when the complete classification is unambiguous. Corrupt or
 unexpected state changes nothing and reports an explicit conflict.
 
 Terminal active transaction directories move without replacement to a suffix-
-classified directory below `.codesplice/completed/` before bounded cleanup.
+classified directory below `.srcmv/completed/` before bounded cleanup.
 
 ## Version 1 record envelope
 
-Manifest records begin with `CODESPLICE-MANIFEST\0`; state records begin with
-`CODESPLICE-STATE\0`. The magic is followed by a big-endian format-version `u32`,
+Manifest records begin with `SRCMV-MANIFEST\0`; state records begin with
+`SRCMV-STATE\0`. The magic is followed by a big-endian format-version `u32`,
 a big-endian payload-length `u64`, the exact UTF-8 JSON payload, and SHA-256 of all
 preceding envelope bytes. Published record checksums—not hashes of a second
 serialization—link the manifest and contiguous state chain.

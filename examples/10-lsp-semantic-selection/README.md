@@ -20,7 +20,7 @@ The script writes `inspect.json`, four selection reports, generated
 `request.json`, `preview.json`, and `commit.json` under its reported `reports/`
 directory, then compares the resulting workspace with the checked-in expected
 tree. It is not included in the offline example suite: language servers are
-user-installed, and CodeSplice does not claim that all four are installed or
+user-installed, and srcmv does not claim that all four are installed or
 compatible on a given machine.
 
 ## Server prerequisites and selection commands
@@ -28,7 +28,7 @@ compatible on a given machine.
 Rust, Python, and TypeScript exercise trusted built-in discovery. Their
 programs must be installed in an absolute, trusted `PATH` entry; discovery
 rejects workspace-local candidates and does not run a shell. Swift uses the
-explicit-program escape hatch because SourceKit-LSP is not a CodeSplice built-in
+explicit-program escape hatch because SourceKit-LSP is not a srcmv built-in
 descriptor. That explicit command is a user trust decision.
 
 | Language | Install or expose on `PATH` | Selection arguments after `select --path SOURCE` |
@@ -48,13 +48,13 @@ is one-based and `--at-column` counts Unicode scalar insertion columns.
 SourceKit-LSP packaging varies between toolchains; an executable that exposes
 only diagnostic/debug subcommands is not a compatible stdio server. Point the
 runner at another trusted build with
-`CODESPLICE_SWIFT_LSP=/absolute/path/to/sourcekit-lsp`.
+`SRCMV_SWIFT_LSP=/absolute/path/to/sourcekit-lsp`.
 
 You can inspect the static, server-independent contract before installing a
 server:
 
 ```bash
-codesplice selection-capabilities --json
+srcmv selection-capabilities --json
 ```
 
 ## Composition and mixed-time safety
@@ -82,16 +82,16 @@ the path, byte selector, or SHA-256 precondition. The selected bytes are then
 The source's selection-time SHA-256 is what matters when `apply` runs later:
 if a person or tool changes the source after selection, preview or commit fails
 its precondition instead of copying from a mixed-time snapshot. Selection itself
-is read-only with respect to CodeSplice's workspace edits and transaction state;
+is read-only with respect to srcmv's workspace edits and transaction state;
 the language server remains a separately trusted, installed program. Review
 `preview.json`, extract its `plan_sha256`, and commit only with
 `--expect-plan`, as the runner does. Every run has four operations in the same
 request, so the preview and commit cover the whole reorganization.
 
-CodeSplice does not write while it selects, but the server is not sandboxed and
+srcmv does not write while it selects, but the server is not sandboxed and
 may create its own build or index state. The runner excludes only known
 server/tool artifact directories (`.build`, `.swiftpm`, and `target`) plus
-CodeSplice's own `.codesplice` control tree from its final tree comparison; it
+srcmv's own `.srcmv` control tree from its final tree comparison; it
 still compares every checked-in fixture file byte-for-byte, including the
 source after the moves and every new destination.
 The exact moves deliberately do not synthesize Rust module declarations or
@@ -104,10 +104,10 @@ fixture, run the table's selection command, and compose the response:
 ```bash
 python3 examples/10-lsp-semantic-selection/compose-request.py \
   selection.json src/extracted.rs > request.json
-codesplice --workspace WORKSPACE inspect --path src/lib.rs --path src/extracted.rs --json
-codesplice --workspace WORKSPACE apply --request request.json --preview --json > preview.json
+srcmv --workspace WORKSPACE inspect --path src/lib.rs --path src/extracted.rs --json
+srcmv --workspace WORKSPACE apply --request request.json --preview --json > preview.json
 PLAN_SHA=$(sed -n 's/.*"plan_sha256":"\([^"]*\)".*/\1/p' preview.json)
-codesplice --workspace WORKSPACE apply --request request.json --commit --expect-plan "$PLAN_SHA" --json
+srcmv --workspace WORKSPACE apply --request request.json --commit --expect-plan "$PLAN_SHA" --json
 ```
 
 The `src/` paths in the final snippet are illustrative. Pass four

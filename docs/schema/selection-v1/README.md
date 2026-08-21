@@ -2,7 +2,7 @@
 
 `response.schema.json` and `error.schema.json` are the normative JSON Schema
 Draft 2020-12 contracts for the standalone, read-only semantic-selection
-surface. They do not modify CodeSplice edit protocol version 1, plan-hash
+surface. They do not modify srcmv edit protocol version 1, plan-hash
 version 1, capability output, or the frozen edit error and warning registries.
 
 Successful responses carry `selection_protocol_version: 1`. Selection errors
@@ -25,14 +25,14 @@ one-based line and Unicode-scalar column. `symbol_kind` is always present and is
 
 `lsp_range` and `lsp_selection_range` preserve the raw, zero-based LSP
 coordinates returned by the server. `selector` is the authoritative validated
-CodeSplice byte range after applying the requested extent. `symbol_path`
+srcmv byte range after applying the requested extent. `symbol_path`
 contains the complete breadcrumb, including the selected symbol as its final
 element.
 
 `request_source` normatively references the frozen edit protocol v1 `source`
 definition. A consumer may insert it unchanged as an operation's `source` in a
 protocol-v1 edit request. Offline schema validators must register
-`../v1/request.schema.json` under its declared `https://codesplice.dev` schema
+`../v1/request.schema.json` under its declared `https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema` schema
 ID; validation must not depend on a network fetch. Runtime validation
 additionally guarantees all of the following relationships, which JSON Schema
 cannot express:
@@ -60,7 +60,7 @@ Selection error responses have strict top-level fields: code, category,
 retryability, message, and bounded structured context. The schema enforces the
 category and retryability associated with every code. Process exit status is a
 CLI property and is not serialized in each error response. The complete mapping
-is frozen both as the schema's `x-codesplice-error-registry` annotation and as a
+is frozen both as the schema's `x-srcmv-error-registry` annotation and as a
 golden registry.
 
 | Code | Category | Exit | Retryable |

@@ -1,14 +1,16 @@
-# CodeSplice
+# srcmv
 
-[![CI](https://github.com/atacan/code-splice/actions/workflows/ci.yml/badge.svg)](https://github.com/atacan/code-splice/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/atacan/code-splice)](https://github.com/atacan/code-splice/releases/latest)
+[![CI](https://github.com/atacan/srcmv/actions/workflows/ci.yml/badge.svg)](https://github.com/atacan/srcmv/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/atacan/srcmv)](https://github.com/atacan/srcmv/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.97+](https://img.shields.io/badge/rust-1.97%2B-orange?logo=rust)](https://www.rust-lang.org/)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/atacan/code-splice)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/atacan/srcmv)
 
 ## Introduction
 
-CodeSplice is a CLI for moving or copying code from one file to another. Built mostly for splitting up large source files, especially when a coding agent is doing the refactor.
+srcmv is a CLI for moving or copying code from one file to another. Built mostly for splitting up large source files, especially when a coding agent is doing the refactor.
+
+srcmv was formerly known as CodeSplice; those historical releases remain published under their original names in the `atacan/code-splice` GitHub repository.
 
 For example, you can:
 
@@ -20,40 +22,40 @@ To elaborate on the last case:
 
 Suppose you want to move lines 6–10 to `fileA` and lines 11–15 to `fileB`. If you do the first move normally, the original line 11 is no longer line 11. A script or coding agent then has to reread the file or recalculate every later line number.
 
-CodeSplice plans all of the operations against the same original file snapshot. You can describe every move using the original line numbers and send them together.
+srcmv plans all of the operations against the same original file snapshot. You can describe every move using the original line numbers and send them together.
 
-You can select code by line or byte range. CodeSplice can also use a language server already installed on your machine to find a symbol, so you can select something like a function by name instead of looking up its exact lines.
+You can select code by line or byte range. srcmv can also use a language server already installed on your machine to find a symbol, so you can select something like a function by name instead of looking up its exact lines.
 
-The CLI accepts JSON rather than a long list of flags. That makes batches of edits easier to describe, and it also makes CodeSplice straightforward to expose as a tool to a coding agent later. 
+The CLI accepts JSON rather than a long list of flags. That makes batches of edits easier to describe, and it also makes srcmv straightforward to expose as a tool to a coding agent later. 
 
-The repository includes an installable agent skill under [`skills/codesplice/`](skills/codesplice/).
+The repository includes an installable agent skill under [`skills/srcmv/`](skills/srcmv/).
 
-If you just want to see what it does, start with the runnable examples in [`examples/`](examples/). They create disposable files and show the before-and-after result, so you can try CodeSplice without pointing it at a real project.
+If you just want to see what it does, start with the runnable examples in [`examples/`](examples/). They create disposable files and show the before-and-after result, so you can try srcmv without pointing it at a real project.
 
 The rest of this README documents the exact behavior, safety checks, protocol and current platform limits.
 
 ## Exact, byte-preserving code movement for developers and coding agents.
 
-CodeSplice is a Rust command-line tool that moves or copies code already present
+srcmv is a Rust command-line tool that moves or copies code already present
 in a workspace. It selects line or byte ranges from an immutable snapshot and
 inserts those exact bytes elsewhere—without asking an agent to reproduce the
 text, reformatting it, or normalizing line endings. An optional read-only
 semantic-selection command can ask an already-installed language server where a
-declaration is; CodeSplice still owns the immutable bytes and edit preconditions.
+declaration is; srcmv still owns the immutable bytes and edit preconditions.
 
-That makes CodeSplice useful for refactors where textual fidelity matters:
+That makes srcmv useful for refactors where textual fidelity matters:
 moving a function to another file, copying a declaration, reordering blocks in
 one file, splitting one source file across several destinations, and preserving
 CRLF, mixed line endings, or non-UTF-8 data.
 
-CodeSplice `v0.3.0` is a deliberately bounded pilot. It is qualified only for
+srcmv `v0.4.0` is a deliberately bounded pilot. It is qualified only for
 Linux x86_64 workspaces on local ext4 and macOS arm64 workspaces on local APFS.
 
-## Why CodeSplice?
+## Why srcmv?
 
 Coding agents are good at deciding *what* should move, but regenerating an
 existing block can introduce incidental whitespace, encoding, or line-ending
-changes. CodeSplice separates those responsibilities: the caller chooses a
+changes. srcmv separates those responsibilities: the caller chooses a
 source range and destination; the CLI verifies preconditions, previews a
 deterministic plan, and transfers the original bytes.
 
@@ -79,21 +81,21 @@ without modifying a real project.
 
 ## Install
 
-CodeSplice requires Rust 1.97 or newer when building from source.
+srcmv requires Rust 1.97 or newer when building from source.
 
 ### From this checkout
 
 ```bash
-git clone https://github.com/atacan/code-splice.git
-cd code-splice
-cargo install --locked --path crates/codesplice-cli
-codesplice --version
+git clone https://github.com/atacan/srcmv.git
+cd srcmv
+cargo install --locked --path crates/srcmv-cli
+srcmv --version
 ```
 
 Reinstall after making local changes with:
 
 ```bash
-cargo install --locked --force --path crates/codesplice-cli
+cargo install --locked --force --path crates/srcmv-cli
 ```
 
 ### Prebuilt binaries and Homebrew
@@ -108,7 +110,7 @@ Configuring the personal Homebrew tap is still forthcoming. Once available, the
 intended Homebrew command is:
 
 ```bash
-brew install atacan/tap/codesplice
+brew install atacan/tap/srcmv
 ```
 
 Until the tap is live, download a supported archive from GitHub Releases or
@@ -126,12 +128,12 @@ The following example moves line 2 from `source.rs` to the end of
 `destination.rs`. It requires `jq` and creates a fresh disposable directory:
 
 ```bash
-DEMO_DIR=$(mktemp -d "${TMPDIR:-/tmp}/codesplice-demo.XXXXXX")
+DEMO_DIR=$(mktemp -d "${TMPDIR:-/tmp}/srcmv-demo.XXXXXX")
 mkdir "$DEMO_DIR/workspace"
 printf 'fn stay() {}\nfn move_me() {}\n' > "$DEMO_DIR/workspace/source.rs"
 printf 'fn destination() {}\n' > "$DEMO_DIR/workspace/destination.rs"
 
-codesplice --workspace "$DEMO_DIR/workspace" inspect \
+srcmv --workspace "$DEMO_DIR/workspace" inspect \
   --path source.rs --path destination.rs --json > "$DEMO_DIR/inspection.json"
 
 SOURCE_SHA=$(jq -r '.paths[] | select(.path == "source.rs") | .sha256' "$DEMO_DIR/inspection.json")
@@ -154,35 +156,35 @@ jq -n --arg source_sha "$SOURCE_SHA" --arg destination_sha "$DESTINATION_SHA" '{
   }]
 }' > "$DEMO_DIR/request.json"
 
-codesplice --workspace "$DEMO_DIR/workspace" apply \
+srcmv --workspace "$DEMO_DIR/workspace" apply \
   --request "$DEMO_DIR/request.json" --preview --json > "$DEMO_DIR/preview.json"
 
 PLAN_SHA=$(jq -r '.plan_sha256' "$DEMO_DIR/preview.json")
 
-codesplice --workspace "$DEMO_DIR/workspace" apply \
+srcmv --workspace "$DEMO_DIR/workspace" apply \
   --request "$DEMO_DIR/request.json" --commit --expect-plan "$PLAN_SHA" --json
 ```
 
 Review `$DEMO_DIR/preview.json` before committing. If the workspace or plan
-changes, CodeSplice rejects the commit; inspect and preview again. Coding agents
+changes, srcmv rejects the commit; inspect and preview again. Coding agents
 should never bypass this check with `--accept-current-plan`.
 
 ## Semantic selection with an installed language server
 
-`codesplice select` turns a language server's hierarchical document symbols into
+`srcmv select` turns a language server's hierarchical document symbols into
 validated, half-open byte selectors. Language servers are not bundled. For the
 built-in Rust descriptor, for example, `rust-analyzer` must already be installed
 and discoverable on a trusted absolute `PATH` entry:
 
 ```bash
-codesplice selection-capabilities --json
+srcmv selection-capabilities --json
 ```
 
 This target-independent discovery command reports the static selection-v1
 feature surface without claiming that a compatible server is installed.
 
 ```bash
-codesplice --workspace /path/to/repo select \
+srcmv --workspace /path/to/repo select \
   --path src/lib.rs --name parse_request --kind function --json \
   > selection.json
 ```
@@ -192,11 +194,11 @@ also available:
 
 ```bash
 # Exact zero-based byte insertion offset.
-codesplice --workspace /path/to/repo select \
+srcmv --workspace /path/to/repo select \
   --path src/lib.rs --at-byte 42711 --json
 
 # One-based line and Unicode-scalar insertion column; column defaults to 1.
-codesplice --workspace /path/to/repo select \
+srcmv --workspace /path/to/repo select \
   --path src/lib.rs --at-line 120 --at-column 9 --json
 ```
 
@@ -227,7 +229,7 @@ jq -n --slurpfile selected selection.json \
     }]
   }' > request.json
 
-codesplice --workspace /path/to/repo apply \
+srcmv --workspace /path/to/repo apply \
   --request request.json --preview --summary --no-diff --json
 ```
 
@@ -245,33 +247,33 @@ For interrupted work, inspect persistent transactions before choosing an
 explicit action:
 
 ```bash
-codesplice --workspace "$DEMO_DIR/workspace" recover --list --json
-codesplice --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --status --json
-codesplice --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --complete --json
-# Or: codesplice --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --rollback --json
+srcmv --workspace "$DEMO_DIR/workspace" recover --list --json
+srcmv --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --status --json
+srcmv --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --complete --json
+# Or: srcmv --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --rollback --json
 ```
 
 ## Coding-agent skill
 
 The repository includes a progressively disclosed agent skill under
-[`skills/codesplice/`](skills/codesplice/). Its short `SKILL.md` routes agents to
+[`skills/srcmv/`](skills/srcmv/). Its short `SKILL.md` routes agents to
 focused references only when a task needs them.
 
 Install it for Codex with the open [Skills CLI](https://skills.sh/docs/cli):
 
 ```bash
-npx skills add https://github.com/atacan/code-splice --skill codesplice -g -a codex
+npx skills add https://github.com/atacan/srcmv --skill srcmv -g -a codex
 ```
 
 From a local checkout, omit `-g` to install it for the current project:
 
 ```bash
-npx skills add . --skill codesplice -a codex
+npx skills add . --skill srcmv -a codex
 ```
 
 ## Guarantees and boundaries
 
-CodeSplice guarantees the equality of selected and inserted content bytes for
+srcmv guarantees the equality of selected and inserted content bytes for
 effectful exact-mode operations. It preserves the POSIX permission bits of an
 existing changed target and assigns a new target according to the startup umask.
 
@@ -286,7 +288,7 @@ Multi-target commit is **recoverable, not atomically visible**: unrelated reader
 may temporarily observe a mixture of old and new files. Recovery after abrupt
 process termination is supported; power-loss durability is not claimed.
 
-The `v0.1.0` threat model assumes a trusted local user. CodeSplice rejects
+The `v0.1.0` threat model assumes a trusted local user. srcmv rejects
 absolute or escaping paths, symlink traversal, unsupported file types and
 filesystems, cross-device transactions, and detected concurrent edits, but it is
 not a sandbox or a defense against a malicious same-user process racing the
@@ -315,15 +317,15 @@ version.
 
 ## Repository layout
 
-- `crates/codesplice-core`: immutable domain model and pure planning.
-- `crates/codesplice-fs`: workspace snapshots, transactions, and recovery.
-- `crates/codesplice-protocol`: strict JSON protocol and reports.
-- `crates/codesplice-lsp`: bounded LSP transport, lifecycle, configuration,
+- `crates/srcmv-core`: immutable domain model and pure planning.
+- `crates/srcmv-fs`: workspace snapshots, transactions, and recovery.
+- `crates/srcmv-protocol`: strict JSON protocol and reports.
+- `crates/srcmv-lsp`: bounded LSP transport, lifecycle, configuration,
   position conversion, and symbol resolution.
-- `crates/codesplice-cli`: argument parsing, orchestration, and rendering.
-- `crates/codesplice-test-support`: test-only fixtures and helpers.
+- `crates/srcmv-cli`: argument parsing, orchestration, and rendering.
+- `crates/srcmv-test-support`: test-only fixtures and helpers.
 - `examples/`: runnable user-facing demonstrations.
-- `skills/codesplice/`: reusable instructions for coding agents.
+- `skills/srcmv/`: reusable instructions for coding agents.
 - `docs/`: public behavior, support, and release contracts.
 
 ## Development
@@ -343,4 +345,4 @@ filesystem:
 scripts/qualify-platform.sh
 ```
 
-CodeSplice is licensed under [Apache-2.0](LICENSE).
+srcmv is licensed under [Apache-2.0](LICENSE).

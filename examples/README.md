@@ -1,4 +1,4 @@
-# CodeSplice examples
+# srcmv examples
 
 These executable examples teach the released `v0.1.0` CLI with small, complete
 workspaces. Every mutation starts from `before/`, uses the checked-in
@@ -11,8 +11,8 @@ Run one example from the repository root:
 examples/run.sh 01-move-lines
 ```
 
-Set `CODESPLICE_BIN=/absolute/path/to/codesplice` to exercise a particular
-binary. Otherwise the runner uses an installed `codesplice`, or builds the local
+Set `SRCMV_BIN=/absolute/path/to/srcmv` to exercise a particular
+binary. Otherwise the runner uses an installed `srcmv`, or builds the local
 debug binary if none is installed. Each run prints the scratch workspace and a
 `reports/` directory containing the actual inspect, preview, and commit reports.
 Plan digests, workspace identity hashes, transaction IDs, and some warnings are

@@ -1,0 +1,60 @@
+[package]
+name = "srcmv-lsp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.97"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+srcmv-core = { path = "../../srcmv-core" }
+srcmv-lsp = { path = ".." }
+gen-lsp-types = { version = "=0.11.0", features = ["url"] }
+libfuzzer-sys = "=0.4.13"
+serde_json = "1.0.143"
+
+[[bin]]
+name = "framing-header"
+path = "fuzz_targets/framing_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jsonrpc-envelope"
+path = "fuzz_targets/jsonrpc_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "position-conversion"
+path = "fuzz_targets/position_conversion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "declaration-line-expansion"
+path = "fuzz_targets/declaration_line_expansion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hierarchical-symbol-normalization"
+path = "fuzz_targets/hierarchical_symbol_normalization.rs"
+test = false
+doc = false
+bench = false
+
+# Keep nightly fuzz tooling and its lockfile independent of the stable parent.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

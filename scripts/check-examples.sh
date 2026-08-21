@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cargo build --manifest-path "$repo_dir/Cargo.toml" -p codesplice-cli
-export CODESPLICE_BIN="$repo_dir/target/debug/codesplice"
+cargo build --manifest-path "$repo_dir/Cargo.toml" -p srcmv-cli
+export SRCMV_BIN="$repo_dir/target/debug/srcmv"
 
 for scenario in \
   00-discover \
@@ -20,5 +20,5 @@ do
   "$repo_dir/examples/run.sh" "$scenario"
 done
 
-printf 'All CodeSplice examples passed.\n'
+printf 'All srcmv examples passed.\n'
 

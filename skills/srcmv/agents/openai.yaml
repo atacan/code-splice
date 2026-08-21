@@ -1,0 +1,4 @@
+interface:
+  display_name: "srcmv"
+  short_description: "Semantically select, move, and copy exact bytes"
+  default_prompt: "Use $srcmv to select and move an existing code declaration safely between workspace files."

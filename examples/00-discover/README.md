@@ -4,9 +4,9 @@ Start here to confirm which binary is running and ask it for its frozen protocol
 surface. These queries do not require `--workspace` and do not touch files.
 
 ```bash
-codesplice --version
-codesplice capabilities --json
-codesplice protocol-version --json
+srcmv --version
+srcmv capabilities --json
+srcmv protocol-version --json
 ```
 
 Run all three and retain their output under `examples/.work/00-discover/reports/`:

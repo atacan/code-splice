@@ -27,15 +27,15 @@ esac
 
 printf 'qualifying %s/%s on %s\n' "$operating_system" "$architecture" "$filesystem"
 
-qualification_tmp="${CODESPLICE_QUALIFICATION_TMPDIR:-$repository_root/target/phase9-tmp}"
+qualification_tmp="${SRCMV_QUALIFICATION_TMPDIR:-$repository_root/target/phase9-tmp}"
 mkdir -p "$qualification_tmp"
 export TMPDIR="$qualification_tmp"
 
 cargo test --workspace --all-features --tests
 scripts/run-fuzz-regressions.sh
-cargo test -p codesplice-fs --test platform_qualification
-cargo test -p codesplice-cli --test single_target_crash_recovery
-cargo test -p codesplice-cli --test multi_target_crash_recovery
+cargo test -p srcmv-fs --test platform_qualification
+cargo test -p srcmv-cli --test single_target_crash_recovery
+cargo test -p srcmv-cli --test multi_target_crash_recovery
 scripts/audit-unsafe.sh
 
 RUSTC_BOOTSTRAP=1 RUSTFLAGS='-Zsanitizer=address' PROPTEST_CASES=512 \

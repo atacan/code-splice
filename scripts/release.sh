@@ -29,7 +29,7 @@ print_recovery() {
 
   if test "$release_state" = $'false\tfalse'; then
     printf 'release: %s is already public and was not rolled back. Recover only the tap notification with:\n' "$tag" >&2
-    printf '  gh workflow run update-codesplice.yml --repo atacan/homebrew-tap --ref main -f version=%s\n' "$version" >&2
+    printf '  gh workflow run update-srcmv.yml --repo atacan/homebrew-tap --ref main -f version=%s\n' "$version" >&2
   else
     printf 'release: the tag is immutable on origin; inspect the failed Release run and recover with:\n' >&2
     printf '  gh workflow run Release --ref main -f tag=%s\n' "$tag" >&2
@@ -170,8 +170,8 @@ actual_assets="$(
 expected_assets="$(
   printf '%s\n' \
     SHA256SUMS \
-    "codesplice-v${version}-aarch64-apple-darwin.tar.gz" \
-    "codesplice-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
+    "srcmv-v${version}-aarch64-apple-darwin.tar.gz" \
+    "srcmv-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
     | LC_ALL=C sort
 )"
 test "$actual_assets" = "$expected_assets" \

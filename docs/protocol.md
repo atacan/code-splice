@@ -13,7 +13,7 @@ schemas are `docs/schema/v1/request.schema.json` and
 
 ## Command surface
 
-The `codesplice` binary provides the complete grammar for `inspect`, `select`,
+The `srcmv` binary provides the complete grammar for `inspect`, `select`,
 `apply`, `recover`, `capabilities`, `selection-capabilities`, and
 `protocol-version`. `apply` is the only mutation interface. A commit must use
 exactly one of an expected plan digest or the explicit human convenience that
@@ -32,7 +32,7 @@ opaque workspace identity hash. `--no-diff` changes only the diff field. Text
 diffs label `LF`, `CRLF`, lone `CR`, and unterminated (`NONE`) lines; binary data
 uses digest, length, and bounded base64 head/tail samples.
 
-Beginning with CodeSplice `v0.2.0`, preview also accepts opt-in `--summary`.
+Beginning with srcmv `v0.2.0`, preview also accepts opt-in `--summary`.
 Without that flag, JSON and human preview output are unchanged. `--summary`
 retains the bounded diff and adds review-summary-v1 metadata at
 `diff.summary.review`; `--summary --no-diff` is the concise review mode and uses
@@ -71,7 +71,7 @@ Automation can discover this surface without a workspace or an installed
 server:
 
 ```bash
-codesplice selection-capabilities --json
+srcmv selection-capabilities --json
 ```
 
 The bounded response reports `selection_protocol_version: 1`, supported query
@@ -82,7 +82,7 @@ independently versioned and does not probe configuration or `PATH`.
 The CLI grammar is:
 
 ```text
-codesplice [--workspace PATH] select --path RELATIVE QUERY [OPTIONS]
+srcmv [--workspace PATH] select --path RELATIVE QUERY [OPTIONS]
 
 QUERY:
   --name NAME
@@ -128,10 +128,10 @@ unterminated final line are preserved byte-for-byte. The server's
 `selectionRange` is validated as nonempty and contained by `range`, but it is
 reported for audit rather than used as the payload extent.
 
-CodeSplice accepts hierarchical `DocumentSymbol[]`, `null`, and an empty array.
+srcmv accepts hierarchical `DocumentSymbol[]`, `null`, and an empty array.
 Legacy flat `SymbolInformation[]` responses are rejected rather than assigned
 weaker semantics. LSP ranges are zero-based and may use negotiated UTF-8,
-UTF-16, or UTF-32 character units. CodeSplice converts them against the exact
+UTF-16, or UTF-32 character units. srcmv converts them against the exact
 UTF-8 source snapshot, rejecting nonexistent lines, split code points or
 surrogate pairs, reversed/empty/out-of-file ranges, and invalid
 `selectionRange` containment.
@@ -176,7 +176,7 @@ range, and LSP selection range. A successful empty `--all` result prints
 
 ### Server choice and trusted configuration
 
-Language servers are installed and maintained independently; CodeSplice does
+Language servers are installed and maintained independently; srcmv does
 not bundle them. `--server-program` selects its program directly. `--server-id`
 looks up that normalized ID in trusted user descriptors and then built-ins. With
 neither option, automatic selection first looks for user descriptors matching
@@ -187,11 +187,11 @@ The executable and arguments are passed directly to `std::process::Command`:
 there is no shell parsing, interpolation, glob expansion, or command
 substitution.
 
-`CODESPLICE_CONFIG` overrides the configuration path exactly. Otherwise the
-file is `codesplice/config.toml` under the platform configuration directory:
-typically `$XDG_CONFIG_HOME/codesplice/config.toml` (or
-`~/.config/codesplice/config.toml`) on Linux and
-`~/Library/Application Support/codesplice/config.toml` on macOS. An absent
+`SRCMV_CONFIG` overrides the configuration path exactly. Otherwise the
+file is `srcmv/config.toml` under the platform configuration directory:
+typically `$XDG_CONFIG_HOME/srcmv/config.toml` (or
+`~/.config/srcmv/config.toml`) on Linux and
+`~/Library/Application Support/srcmv/config.toml` on macOS. An absent
 default file means no user descriptors; an explicitly named missing or invalid
 file is an error. Loading configuration creates no file or directory.
 

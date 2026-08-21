@@ -9,5 +9,5 @@ examples/run.sh 05-same-file-no-op
 
 Preview reports the operation effect as `no_op`. Commit still requires the
 previewed plan digest, but returns a null transaction ID, changes no bytes, and
-does not create `.codesplice/`.
+does not create `.srcmv/`.
 

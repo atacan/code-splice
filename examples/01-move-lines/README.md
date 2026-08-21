@@ -6,19 +6,19 @@ selected line's original terminator. Both paths exist, so each endpoint is bound
 to the SHA-256 digest of its initial bytes.
 
 ```bash
-codesplice --workspace examples/.work/01-move-lines/workspace inspect \
+srcmv --workspace examples/.work/01-move-lines/workspace inspect \
   --path src/source.rs --path src/destination.rs --json
 
-codesplice --workspace examples/.work/01-move-lines/workspace apply \
+srcmv --workspace examples/.work/01-move-lines/workspace apply \
   --request examples/01-move-lines/request.json --preview
 
-codesplice --workspace examples/.work/01-move-lines/workspace apply \
+srcmv --workspace examples/.work/01-move-lines/workspace apply \
   --request examples/01-move-lines/request.json --preview --json
 
-codesplice --workspace examples/.work/01-move-lines/workspace apply \
+srcmv --workspace examples/.work/01-move-lines/workspace apply \
   --request examples/01-move-lines/request.json --preview --json --no-diff
 
-codesplice --workspace examples/.work/01-move-lines/workspace apply \
+srcmv --workspace examples/.work/01-move-lines/workspace apply \
   --request examples/01-move-lines/request.json --commit \
   --expect-plan sha256:PLAN_FROM_PREVIEW --json
 ```

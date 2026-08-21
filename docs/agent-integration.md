@@ -3,13 +3,13 @@
 Agents follow an inspect, preview, commit sequence:
 
 ```bash
-codesplice --workspace /path/to/repo inspect \
+srcmv --workspace /path/to/repo inspect \
   --path src/source.rs --path src/destination.rs --json
 
-codesplice --workspace /path/to/repo apply \
+srcmv --workspace /path/to/repo apply \
   --request split.json --preview --summary --no-diff --json
 
-codesplice --workspace /path/to/repo apply \
+srcmv --workspace /path/to/repo apply \
   --request split.json --commit \
   --expect-plan sha256:PREVIEWED_PLAN --json
 ```
@@ -19,7 +19,7 @@ agent inspects and previews again rather than bypassing the digest precondition.
 It treats recovery-required and conflict outcomes as failures needing explicit
 inspection; it does not reproduce selected source bytes by hand as a fallback.
 
-CodeSplice `v0.2.0` adds the opt-in concise preview shown above. The complete
+srcmv `v0.2.0` adds the opt-in concise preview shown above. The complete
 typed review record is at `diff.summary.review`; it reports selected byte/line
 metrics, before/after output line counts, and effectful insertion groups without
 embedding source text. Omit `--no-diff` when detailed bounded diff evidence is
@@ -28,7 +28,7 @@ also useful. Omitting `--summary` preserves the earlier preview output exactly.
 On `TRANSACTION_BUSY`, the agent waits and never polls tightly, bypasses the
 lock, removes the lock file, or guesses whether a mutation or recovery is active.
 Retrying `inspect` or preview takes a fresh observation. The unchanged commit
-request may be retried with the same `--expect-plan`: CodeSplice replans and the
+request may be retried with the same `--expect-plan`: srcmv replans and the
 expected-plan gate prevents an unreviewed changed plan from committing. If that
 retry reports a precondition or plan mismatch, the agent inspects and previews
 again. Before starting an unrelated normal mutation after contention, it runs
@@ -56,15 +56,15 @@ Use exactly one query form:
 
 ```bash
 # Exact, case-sensitive, unqualified name.
-codesplice --workspace /path/to/repo select \
+srcmv --workspace /path/to/repo select \
   --path src/source.rs --name parse_request --kind function --json
 
 # Or a zero-based UTF-8-boundary byte insertion offset.
-codesplice --workspace /path/to/repo select \
+srcmv --workspace /path/to/repo select \
   --path src/source.rs --at-byte 42711 --kind function --json
 
 # Or a one-based line and Unicode-scalar insertion column (default column: 1).
-codesplice --workspace /path/to/repo select \
+srcmv --workspace /path/to/repo select \
   --path src/source.rs --at-line 120 --at-column 9 --kind function --json
 ```
 
@@ -92,11 +92,11 @@ file:
 ```bash
 WORKSPACE=/path/to/repo
 
-codesplice --workspace "$WORKSPACE" select \
+srcmv --workspace "$WORKSPACE" select \
   --path src/source.rs --name parse_request --kind function --json \
   > selection.json
 
-codesplice --workspace "$WORKSPACE" inspect \
+srcmv --workspace "$WORKSPACE" inspect \
   --path src/destination.rs --json > destination-inspection.json
 
 DESTINATION_SHA=$(jq -r \
@@ -117,12 +117,12 @@ jq -n --slurpfile selection selection.json \
     }]
   }' > request.json
 
-codesplice --workspace "$WORKSPACE" apply \
+srcmv --workspace "$WORKSPACE" apply \
   --request request.json --preview --summary --no-diff --json > preview.json
 
 PLAN_SHA=$(jq -r '.plan_sha256' preview.json)
 
-codesplice --workspace "$WORKSPACE" apply \
+srcmv --workspace "$WORKSPACE" apply \
   --request request.json --commit --expect-plan "$PLAN_SHA" --json
 ```
 
@@ -145,7 +145,7 @@ does not guess ambiguous extensions such as `h`. Use a configured
 `--server-id`, or make the trust decision explicit:
 
 ```bash
-codesplice --workspace "$WORKSPACE" select \
+srcmv --workspace "$WORKSPACE" select \
   --path unusual/source.ext --name target \
   --server-program /trusted/tools/my-language-server \
   --language-id my-language --server-arg=--stdio --json
