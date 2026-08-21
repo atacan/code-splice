@@ -29,17 +29,17 @@ case "$target" in
 esac
 
 test -x "$binary"
-test "$("$binary" --version)" = "codesplice $version"
+test "$("$binary" --version)" = "srcmv $version"
 mkdir -p "$output_directory"
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
-package="codesplice-v${version}-${target}"
+package="srcmv-v${version}-${target}"
 mkdir "$staging/$package"
-cp "$binary" "$staging/$package/codesplice"
+cp "$binary" "$staging/$package/srcmv"
 cp LICENSE README.md "$staging/$package/"
 cp docs/protocol.md docs/agent-integration.md docs/platform-support.md \
   "$staging/$package/"
-chmod 0755 "$staging/$package/codesplice"
+chmod 0755 "$staging/$package/srcmv"
 chmod 0644 "$staging/$package/"*.md "$staging/$package/LICENSE"
 
 # Normalize payload timestamps to the release commit and keep the gzip header
