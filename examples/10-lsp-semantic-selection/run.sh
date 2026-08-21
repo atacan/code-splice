@@ -33,7 +33,7 @@ case "$language" in
     prerequisite=typescript-language-server
     ;;
   swift)
-    swift_lsp=${CODESPLICE_SWIFT_LSP:-sourcekit-lsp}
+    swift_lsp=${SRCMV_SWIFT_LSP:-sourcekit-lsp}
     source_path=Sources/SemanticDemo/SemanticDemo.swift
     # Position queries avoid relying on SourceKit-LSP's display names or its
     # varying protocol/extension kind mapping. Each line is a declaration's
@@ -61,16 +61,16 @@ if ! command -v "$prerequisite" >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -n ${CODESPLICE_BIN:-} ]]; then
-  codesplice_bin=$CODESPLICE_BIN
-elif command -v codesplice >/dev/null 2>&1; then
-  codesplice_bin=$(command -v codesplice)
+if [[ -n ${SRCMV_BIN:-} ]]; then
+  srcmv_bin=$SRCMV_BIN
+elif command -v srcmv >/dev/null 2>&1; then
+  srcmv_bin=$(command -v srcmv)
 else
-  cargo build --manifest-path "$repo_dir/Cargo.toml" -p codesplice-cli
-  codesplice_bin="$repo_dir/target/debug/codesplice"
+  cargo build --manifest-path "$repo_dir/Cargo.toml" -p srcmv-cli
+  srcmv_bin="$repo_dir/target/debug/srcmv"
 fi
-if [[ ! -x $codesplice_bin ]]; then
-  printf 'codesplice executable is not executable: %s\n' "$codesplice_bin" >&2
+if [[ ! -x $srcmv_bin ]]; then
+  printf 'srcmv executable is not executable: %s\n' "$srcmv_bin" >&2
   exit 1
 fi
 
@@ -97,53 +97,53 @@ inspect_paths=(--path "$source_path")
 for destination_path in "${destination_paths[@]}"; do
   inspect_paths+=(--path "$destination_path")
 done
-"$codesplice_bin" --workspace "$workspace" inspect "${inspect_paths[@]}" --json > "$reports/inspect.json"
+"$srcmv_bin" --workspace "$workspace" inspect "${inspect_paths[@]}" --json > "$reports/inspect.json"
 
 # Selection is read-only. The commands are intentionally explicit so each
 # example shows exactly when a stable name/kind or a position query is used.
 case "$language" in
   rust)
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name Greets --kind interface --json > "$reports/trait.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name Person --kind struct --json > "$reports/struct.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 10 --at-column 1 --json > "$reports/inherent-impl.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 15 --at-column 1 --json > "$reports/trait-impl.json"
     ;;
   python)
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name Named --kind class --json > "$reports/protocol.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name Person --kind class --json > "$reports/person.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name GreetingAdapter --kind class --json > "$reports/greeting-adapter.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name UppercaseGreetingAdapter --kind class --json \
       > "$reports/uppercase-greeting-adapter.json"
     ;;
   typescript)
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name Named --kind interface --json > "$reports/interface.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name Person --kind class --json > "$reports/class.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 10 --at-column 1 --json > "$reports/namespace.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --name formatGreeting --kind function --json > "$reports/formatter.json"
     ;;
   swift)
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 4 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
       > "$reports/protocol.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 7 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
       > "$reports/struct.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 13 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
       > "$reports/struct-extension.json"
-    "$codesplice_bin" --workspace "$workspace" select --path "$source_path" \
+    "$srcmv_bin" --workspace "$workspace" select --path "$source_path" \
       --at-line 18 --at-column 1 --server-program "$swift_lsp" --language-id swift --json \
       > "$reports/protocol-extension.json"
     ;;
@@ -157,21 +157,21 @@ for index in "${!selection_files[@]}"; do
   compose_args+=("$reports/${selection_files[$index]}" "${destination_paths[$index]}")
 done
 python3 "$example_dir/compose-request.py" "${compose_args[@]}" > "$reports/request.json"
-"$codesplice_bin" --workspace "$workspace" apply --request "$reports/request.json" \
+"$srcmv_bin" --workspace "$workspace" apply --request "$reports/request.json" \
   --preview --json > "$reports/preview.json"
 plan=$(sed -n 's/.*"plan_sha256":"\([^"]*\)".*/\1/p' "$reports/preview.json")
 if [[ ! $plan =~ ^sha256:[0-9a-f]{64}$ ]]; then
   printf 'preview did not return a valid plan digest\n' >&2
   exit 1
 fi
-"$codesplice_bin" --workspace "$workspace" apply --request "$reports/request.json" \
+"$srcmv_bin" --workspace "$workspace" apply --request "$reports/request.json" \
   --commit --expect-plan "$plan" --json > "$reports/commit.json"
 
 # Language servers are independently trusted programs, not sandboxed by
 # CodeSplice. These known build/index directories are server/tool artifacts;
 # all checked-in fixture files, including the selected source and destination,
 # remain under byte-for-byte comparison.
-diff -r -x .build -x .codesplice -x .swiftpm -x target -- \
+diff -r -x .build -x .srcmv -x .swiftpm -x target -- \
   "$example_dir/expected/$language" "$workspace"
 printf 'PASS semantic selection (%s)\nworkspace: %s\nreports: %s\n' \
   "$language" "$workspace" "$reports"

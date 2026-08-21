@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codesplice.dev/schema/transaction-v1/manifest.schema.json",
-  "title": "CodeSplice transaction manifest v1",
+  "$id": "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/transaction-v1/manifest.schema.json",
+  "title": "srcmv transaction manifest v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["transaction_version", "transaction_id", "workspace_identity", "plan_sha256", "inputs", "targets", "metadata_limitations"],

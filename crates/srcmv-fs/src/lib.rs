@@ -26,6 +26,7 @@ mod journal;
 mod recovery_classifier;
 mod transaction;
 
+pub use control::LEGACY_CONTROL_NAME;
 pub use control::{
     ControlObservation, DiagnosticLock, MutationLock, RecoveryEntry, RecoveryEntryKind,
     TransactionDirectory,
@@ -743,6 +744,9 @@ pub enum FsError {
         /// Stable validation reason.
         reason: &'static str,
     },
+    /// A legacy control directory from an earlier incompatible release exists
+    /// at the workspace root.
+    LegacyControlState,
     /// A persistent transaction record or directory is corrupt.
     TransactionRecordCorrupt {
         /// Canonical transaction identifier when one could be established.
@@ -840,6 +844,10 @@ impl fmt::Display for FsError {
             Self::ControlDirectoryInvalid { reason } => {
                 write!(formatter, "invalid control directory: {reason}")
             }
+            Self::LegacyControlState => write!(
+                formatter,
+                "legacy control state from an earlier incompatible release is present"
+            ),
             Self::TransactionRecordCorrupt {
                 transaction_id,
                 reason,
@@ -902,14 +910,13 @@ pub fn capture_startup_umask() -> u32 {
 
 #[cfg(debug_assertions)]
 pub(crate) fn test_failpoint(name: &str) -> Result<(), FsError> {
-    if std::env::var_os("CODESPLICE_TEST_FAILPOINT").is_some_and(|value| {
+    if std::env::var_os("SRCMV_TEST_FAILPOINT").is_some_and(|value| {
         value
             .to_string_lossy()
             .split(',')
             .any(|configured| configured == name)
     }) {
-        if std::env::var_os("CODESPLICE_TEST_FAILPOINT_ACTION").is_some_and(|value| value == "exit")
-        {
+        if std::env::var_os("SRCMV_TEST_FAILPOINT_ACTION").is_some_and(|value| value == "exit") {
             std::process::exit(86);
         }
         return Err(FsError::Io {
@@ -1056,7 +1063,7 @@ fn parse_relative_path(value: &str, limit: u64) -> Result<WorkspaceRelativePath,
             reason: "path_parent_component",
         });
     }
-    if components[0].eq_ignore_ascii_case(".codesplice") {
+    if components[0].eq_ignore_ascii_case(".srcmv") {
         return Err(FsError::InvalidPath {
             path: value.to_string(),
             reason: "reserved_path",
@@ -1076,7 +1083,7 @@ fn metadata_identity(metadata: &Metadata) -> FileIdentity {
 
 fn hash_identity(identity: FileIdentity) -> Sha256Digest {
     let mut hasher = Sha256::new();
-    hasher.update(b"codesplice-physical-identity-v1\0");
+    hasher.update(b"srcmv-physical-identity-v1\0");
     hasher.update(identity.device.to_be_bytes());
     hasher.update(identity.inode.to_be_bytes());
     Sha256Digest(hasher.finalize().into())
@@ -1222,10 +1229,8 @@ mod snapshot_tests {
     impl TestWorkspace {
         fn new() -> Self {
             let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "codesplice-phase3-{}-{sequence}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("srcmv-phase3-{}-{sequence}", std::process::id()));
             fs::create_dir(&path).expect("test workspace should be created");
             Self(path)
         }
@@ -1326,7 +1331,7 @@ mod snapshot_tests {
             ("a//b", "invalid"),
             ("a/./b", "invalid"),
             ("../real", "invalid"),
-            (".CodeSplice/lock", "invalid"),
+            (".SRCMV/lock", "invalid"),
             ("missing/child", "invalid"),
             ("link", "symlink"),
             ("parent_link/child", "symlink"),
@@ -1556,7 +1561,7 @@ mod snapshot_tests {
         assert_eq!(before_metadata.mode(), after_metadata.mode());
         assert_eq!(before_metadata.mtime(), after_metadata.mtime());
         assert_eq!(before_metadata.mtime_nsec(), after_metadata.mtime_nsec());
-        assert!(!fixture.0.join(".codesplice").exists());
+        assert!(!fixture.0.join(".srcmv").exists());
     }
 
     fn directory_entries(path: &Path) -> Vec<String> {

@@ -169,7 +169,7 @@ impl LineIndex {
     }
 }
 
-/// Allocation-free metrics for a byte sequence under CodeSplice line semantics.
+/// Allocation-free metrics for a byte sequence under srcmv line semantics.
 ///
 /// LF, CRLF, and lone CR each terminate one logical line. A nonempty suffix that
 /// lacks a terminator is one line. Empty bytes have zero lines, and a trailing

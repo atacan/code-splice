@@ -22,7 +22,11 @@ pub const MAX_TRANSACTION_DIRECTORIES: u64 = 100;
 /// Maximum bytes read by one recovery command.
 pub const MAX_RECOVERY_BYTES: u64 = 256 * 1024 * 1024;
 
-const CONTROL_NAME: &str = ".codesplice";
+const CONTROL_NAME: &str = ".srcmv";
+/// Workspace-root control-directory name reserved by the former product
+/// identity. Its presence rejects every control-state operation without
+/// enumerating, parsing, locking, migrating, or modifying that tree.
+pub const LEGACY_CONTROL_NAME: &str = ".codesplice";
 const TRANSACTIONS_NAME: &str = "transactions";
 const COMPLETED_NAME: &str = "completed";
 const LOCK_NAME: &str = "lock";
@@ -425,16 +429,33 @@ impl TransactionDirectory {
     }
 }
 
+/// Rejects the operation when the workspace root contains a first component
+/// named like the former product's control directory, ASCII
+/// case-insensitively. Only root entry names are inspected; the legacy tree is
+/// never opened, read, locked, or modified.
+fn reject_legacy_control_tree(workspace: &Workspace) -> Result<(), FsError> {
+    let entries = fs::read_dir(workspace.canonical_root())
+        .map_err(|error| control_io("inspect_workspace_root", error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| control_io("inspect_workspace_root", error))?;
+        if entry.file_name().eq_ignore_ascii_case(LEGACY_CONTROL_NAME) {
+            return Err(FsError::LegacyControlState);
+        }
+    }
+    Ok(())
+}
+
 impl Workspace {
     /// Acquires a shared diagnostic lock if a control tree already exists.
     ///
-    /// The method creates nothing. A workspace without `.codesplice` returns
+    /// The method creates nothing. A workspace without `.srcmv` returns
     /// `Ok(None)`; a partial or invalid control tree fails closed.
     ///
     /// # Errors
     ///
     /// Returns `TransactionBusy` for contention or a validation/I/O error.
     pub fn diagnostic_lock(&self) -> Result<Option<DiagnosticLock>, FsError> {
+        reject_legacy_control_tree(self)?;
         let paths = ControlPaths::new(self);
         match fs::symlink_metadata(&paths.control) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -460,6 +481,7 @@ impl Workspace {
     ///
     /// Returns `TransactionBusy` for contention or a validation/I/O error.
     pub fn mutation_lock(&self) -> Result<MutationLock, FsError> {
+        reject_legacy_control_tree(self)?;
         let paths = ControlPaths::new(self);
         create_or_validate_control_tree(&paths)?;
         let lock_file = OpenOptions::new()
@@ -523,6 +545,7 @@ impl Workspace {
 pub(crate) fn acquire_existing_mutation_lock(
     workspace: &Workspace,
 ) -> Result<MutationLock, FsError> {
+    reject_legacy_control_tree(workspace)?;
     let paths = ControlPaths::new(workspace);
     validate_control_tree(&paths)?;
     let lock_file = OpenOptions::new()
@@ -1213,7 +1236,7 @@ mod journal_control_tests {
         let lock = workspace.mutation_lock().expect("lock should succeed");
         let completed_collision = root
             .path()
-            .join(".codesplice/completed/00000000000000000000000000000000-committed");
+            .join(".srcmv/completed/00000000000000000000000000000000-committed");
         fs::create_dir(&completed_collision).expect("collision fixture should be created");
         let calls = Cell::new(0_u8);
 
@@ -1240,7 +1263,7 @@ mod journal_control_tests {
         let lock = workspace.mutation_lock().expect("lock should succeed");
         let collision = root
             .path()
-            .join(".codesplice/completed/00000000000000000000000000000000-committed");
+            .join(".srcmv/completed/00000000000000000000000000000000-committed");
         fs::create_dir(collision).expect("collision fixture should be created");
         let calls = Cell::new(0_u64);
 

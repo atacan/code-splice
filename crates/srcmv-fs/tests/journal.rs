@@ -130,8 +130,8 @@ fn journal_record_envelopes_should_round_trip_exact_payloads() {
         decode_state_record(&state_record).expect("state should decode"),
         state
     );
-    assert!(manifest_record.starts_with(b"CODESPLICE-MANIFEST\0\0\0\0\x01"));
-    assert!(state_record.starts_with(b"CODESPLICE-STATE\0\0\0\0\x01"));
+    assert!(manifest_record.starts_with(b"SRCMV-MANIFEST\0\0\0\0\x01"));
+    assert!(state_record.starts_with(b"SRCMV-STATE\0\0\0\0\x01"));
 }
 
 #[test]
@@ -290,7 +290,7 @@ fn journal_limits_should_pass_at_and_reject_below_each_known_schema_boundary() {
 fn journal_decoder_should_reject_unknown_and_duplicate_payload_fields() {
     let encoded = encode_manifest_record(&manifest("0123456789abcdef0123456789abcdef"))
         .expect("manifest should encode");
-    let payload_start = b"CODESPLICE-MANIFEST\0".len() + 12;
+    let payload_start = b"SRCMV-MANIFEST\0".len() + 12;
     let payload_end = encoded.len() - 32;
     let payload =
         std::str::from_utf8(&encoded[payload_start..payload_end]).expect("JSON should be UTF-8");
@@ -612,7 +612,7 @@ fn journal_control_tree_should_enforce_modes_types_and_nonblocking_lock_contenti
         .mutation_lock()
         .expect("exclusive lock should succeed");
     assert_eq!(
-        fs::metadata(root.path().join(".codesplice"))
+        fs::metadata(root.path().join(".srcmv"))
             .expect("control should exist")
             .permissions()
             .mode()
@@ -635,7 +635,7 @@ fn journal_control_tree_should_enforce_modes_types_and_nonblocking_lock_contenti
     drop(shared);
 
     fs::set_permissions(
-        root.path().join(".codesplice/lock"),
+        root.path().join(".srcmv/lock"),
         fs::Permissions::from_mode(0o622),
     )
     .expect("mode fixture should be applied");
@@ -649,8 +649,8 @@ fn journal_control_tree_should_enforce_modes_types_and_nonblocking_lock_contenti
 fn journal_mutation_lock_should_detect_control_entry_replacement() {
     let (root, workspace) = workspace();
     let lock = workspace.mutation_lock().expect("lock should succeed");
-    let lock_path = root.path().join(".codesplice/lock");
-    fs::rename(&lock_path, root.path().join(".codesplice/old-lock"))
+    let lock_path = root.path().join(".srcmv/lock");
+    fs::rename(&lock_path, root.path().join(".srcmv/old-lock"))
         .expect("locked descriptor should remain open after fixture rename");
     fs::write(&lock_path, b"").expect("replacement lock fixture should be created");
 
@@ -717,12 +717,12 @@ fn journal_gate_should_block_active_and_remove_only_validated_completed_entries(
         Err(FsError::TransactionRecoveryRequired { .. })
     ));
     drop(directory);
-    fs::remove_dir(root.path().join(".codesplice/transactions").join(&id))
+    fs::remove_dir(root.path().join(".srcmv/transactions").join(&id))
         .expect("empty active directory should be removed for fixture");
     let completed_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let completed = root
         .path()
-        .join(".codesplice/completed")
+        .join(".srcmv/completed")
         .join(format!("{completed_id}-committed"));
     fs::create_dir(&completed).expect("completed fixture should be created");
     fs::set_permissions(&completed, fs::Permissions::from_mode(0o700))
@@ -781,7 +781,7 @@ fn journal_scan_limits_should_reject_below_directory_recovery_and_state_byte_usa
     ));
     let manifest_length = fs::metadata(
         root.path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .join(&id)
             .join("manifest.rec"),
     )
@@ -838,19 +838,14 @@ fn journal_scan_should_never_delete_unknown_transaction_entries() {
         fs::read(unknown).expect("unknown entry should remain"),
         b"do not delete"
     );
-    assert!(
-        root.path()
-            .join(".codesplice/transactions")
-            .join(id)
-            .exists()
-    );
+    assert!(root.path().join(".srcmv/transactions").join(id).exists());
 }
 
 fn raw_manifest_record(payload: &[u8]) -> Vec<u8> {
     use sha2::{Digest, Sha256};
 
     let mut record = Vec::new();
-    record.extend_from_slice(b"CODESPLICE-MANIFEST\0");
+    record.extend_from_slice(b"SRCMV-MANIFEST\0");
     record.extend_from_slice(&1_u32.to_be_bytes());
     record.extend_from_slice(
         &u64::try_from(payload.len())

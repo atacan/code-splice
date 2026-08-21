@@ -156,7 +156,7 @@ fn single_target_commit_should_copy_into_existing_and_preserve_post_preview_mode
     assert!(
         !workspace
             .path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .read_dir()
             .expect("transactions should exist")
             .next()
@@ -271,7 +271,7 @@ fn single_target_commit_should_keep_mismatch_and_noop_noncreating() {
     );
     assert_eq!(mismatch.status.code(), Some(3));
     assert_eq!(report(&mismatch)["code"], "EXPECTED_PLAN_MISMATCH");
-    assert!(!workspace.path().join(".codesplice").exists());
+    assert!(!workspace.path().join(".srcmv").exists());
 
     let success = invoke(
         &workspace,
@@ -293,7 +293,7 @@ fn single_target_commit_should_keep_mismatch_and_noop_noncreating() {
         success_report["resolved_operations"][0]["inserted_payload_sha256"],
         Value::Null
     );
-    assert!(!workspace.path().join(".codesplice").exists());
+    assert!(!workspace.path().join(".srcmv").exists());
 }
 
 #[test]
@@ -319,9 +319,9 @@ fn single_target_commit_should_reject_a_prelock_plan_identity_change_without_tra
             "--accept-current-plan",
             "--json",
         ])
-        .env("CODESPLICE_TEST_HOOK", "after_prelock_plan")
-        .env("CODESPLICE_TEST_READY", &ready)
-        .env("CODESPLICE_TEST_CONTINUE", &resume)
+        .env("SRCMV_TEST_HOOK", "after_prelock_plan")
+        .env("SRCMV_TEST_READY", &ready)
+        .env("SRCMV_TEST_CONTINUE", &resume)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -358,7 +358,7 @@ fn single_target_commit_should_reject_a_prelock_plan_identity_change_without_tra
     assert!(
         workspace
             .path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .read_dir()
             .expect("transactions should exist")
             .next()

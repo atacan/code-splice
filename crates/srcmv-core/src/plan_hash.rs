@@ -11,7 +11,7 @@ use crate::{
 /// Deterministic CBOR plan-record format implemented by this crate.
 pub const PLAN_HASH_VERSION: u64 = 1;
 const PROTOCOL_VERSION: u64 = 1;
-const DOMAIN_PREFIX: &[u8] = b"CODESPLICE-PLAN-V1\0";
+const DOMAIN_PREFIX: &[u8] = b"SRCMV-PLAN-V1\0";
 
 enum InputRecord<'a> {
     Existing(&'a FileSnapshot),

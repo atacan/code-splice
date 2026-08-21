@@ -327,7 +327,7 @@ fn fixture_arguments_are_exact() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let arguments: Vec<_> = command.get_args().collect();
     let expected = [
-        OsStr::new("--codesplice-lsp-fixture"),
+        OsStr::new("--srcmv-lsp-fixture"),
         OsStr::new("--scenario"),
         OsStr::new("success"),
         OsStr::new("--expected-document-uri"),

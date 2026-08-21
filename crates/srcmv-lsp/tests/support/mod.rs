@@ -8,7 +8,7 @@ use std::process::{Command, ExitCode, Stdio};
 use srcmv_lsp::process::ProcessSpec;
 use srcmv_test_support::fake_lsp::{FakeLspScenario, run_from_process_args};
 
-const FIXTURE_MODE: &str = "--codesplice-lsp-fixture";
+const FIXTURE_MODE: &str = "--srcmv-lsp-fixture";
 const SLEEP_FOREVER_MODE: &str = "--sleep-forever";
 
 /// One scenario reserved for a session integration case.
@@ -262,7 +262,7 @@ pub(crate) fn run_fixture_if_requested() -> Option<ExitCode> {
     Some(match run_from_process_args(fixture_arguments) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("codesplice-lsp fixture: {error}");
+            eprintln!("srcmv-lsp fixture: {error}");
             ExitCode::from(2)
         }
     })

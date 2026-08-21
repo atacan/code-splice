@@ -92,7 +92,7 @@ fn preview_should_leave_an_absent_control_tree_and_workspace_unchanged() {
 
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(before, after);
-    assert!(!workspace.0.path().join(".codesplice").exists());
+    assert!(!workspace.0.path().join(".srcmv").exists());
     assert_eq!(
         json_stdout(&output)["warnings"][0]["code"],
         "OBSERVATION_MAY_BE_STALE"

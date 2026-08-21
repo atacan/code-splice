@@ -160,7 +160,7 @@ fn preview_json_should_report_real_move_copy_no_op_and_new_destination() {
         destination
     );
     assert!(!workspace.0.path().join("new.txt").exists());
-    assert!(!workspace.0.path().join(".codesplice").exists());
+    assert!(!workspace.0.path().join(".srcmv").exists());
 }
 
 #[test]

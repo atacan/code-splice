@@ -45,8 +45,8 @@ fn crash_commit_request(workspace: &TempDir, failpoint: &str, request: &Value) -
             "--accept-current-plan",
             "--json",
         ])
-        .env("CODESPLICE_TEST_FAILPOINT", failpoint)
-        .env("CODESPLICE_TEST_FAILPOINT_ACTION", "exit")
+        .env("SRCMV_TEST_FAILPOINT", failpoint)
+        .env("SRCMV_TEST_FAILPOINT_ACTION", "exit")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -77,14 +77,14 @@ fn crash_recovery(workspace: &TempDir, id: &str, action: &str, failpoint: &str) 
         .arg("--workspace")
         .arg(workspace.path())
         .args(["recover", id, action, "--json"])
-        .env("CODESPLICE_TEST_FAILPOINT", failpoint)
-        .env("CODESPLICE_TEST_FAILPOINT_ACTION", "exit")
+        .env("SRCMV_TEST_FAILPOINT", failpoint)
+        .env("SRCMV_TEST_FAILPOINT_ACTION", "exit")
         .output()
         .expect("crashing recovery process should run")
 }
 
 fn transaction_id(workspace: &TempDir) -> String {
-    let mut entries = fs::read_dir(workspace.path().join(".codesplice/transactions"))
+    let mut entries = fs::read_dir(workspace.path().join(".srcmv/transactions"))
         .expect("active transaction directory should exist")
         .collect::<Result<Vec<_>, _>>()
         .expect("transaction entries should read");
@@ -98,13 +98,13 @@ fn transaction_id(workspace: &TempDir) -> String {
 }
 
 fn any_transaction_id(workspace: &TempDir) -> Option<String> {
-    let active = workspace.path().join(".codesplice/transactions");
+    let active = workspace.path().join(".srcmv/transactions");
     if let Ok(mut entries) = fs::read_dir(active)
         && let Some(Ok(entry)) = entries.next()
     {
         return entry.file_name().into_string().ok();
     }
-    let completed = workspace.path().join(".codesplice/completed");
+    let completed = workspace.path().join(".srcmv/completed");
     if let Ok(mut entries) = fs::read_dir(completed)
         && let Some(Ok(entry)) = entries.next()
     {
@@ -149,7 +149,7 @@ fn single_target_crash_recovery_should_complete_after_backup_rename() {
     assert!(
         !workspace
             .path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .join(&id)
             .exists()
     );
@@ -176,7 +176,7 @@ fn single_target_crash_recovery_should_rollback_after_install_rename() {
     assert!(
         !workspace
             .path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .join(&id)
             .exists()
     );
@@ -190,7 +190,7 @@ fn single_target_crash_recovery_should_reject_equal_byte_candidate_replacement()
     let id = transaction_id(&workspace);
     let candidate = workspace
         .path()
-        .join(".codesplice/transactions")
+        .join(".srcmv/transactions")
         .join(&id)
         .join("candidate-00000000");
     let bytes = fs::read(&candidate).expect("candidate should read");
@@ -211,7 +211,7 @@ fn single_target_crash_recovery_should_reject_equal_byte_candidate_replacement()
     assert!(
         workspace
             .path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .join(&id)
             .exists()
     );

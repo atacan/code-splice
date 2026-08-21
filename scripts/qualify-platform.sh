@@ -27,7 +27,7 @@ esac
 
 printf 'qualifying %s/%s on %s\n' "$operating_system" "$architecture" "$filesystem"
 
-qualification_tmp="${CODESPLICE_QUALIFICATION_TMPDIR:-$repository_root/target/phase9-tmp}"
+qualification_tmp="${SRCMV_QUALIFICATION_TMPDIR:-$repository_root/target/phase9-tmp}"
 mkdir -p "$qualification_tmp"
 export TMPDIR="$qualification_tmp"
 

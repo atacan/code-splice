@@ -14,7 +14,7 @@ use serde_json::Value as JsonValue;
 use crate::process::ProcessSpec;
 
 /// Environment variable whose value overrides the default user configuration path.
-pub const CONFIGURATION_PATH_ENVIRONMENT_VARIABLE: &str = "CODESPLICE_CONFIG";
+pub const CONFIGURATION_PATH_ENVIRONMENT_VARIABLE: &str = "SRCMV_CONFIG";
 /// Maximum accepted user-configuration file size.
 pub const MAX_CONFIGURATION_BYTES: usize = 1024 * 1024;
 /// Maximum nesting depth accepted in configuration and JSON-valued fields.
@@ -43,7 +43,7 @@ const MAX_TIMEOUT_MS: u64 = 300_000;
 /// Returns a configuration path without reading or mutating process-global environment.
 ///
 /// An explicitly supplied override is returned exactly. Otherwise the path is
-/// `codesplice/config.toml` below the supplied platform configuration directory.
+/// `srcmv/config.toml` below the supplied platform configuration directory.
 #[must_use]
 pub fn configuration_path(
     explicit_override: Option<&OsStr>,
@@ -51,13 +51,13 @@ pub fn configuration_path(
 ) -> Option<PathBuf> {
     explicit_override.map(PathBuf::from).or_else(|| {
         platform_configuration_directory
-            .map(|directory| directory.join("codesplice").join("config.toml"))
+            .map(|directory| directory.join("srcmv").join("config.toml"))
     })
 }
 
 /// Returns the current platform's default configuration path unless overridden.
 ///
-/// The caller is responsible for reading `CODESPLICE_CONFIG` and passing its
+/// The caller is responsible for reading `SRCMV_CONFIG` and passing its
 /// value here. This function performs no environment mutation and creates no
 /// directory or file.
 #[must_use]
@@ -153,7 +153,7 @@ pub enum ServerOrigin {
     Explicit,
     /// A trusted user-level configuration descriptor.
     UserConfiguration,
-    /// CodeSplice's built-in convenience table.
+    /// srcmv's built-in convenience table.
     BuiltIn,
 }
 
@@ -200,7 +200,7 @@ impl fmt::Debug for ServerSelection<'_> {
 /// Inputs used to resolve a language-server process.
 #[derive(Clone, Copy)]
 pub struct ResolutionRequest<'a> {
-    /// Canonical CodeSplice workspace root.
+    /// Canonical srcmv workspace root.
     pub workspace_root: &'a Path,
     /// Source extension, with or without a leading dot.
     pub source_extension: &'a str,

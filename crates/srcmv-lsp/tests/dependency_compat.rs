@@ -314,7 +314,7 @@ fn configuration_path_join_is_environment_independent() {
 
     assert_eq!(
         configuration_path_in(base),
-        PathBuf::from("/configuration-root/codesplice/config.toml")
+        PathBuf::from("/configuration-root/srcmv/config.toml")
     );
 }
 
@@ -324,7 +324,7 @@ fn default_configuration_path_uses_base_dirs_config_directory() {
         .expect("qualified desktop platforms should resolve base directories");
     let expected = base_directories
         .config_dir()
-        .join("codesplice")
+        .join("srcmv")
         .join("config.toml");
 
     assert_eq!(default_configuration_path(), Some(expected));
@@ -337,7 +337,7 @@ fn base_dirs_uses_macos_application_support_contract() {
         directories::BaseDirs::new().expect("qualified macOS should resolve base directories");
     let expected = base_directories
         .home_dir()
-        .join("Library/Application Support/codesplice/config.toml");
+        .join("Library/Application Support/srcmv/config.toml");
 
     assert_eq!(default_configuration_path(), Some(expected));
 }
@@ -355,7 +355,7 @@ fn base_dirs_uses_linux_xdg_configuration_contract() {
 
     assert_eq!(
         default_configuration_path(),
-        Some(expected_base.join("codesplice/config.toml"))
+        Some(expected_base.join("srcmv/config.toml"))
     );
 }
 

@@ -24,21 +24,19 @@ pub mod transport;
 
 use std::path::{Path, PathBuf};
 
-/// Returns the CodeSplice configuration file below a platform configuration directory.
+/// Returns the srcmv configuration file below a platform configuration directory.
 ///
 /// The caller supplies the platform base so tests and explicit overrides do not
 /// need to mutate process-global environment variables.
 #[must_use]
 pub fn configuration_path_in(configuration_directory: &Path) -> PathBuf {
-    configuration_directory
-        .join("codesplice")
-        .join("config.toml")
+    configuration_directory.join("srcmv").join("config.toml")
 }
 
-/// Returns the default CodeSplice configuration file for the current user.
+/// Returns the default srcmv configuration file for the current user.
 ///
 /// This uses [`directories::BaseDirs`] rather than [`directories::ProjectDirs`]
-/// so the cross-platform contract is exactly `config_dir/codesplice/config.toml`.
+/// so the cross-platform contract is exactly `config_dir/srcmv/config.toml`.
 /// Returns `None` when the platform cannot resolve the current user's base
 /// directories.
 #[must_use]

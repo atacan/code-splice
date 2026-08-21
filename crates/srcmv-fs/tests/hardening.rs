@@ -55,10 +55,10 @@ proptest! {
 fn record_decoders_checked_in_fuzz_regressions_remain_rejected() {
     let cases: [&[u8]; 7] = [
         b"",
-        b"CODESPLICE-MANIFEST\0",
-        b"CODESPLICE-STATE\0",
-        b"CODESPLICE-MANIFEST\0\0\0\0\x01\xff\xff\xff\xff\xff\xff\xff\xff",
-        b"CODESPLICE-STATE\0\0\0\0\x01\0\0\0\0\0\0\0\x02{}",
+        b"SRCMV-MANIFEST\0",
+        b"SRCMV-STATE\0",
+        b"SRCMV-MANIFEST\0\0\0\0\x01\xff\xff\xff\xff\xff\xff\xff\xff",
+        b"SRCMV-STATE\0\0\0\0\x01\0\0\0\0\0\0\0\x02{}",
         b"not-a-record",
         &[0xff; 64],
     ];

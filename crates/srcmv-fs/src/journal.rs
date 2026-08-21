@@ -76,8 +76,8 @@ impl Default for TransactionLimits {
     }
 }
 
-pub(crate) const MANIFEST_MAGIC: &[u8] = b"CODESPLICE-MANIFEST\0";
-pub(crate) const STATE_MAGIC: &[u8] = b"CODESPLICE-STATE\0";
+pub(crate) const MANIFEST_MAGIC: &[u8] = b"SRCMV-MANIFEST\0";
+pub(crate) const STATE_MAGIC: &[u8] = b"SRCMV-STATE\0";
 const HEADER_TRAILER_BYTES: u64 = 4 + 8 + 32;
 
 /// A persisted POSIX physical identity.
@@ -905,7 +905,7 @@ fn validate_normalized_path(value: &str, id: &str) -> Result<(), FsError> {
         || value
             .split('/')
             .next()
-            .is_some_and(|part| part.eq_ignore_ascii_case(".codesplice"))
+            .is_some_and(|part| part.eq_ignore_ascii_case(".srcmv"))
     {
         Err(corrupt(Some(id), "manifest_path_invalid"))
     } else {
@@ -1302,8 +1302,8 @@ mod failpoint_tests {
                 "--exact",
                 "journal::failpoint_tests::subprocess_should_stop_before_record_publication",
             ])
-            .env("CODESPLICE_TEST_CHILD", "1")
-            .env("CODESPLICE_TEST_FAILPOINT", "before_record_publication")
+            .env("SRCMV_TEST_CHILD", "1")
+            .env("SRCMV_TEST_FAILPOINT", "before_record_publication")
             .output()
             .expect("test subprocess should run");
 
@@ -1317,7 +1317,7 @@ mod failpoint_tests {
 
     #[test]
     fn subprocess_should_stop_before_record_publication() {
-        if std::env::var_os("CODESPLICE_TEST_CHILD").is_none() {
+        if std::env::var_os("SRCMV_TEST_CHILD").is_none() {
             return;
         }
         let root = TempDir::new().expect("temporary directory should be created");

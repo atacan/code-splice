@@ -1,6 +1,6 @@
 //! Static discovery metadata for the independently versioned semantic-selection surface.
 //!
-//! This response describes features implemented by CodeSplice itself. It does
+//! This response describes features implemented by srcmv itself. It does
 //! not inspect configuration, search `PATH`, or claim that a compatible
 //! language server is installed. Language-server availability is resolved only
 //! when a selection command runs, and a launched server is trusted local code.

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Immutable domain contracts for CodeSplice.
+//! Immutable domain contracts for srcmv.
 //!
 //! This crate owns the filesystem-independent vocabulary used by snapshotting,
 //! planning, protocol conversion, and execution. Planning is a pure transform

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codesplice.dev/schema/selection-v1/error.schema.json",
-  "title": "CodeSplice semantic selection protocol v1 error response",
-  "x-codesplice-error-registry": [
+  "$id": "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/selection-v1/error.schema.json",
+  "title": "srcmv semantic selection protocol v1 error response",
+  "x-srcmv-error-registry": [
     { "code": "INVALID_SELECTION_QUERY", "category": "request", "exit": 2, "retryable": false },
     { "code": "LSP_SERVER_NOT_CONFIGURED", "category": "support", "exit": 4, "retryable": false },
     { "code": "SELECTION_NOT_FOUND", "category": "conflict", "exit": 3, "retryable": false },

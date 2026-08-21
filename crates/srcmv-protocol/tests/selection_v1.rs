@@ -7,7 +7,8 @@ use jsonschema::{Registry, Validator};
 use serde_json::{Value, json};
 use srcmv_protocol::parse_request;
 
-const EDIT_REQUEST_SCHEMA_ID: &str = "https://codesplice.dev/schema/v1/request.schema.json";
+const EDIT_REQUEST_SCHEMA_ID: &str =
+    "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/v1/request.schema.json";
 
 fn repository_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -224,7 +225,7 @@ fn success_schema_should_freeze_selection_v1_keys_and_limits() {
     );
     assert_eq!(
         schema["$defs"]["match"]["properties"]["request_source"]["$ref"],
-        "https://codesplice.dev/schema/v1/request.schema.json#/$defs/source"
+        "https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/v1/request.schema.json#/$defs/source"
     );
     let match_keys = schema["$defs"]["match"]["required"]
         .as_array()
@@ -243,7 +244,7 @@ fn selection_error_schema_should_match_the_golden_registry() {
         schema["properties"]["selection_protocol_version"]["const"],
         1
     );
-    assert_eq!(schema["x-codesplice-error-registry"], registry);
+    assert_eq!(schema["x-srcmv-error-registry"], registry);
     let mut schema_codes = schema["properties"]["code"]["enum"]
         .as_array()
         .expect("schema error codes must be an array")

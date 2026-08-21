@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Strict JSON protocol boundary for CodeSplice protocol version 1.
+//! Strict JSON protocol boundary for srcmv protocol version 1.
 //!
 //! This crate validates request envelopes and converts them to the pure domain
 //! model without accessing the filesystem. It also owns the stable error and

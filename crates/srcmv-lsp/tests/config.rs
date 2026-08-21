@@ -21,7 +21,7 @@ impl TestDirectory {
     fn new(label: &str) -> Self {
         let sequence = NEXT_TEMPORARY_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "codesplice-config-{label}-{}-{sequence}",
+            "srcmv-config-{label}-{}-{sequence}",
             std::process::id()
         ));
         fs::create_dir(&path).expect("create isolated test directory");
@@ -137,7 +137,7 @@ fn configuration_path_should_preserve_linux_layout() {
 
     assert_eq!(
         result,
-        Some(PathBuf::from("/home/alice/.config/codesplice/config.toml"))
+        Some(PathBuf::from("/home/alice/.config/srcmv/config.toml"))
     );
 }
 
@@ -151,7 +151,7 @@ fn configuration_path_should_preserve_macos_layout() {
     assert_eq!(
         result,
         Some(PathBuf::from(
-            "/Users/alice/Library/Application Support/codesplice/config.toml"
+            "/Users/alice/Library/Application Support/srcmv/config.toml"
         ))
     );
 }

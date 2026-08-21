@@ -49,8 +49,8 @@ fn crash_commit(workspace: &TempDir, failpoint: &str) -> Output {
             "--accept-current-plan",
             "--json",
         ])
-        .env("CODESPLICE_TEST_FAILPOINT", failpoint)
-        .env("CODESPLICE_TEST_FAILPOINT_ACTION", "exit")
+        .env("SRCMV_TEST_FAILPOINT", failpoint)
+        .env("SRCMV_TEST_FAILPOINT_ACTION", "exit")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -84,14 +84,14 @@ fn crash_recovery(
         .arg("--workspace")
         .arg(workspace.path())
         .args(["recover", transaction_id, action, "--json"])
-        .env("CODESPLICE_TEST_FAILPOINT", failpoint)
-        .env("CODESPLICE_TEST_FAILPOINT_ACTION", "exit")
+        .env("SRCMV_TEST_FAILPOINT", failpoint)
+        .env("SRCMV_TEST_FAILPOINT_ACTION", "exit")
         .output()
         .expect("crashing recovery should run")
 }
 
 fn transaction_id(workspace: &TempDir) -> String {
-    fs::read_dir(workspace.path().join(".codesplice/transactions"))
+    fs::read_dir(workspace.path().join(".srcmv/transactions"))
         .expect("transactions should exist")
         .next()
         .expect("active transaction should exist")
@@ -102,7 +102,7 @@ fn transaction_id(workspace: &TempDir) -> String {
 }
 
 fn any_transaction_id(workspace: &TempDir) -> Option<String> {
-    let active = workspace.path().join(".codesplice/transactions");
+    let active = workspace.path().join(".srcmv/transactions");
     if let Some(entry) = fs::read_dir(active).ok()?.next() {
         return Some(
             entry
@@ -115,7 +115,7 @@ fn any_transaction_id(workspace: &TempDir) -> Option<String> {
                 .to_owned(),
         );
     }
-    let completed = workspace.path().join(".codesplice/completed");
+    let completed = workspace.path().join(".srcmv/completed");
     let name = fs::read_dir(completed).ok()?.next()?.ok()?.file_name();
     let name = name.into_string().ok()?;
     Some(
@@ -135,7 +135,7 @@ fn manifest(workspace: &TempDir, transaction_id: &str) -> srcmv_fs::Manifest {
     let bytes = fs::read(
         workspace
             .path()
-            .join(".codesplice/transactions")
+            .join(".srcmv/transactions")
             .join(transaction_id)
             .join("manifest.rec"),
     )

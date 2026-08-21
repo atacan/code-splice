@@ -63,8 +63,8 @@ fn invoke(workspace: &TempDir, arguments: &[&str], failpoints: Option<&str>) -> 
         .stderr(Stdio::piped());
     if let Some(failpoints) = failpoints {
         command
-            .env("CODESPLICE_TEST_FAILPOINT", failpoints)
-            .env("CODESPLICE_TEST_FAILPOINT_ACTION", "error");
+            .env("SRCMV_TEST_FAILPOINT", failpoints)
+            .env("SRCMV_TEST_FAILPOINT_ACTION", "error");
     }
     let mut child = command.spawn().expect("srcmv should start");
     if arguments.first() == Some(&"apply") {
@@ -115,7 +115,7 @@ fn assert_planned(workspace: &TempDir) {
 }
 
 fn active_transaction_id(workspace: &TempDir) -> String {
-    fs::read_dir(workspace.path().join(".codesplice/transactions"))
+    fs::read_dir(workspace.path().join(".srcmv/transactions"))
         .expect("transactions should exist")
         .next()
         .expect("one active transaction should remain")

@@ -182,8 +182,8 @@ fn inspect_cli_should_reject_every_invalid_path_form_and_redact_absolute_spellin
         "a//b",
         "a/./b",
         "a/../b",
-        ".codesplice/lock",
-        ".CoDeSpLiCe/lock",
+        ".srcmv/lock",
+        ".SRcMv/lock",
     ] {
         let output = workspace.invoke(&["inspect", "--path", path, "--json"]);
         let report = json_stdout(&output);
@@ -215,7 +215,7 @@ fn inspect_cli_should_not_create_or_modify_workspace_entries() {
 
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(before, after);
-    assert!(!workspace.0.join(".codesplice").exists());
+    assert!(!workspace.0.join(".srcmv").exists());
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

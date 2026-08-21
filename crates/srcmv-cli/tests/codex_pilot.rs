@@ -25,8 +25,8 @@ fn repository_root() -> PathBuf {
 
 fn pilot_root() -> PathBuf {
     let root = PathBuf::from(
-        std::env::var_os("CODESPLICE_PILOT_ROOT")
-            .expect("CODESPLICE_PILOT_ROOT is required for the ignored pilot"),
+        std::env::var_os("SRCMV_PILOT_ROOT")
+            .expect("SRCMV_PILOT_ROOT is required for the ignored pilot"),
     );
     assert_eq!(
         root.file_name().and_then(|name| name.to_str()),
@@ -77,8 +77,8 @@ fn invoke(
     command.arg("--workspace").arg(workspace).args(arguments);
     if let Some(name) = failpoint {
         command
-            .env("CODESPLICE_TEST_FAILPOINT", name)
-            .env("CODESPLICE_TEST_FAILPOINT_ACTION", "exit");
+            .env("SRCMV_TEST_FAILPOINT", name)
+            .env("SRCMV_TEST_FAILPOINT_ACTION", "exit");
     }
     if request.is_some() {
         command.stdin(Stdio::piped());
@@ -250,7 +250,7 @@ fn recover(workspace: &Path, transaction_id: &str, action: &str, exit: i32) -> V
 }
 
 fn transaction_id(workspace: &Path) -> String {
-    let entries = fs::read_dir(workspace.join(".codesplice/transactions"))
+    let entries = fs::read_dir(workspace.join(".srcmv/transactions"))
         .expect("active transaction directory should exist")
         .collect::<Result<Vec<_>, _>>()
         .expect("transaction entries should read");
@@ -443,7 +443,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     let committed = commit(&workspace, &request, &plan);
     assert!(committed["transaction_id"].is_null());
     assert_eq!(fs::read(workspace.join("src/source.rs")).unwrap(), main);
-    assert!(!workspace.join(".codesplice").exists());
+    assert!(!workspace.join(".srcmv").exists());
     record(
         &mut results,
         5,
@@ -562,7 +562,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     let (plan, _) = preview(&workspace, &request);
     write(&workspace, "src/source.rs", b"stale source\n");
     commit_error(&workspace, &request, &plan, "PRECONDITION_FAILED", 3);
-    assert!(!workspace.join(".codesplice").exists());
+    assert!(!workspace.join(".srcmv").exists());
     record(
         &mut results,
         10,
@@ -584,7 +584,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     preview(&workspace, &request);
     let wrong = format!("sha256:{}", "0".repeat(64));
     commit_error(&workspace, &request, &wrong, "EXPECTED_PLAN_MISMATCH", 3);
-    assert!(!workspace.join(".codesplice").exists());
+    assert!(!workspace.join(".srcmv").exists());
     record(
         &mut results,
         11,
@@ -709,8 +709,8 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
 
     let workspace = root.join("scenario-15");
     fs::create_dir_all(workspace.join("src")).expect("scenario 15 source should exist");
-    if workspace.join(".codesplice").exists() {
-        fs::remove_dir_all(workspace.join(".codesplice"))
+    if workspace.join(".srcmv").exists() {
+        fs::remove_dir_all(workspace.join(".srcmv"))
             .expect("prior scenario 15 control tree should be removed");
     }
     if !workspace.join("Cargo.toml").exists() {
@@ -738,7 +738,7 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     write(&workspace, "real/file.rs", b"real");
     std::os::unix::fs::symlink("../real", workspace.join("src/link")).unwrap();
     inspect_error(&workspace, &["src/link/file.rs"], "SYMLINK_NOT_ALLOWED", 4);
-    inspect_error(&workspace, &[".codesplice/forbidden"], "INVALID_REQUEST", 2);
+    inspect_error(&workspace, &[".srcmv/forbidden"], "INVALID_REQUEST", 2);
 
     write(&workspace, "src/hard-target", b"target");
     fs::hard_link(
@@ -755,8 +755,8 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     preview_error(&workspace, &hard_request, "HARD_LINK_NOT_SUPPORTED", 4);
 
     let cross_device = PathBuf::from(
-        std::env::var_os("CODESPLICE_PILOT_CROSS_DEVICE")
-            .expect("CODESPLICE_PILOT_CROSS_DEVICE must name the mounted second device"),
+        std::env::var_os("SRCMV_PILOT_CROSS_DEVICE")
+            .expect("SRCMV_PILOT_CROSS_DEVICE must name the mounted second device"),
     );
     assert_eq!(cross_device, workspace.join("external"));
     assert!(cross_device.is_dir(), "cross-device mount should exist");
@@ -807,10 +807,10 @@ fn codex_pilot_should_pass_all_fifteen_scenarios() {
     assert!(results.iter().all(|result| result["status"] == "pass"));
     let evidence = json!({
         "phase": 10,
-        "baseline_commit": std::env::var("CODESPLICE_PILOT_BASELINE").expect("baseline commit is required"),
-        "operating_system": std::env::var("CODESPLICE_PILOT_OS").expect("pilot OS is required"),
-        "architecture": std::env::var("CODESPLICE_PILOT_ARCH").expect("pilot architecture is required"),
-        "filesystem": std::env::var("CODESPLICE_PILOT_FILESYSTEM").expect("pilot filesystem is required"),
+        "baseline_commit": std::env::var("SRCMV_PILOT_BASELINE").expect("baseline commit is required"),
+        "operating_system": std::env::var("SRCMV_PILOT_OS").expect("pilot OS is required"),
+        "architecture": std::env::var("SRCMV_PILOT_ARCH").expect("pilot architecture is required"),
+        "filesystem": std::env::var("SRCMV_PILOT_FILESYSTEM").expect("pilot filesystem is required"),
         "repository": repository_root(),
         "workflow": "inspect -> preview -> commit --expect-plan",
         "accept_current_plan_used": false,

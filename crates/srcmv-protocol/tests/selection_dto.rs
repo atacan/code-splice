@@ -105,7 +105,7 @@ fn position_response() -> SelectionResponse {
         vec![selected_match],
         vec![WarningDto::new(
             WarningCode::ObservationMayBeStale,
-            "no existing CodeSplice lock coordinated this read-only observation",
+            "no existing srcmv lock coordinated this read-only observation",
             BTreeMap::new(),
         )],
     )

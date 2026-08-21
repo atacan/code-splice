@@ -140,14 +140,14 @@ fn session_input(
     settings: Option<Value>,
     limits: SessionLimits,
 ) -> SessionInput {
-    let workspace_uri: Uri = "file:///codesplice-limit-workspace"
+    let workspace_uri: Uri = "file:///srcmv-limit-workspace"
         .parse()
         .expect("workspace URI should parse");
-    let document_uri: Uri = "file:///codesplice-limit-workspace/source.rs"
+    let document_uri: Uri = "file:///srcmv-limit-workspace/source.rs"
         .parse()
         .expect("document URI should parse");
     SessionInput {
-        process: ProcessSpec::new("/codesplice/definitely-absent-lsp-server"),
+        process: ProcessSpec::new("/srcmv/definitely-absent-lsp-server"),
         workspace: WorkspaceFolder::new(workspace_uri, "workspace".to_owned()),
         document: ImmutableDocument {
             uri: document_uri,
@@ -278,7 +278,7 @@ fn escaped_did_open_body_is_preflighted_exactly_before_process_spawn() {
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
         "params": {"textDocument": {
-            "uri": "file:///codesplice-limit-workspace/source.rs",
+            "uri": "file:///srcmv-limit-workspace/source.rs",
             "languageId": "rust",
             "version": 1,
             "text": text,

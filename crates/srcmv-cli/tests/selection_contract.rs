@@ -80,5 +80,5 @@ fn copied_request_source_should_preview_unchanged_against_fixture_workspace() {
             .expect("destination should remain readable"),
         destination_before
     );
-    assert!(!workspace.path().join(".codesplice").exists());
+    assert!(!workspace.path().join(".srcmv").exists());
 }

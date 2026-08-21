@@ -19,6 +19,7 @@ use clap::error::ErrorKind;
 use clap::{ArgAction, Args, Parser, Subcommand};
 use serde_json::json;
 use srcmv_core::{Operation, OutputChange, Precondition, ResourceBudget, plan};
+use srcmv_fs::LEGACY_CONTROL_NAME;
 use srcmv_fs::{
     DiagnosticLock, FsError, InspectedState, RecoveryEntryKind, RequiredPathState, SnapshotLimits,
     SnapshotRequirement, Workspace, capture_startup_umask,
@@ -434,6 +435,18 @@ fn filesystem_error(error: FsError) -> ErrorDto {
             "the workspace control tree is invalid",
             BTreeMap::from([("reason".to_string(), json!(reason))]),
         ),
+        FsError::LegacyControlState => ErrorDto::new(
+            ErrorCode::ControlDirectoryInvalid,
+            format!(
+                "{LEGACY_CONTROL_NAME} holds unfinished transaction state from the former \
+                 product identity; finish or remove it with the former tool before running \
+                 srcmv in this workspace"
+            ),
+            BTreeMap::from([
+                ("reason".to_string(), json!("legacy_control_state")),
+                ("path".to_string(), json!(LEGACY_CONTROL_NAME)),
+            ]),
+        ),
         FsError::TransactionRecordCorrupt {
             transaction_id,
             reason,
@@ -806,17 +819,17 @@ fn execute_commit(
 fn commit_test_hook(name: &str) -> Result<(), ErrorDto> {
     use std::time::{Duration, Instant};
 
-    if std::env::var_os("CODESPLICE_TEST_HOOK").is_none_or(|value| value != name) {
+    if std::env::var_os("SRCMV_TEST_HOOK").is_none_or(|value| value != name) {
         return Ok(());
     }
-    let ready = std::env::var_os("CODESPLICE_TEST_READY").ok_or_else(|| {
+    let ready = std::env::var_os("SRCMV_TEST_READY").ok_or_else(|| {
         ErrorDto::new(
             ErrorCode::InternalError,
             "the commit test hook is missing its ready marker",
             BTreeMap::new(),
         )
     })?;
-    let resume = std::env::var_os("CODESPLICE_TEST_CONTINUE").ok_or_else(|| {
+    let resume = std::env::var_os("SRCMV_TEST_CONTINUE").ok_or_else(|| {
         ErrorDto::new(
             ErrorCode::InternalError,
             "the commit test hook is missing its continue marker",

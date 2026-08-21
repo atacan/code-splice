@@ -106,7 +106,7 @@ fn recovery_list_should_create_nothing_when_control_tree_is_absent() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(response["protocol_version"], 1);
     assert_eq!(response["transactions"], serde_json::json!([]));
-    assert!(!workspace.root.path().join(".codesplice").exists());
+    assert!(!workspace.root.path().join(".srcmv").exists());
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn recovery_commands_should_reject_bad_ids_unknown_entries_and_missing_transacti
             workspace
                 .root
                 .path()
-                .join(".codesplice/transactions")
+                .join(".srcmv/transactions")
                 .join(id)
                 .join("unknown")
         )
@@ -255,7 +255,7 @@ fn tree_without_control(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut entries = fs::read_dir(root)
         .expect("workspace should read")
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_name() != ".codesplice")
+        .filter(|entry| entry.file_name() != ".srcmv")
         .map(|entry| {
             let path = entry.path();
             let relative = path

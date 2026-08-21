@@ -727,7 +727,7 @@ fn write_trusted_config(
 fn trusted_selection_command(workspace: &Path, config: &Path, json_output: bool) -> Command {
     let mut command = Command::new(srcmv_binary());
     command
-        .env("CODESPLICE_CONFIG", config)
+        .env("SRCMV_CONFIG", config)
         .args(["--workspace"])
         .arg(workspace)
         .args([

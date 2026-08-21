@@ -329,7 +329,7 @@ impl ServerRequestId {
     }
 }
 
-/// A monotonically allocated request ID owned by the CodeSplice client.
+/// A monotonically allocated request ID owned by the srcmv client.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ClientRequestId(u64);
 
@@ -387,7 +387,7 @@ pub enum ResponsePayload {
     Error(ResponseError),
 }
 
-/// A response to a request initiated by the CodeSplice client.
+/// A response to a request initiated by the srcmv client.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientResponse {
     /// The client-owned response ID.
@@ -403,7 +403,7 @@ pub enum IncomingMessage {
     Request(ServerRequest),
     /// A notification emitted by the language server.
     Notification(ServerNotification),
-    /// A response to a CodeSplice client request.
+    /// A response to a srcmv client request.
     Response(ClientResponse),
 }
 
