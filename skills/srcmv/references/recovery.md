@@ -1,19 +1,19 @@
 # Transaction recovery
 
-Use recovery only for an interrupted or unfinished CodeSplice transaction. Do not edit, move, or delete `.codesplice` records or artifacts manually.
+Use recovery only for an interrupted or unfinished srcmv transaction. Do not edit, move, or delete `.srcmv` records or artifacts manually.
 
 ## Inspect before acting
 
 Use the workspace-level status operation to list known transactions:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo recover --list --json
+srcmv --workspace /absolute/path/to/repo recover --list --json
 ```
 
 Use the transaction-level status operation to inspect a specific transaction:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo recover TRANSACTION_ID --status --json
+srcmv --workspace /absolute/path/to/repo recover TRANSACTION_ID --status --json
 ```
 
 Both status operations are read-only, create nothing, and retain a shared lock
@@ -47,19 +47,19 @@ Completion and rollback both mutate the workspace. If the user did not explicitl
 Complete the original plan:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo recover TRANSACTION_ID --complete --json
+srcmv --workspace /absolute/path/to/repo recover TRANSACTION_ID --complete --json
 ```
 
 Restore the original target states:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo recover TRANSACTION_ID --rollback --json
+srcmv --workspace /absolute/path/to/repo recover TRANSACTION_ID --rollback --json
 ```
 
-CodeSplice classifies all targets before changing any target. Completion proceeds in normalized path order; rollback proceeds in reverse order. Unexpected or ambiguous artifacts fail with `RECOVERY_CONFLICT` and remain unchanged.
+srcmv classifies all targets before changing any target. Completion proceeds in normalized path order; rollback proceeds in reverse order. Unexpected or ambiguous artifacts fail with `RECOVERY_CONFLICT` and remain unchanged.
 
 ## Verify recovery
 
 Require exit status 0, inspect the returned visibility, and run status or list again. Then verify workspace content and run relevant repository checks.
 
-Do not continue normal CodeSplice mutations while an unfinished active transaction remains. For `TRANSACTION_RECORD_CORRUPT`, `CONTROL_DIRECTORY_INVALID`, or a recovery conflict, stop and surface the structured report; do not guess, repair permissions silently, or remove evidence.
+Do not continue normal srcmv mutations while an unfinished active transaction remains. For `TRANSACTION_RECORD_CORRUPT`, `CONTROL_DIRECTORY_INVALID`, or a recovery conflict, stop and surface the structured report; do not guess, repair permissions silently, or remove evidence.

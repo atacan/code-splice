@@ -2,7 +2,7 @@
 
 ## Exactness contract
 
-CodeSplice edits bytes, not syntax. For each effectful exact operation, the selected-byte SHA-256 equals the inserted-byte SHA-256. It does not:
+srcmv edits bytes, not syntax. For each effectful exact operation, the selected-byte SHA-256 equals the inserted-byte SHA-256. It does not:
 
 - Parse a programming language or infer declaration boundaries.
 - Update imports, references, module declarations, or build files.
@@ -13,7 +13,7 @@ Select only the intended original bytes, review the preview, then make any seman
 
 ## Workspace and path boundary
 
-Use UTF-8 workspace-relative operation paths. Absolute paths, empty components, `.`, `..`, NUL, symlink traversal, and a first component equal to `.codesplice` ignoring ASCII case are rejected. Existing inputs must be regular files.
+Use UTF-8 workspace-relative operation paths. Absolute paths, empty components, `.`, `..`, NUL, symlink traversal, and a first component equal to `.srcmv` ignoring ASCII case are rejected. Existing inputs must be regular files.
 
 The supported v0.1.0 commit environments are:
 
@@ -24,7 +24,7 @@ Windows, network filesystems, overlay filesystems, unlisted local filesystems, a
 
 ## Aliases, links, and concurrency
 
-CodeSplice detects existing paths that physically alias by device and inode. It rejects changing an existing target with multiple hard links and rejects symlink traversal. Commit revalidates input bytes, absent destinations, path identities, parents, link counts, and workspace identity before mutation.
+srcmv detects existing paths that physically alias by device and inode. It rejects changing an existing target with multiple hard links and rejects symlink traversal. Commit revalidates input bytes, absent destinations, path identities, parents, link counts, and workspace identity before mutation.
 
 Treat conflict errors as evidence that the inspected snapshot is stale or the plan is invalid. Re-inspect and preview; never substitute a weaker commit policy.
 
@@ -36,7 +36,7 @@ Multi-target commits are recoverable but not atomically visible. All candidates 
 
 ## Metadata
 
-Content bytes are the exactness guarantee. CodeSplice preserves POSIX permission bits for an existing changed target. A new target receives `0666 & !startup_umask`.
+Content bytes are the exactness guarantee. srcmv preserves POSIX permission bits for an existing changed target. A new target receives `0666 & !startup_umask`.
 
 It does not preserve hard-link relationships, ownership, ACLs, extended attributes, resource forks, timestamps, or platform flags. A changing result reports `METADATA_NOT_PRESERVED`; surface that warning when metadata matters.
 

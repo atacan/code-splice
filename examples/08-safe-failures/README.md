@@ -18,7 +18,7 @@ The plan-mismatch case first performs a valid preview, then supplies an all-zero
 plan digest to commit. A real client should instead pass the exact digest from
 preview; on any mismatch, inspect and preview again.
 
-CodeSplice is a trusted-user tool, not a hostile-filesystem security boundary.
+srcmv is a trusted-user tool, not a hostile-filesystem security boundary.
 These fail-closed checks do not claim protection against a malicious same-user
 process racing workspace namespace changes.
 

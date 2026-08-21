@@ -1,25 +1,25 @@
 # Required agent workflow
 
-Use this workflow for every CodeSplice mutation. Commands assume an installed `codesplice` binary and an absolute workspace path.
+Use this workflow for every srcmv mutation. Commands assume an installed `srcmv` binary and an absolute workspace path.
 
 ## 1. Confirm the runtime surface
 
 ```bash
-command -v codesplice
-codesplice capabilities --json
-codesplice protocol-version --json
+command -v srcmv
+srcmv capabilities --json
+srcmv protocol-version --json
 ```
 
 Protocol v1 supports `move` and `copy`, `lines` and `bytes` selectors, and `file_start`, `file_end`, `before_line`, `after_line`, and `byte_offset` anchors.
 
-If the binary is unavailable, do not silently replace this workflow with ordinary file editing. In the CodeSplice source checkout, `cargo run --locked --release -p codesplice-cli -- ...` can run the repository version when building it is in scope. Otherwise report the missing installation.
+If the binary is unavailable, do not silently replace this workflow with ordinary file editing. In the srcmv source checkout, `cargo run --locked --release -p srcmv-cli -- ...` can run the repository version when building it is in scope. Otherwise report the missing installation.
 
 ## 2. Inspect one immutable starting view
 
 Inspect all referenced paths together, including absent destinations:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo inspect \
+srcmv --workspace /absolute/path/to/repo inspect \
   --path src/source.rs \
   --path src/destination.rs \
   --json
@@ -38,7 +38,7 @@ Keep this exact request unchanged between preview and commit. The request does n
 ## 4. Preview
 
 ```bash
-codesplice --workspace /absolute/path/to/repo apply \
+srcmv --workspace /absolute/path/to/repo apply \
   --request /absolute/path/to/request.json \
   --preview \
   --summary \
@@ -67,7 +67,7 @@ Stop if the resolved coordinates, output set, or diff do not exactly match the r
 Pass the unchanged request and exact `plan_sha256` returned by preview:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo apply \
+srcmv --workspace /absolute/path/to/repo apply \
   --request /absolute/path/to/request.json \
   --commit \
   --expect-plan sha256:PREVIEWED_64_LOWERCASE_HEX_DIGEST \
@@ -89,7 +89,7 @@ fresh observation.
 Before starting an unrelated normal mutation after contention, run:
 
 ```bash
-codesplice --workspace /absolute/path/to/repo recover --list --json
+srcmv --workspace /absolute/path/to/repo recover --list --json
 ```
 
 This is the authoritative point-in-time workspace status check. An empty list
@@ -108,7 +108,7 @@ On a changing commit, require:
 
 `visibility: "recoverable_not_atomic"` means unrelated readers may have observed a mixed state during execution; it does not mean recovery is pending.
 
-Inspect or read the resulting files, run the repository's relevant checks, and handle imports or formatting as explicitly separate edits. Do not alter CodeSplice's exact moved/copied bytes before verifying them.
+Inspect or read the resulting files, run the repository's relevant checks, and handle imports or formatting as explicitly separate edits. Do not alter srcmv's exact moved/copied bytes before verifying them.
 
 For a reported no-op, require `transaction_state: "no_op"`, `transaction_id: null`, and no changed files.
 

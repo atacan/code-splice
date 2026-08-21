@@ -1,6 +1,6 @@
 # Editing specification
 
-CodeSplice moves or copies bytes from one immutable initial workspace snapshot.
+srcmv moves or copies bytes from one immutable initial workspace snapshot.
 It does not parse source languages, format output, normalize line endings, update
 imports, or create parent directories.
 
@@ -56,7 +56,7 @@ counts, and the workspace root before the first mutation.
 The plan digest is:
 
 ```text
-SHA256(ASCII "CODESPLICE-PLAN-V1\0" || deterministic_cbor(plan_record))
+SHA256(ASCII "SRCMV-PLAN-V1\0" || deterministic_cbor(plan_record))
 ```
 
 Encoding follows RFC 8949 deterministic CBOR. All containers have definite

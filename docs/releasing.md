@@ -1,10 +1,10 @@
-# Releasing CodeSplice
+# Releasing srcmv
 
-CodeSplice publishes native archives as GitHub Release assets. A personal
+srcmv publishes native archives as GitHub Release assets. A personal
 Homebrew tap can use those immutable, versioned URLs and the matching values in
 `SHA256SUMS` without maintaining another binary host.
 
-The release archives do not broaden the qualification contract. CodeSplice is
+The release archives do not broaden the qualification contract. srcmv is
 qualified only for Linux x86_64 on ext4 and macOS arm64 on APFS. A binary may
 download or start on another filesystem, but that is not a supported row.
 
@@ -80,7 +80,7 @@ For each tag, GitHub-hosted native runners:
 - package only `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin`.
 
 When semantic selection is included, release review also confirms that
-`codesplice select --help`, the selection-v1 schemas and golden vectors, the
+`srcmv select --help`, the selection-v1 schemas and golden vectors, the
 documented built-in descriptor table, and configuration defaults agree with the
 tagged source. Selection protocol v1 remains independent of the frozen edit
 protocol: do not alter `capabilities --json`, the protocol-v1 request/response
@@ -94,7 +94,7 @@ A rerun replaces an abandoned draft but refuses to replace an already published
 release.
 
 After the stable release is public, the final job sends a
-`codesplice_release_published` repository-dispatch event to
+`srcmv_release_published` repository-dispatch event to
 `atacan/homebrew-tap`. The tap independently verifies the release and opens a
 formula update PR. This notification is deliberately downstream of publication:
 if it fails, the GitHub Release remains public and its tag remains immutable.
@@ -107,7 +107,7 @@ if it fails, the GitHub Release remains public and its tag remains immutable.
    pull-request, administration, or organization permissions are required for
    the repository-dispatch endpoint. Choose an expiration and rotate the token
    before it expires.
-2. In `atacan/code-splice`, create the Actions repository secret
+2. In `atacan/srcmv`, create the Actions repository secret
    `HOMEBREW_TAP_DISPATCH_TOKEN` with that token as its value. Do not add the
    token to repository variables, environments, source files, or the tap.
 3. In `atacan/homebrew-tap`, open **Settings > Actions > General > Workflow
@@ -117,7 +117,7 @@ if it fails, the GitHub Release remains public and its tag remains immutable.
    `pull-requests: write`; it creates PRs but never approves or merges them.
 
 No custom Actions variables are required. Both repositories receive their own
-automatic, repository-scoped `GITHUB_TOKEN`; the CodeSplice token cannot notify
+automatic, repository-scoped `GITHUB_TOKEN`; the srcmv token cannot notify
 another repository and is not used for that purpose.
 
 ## Homebrew consumption
@@ -129,7 +129,7 @@ the release's `SHA256SUMS`; never point a formula at a branch archive or `latest
 URL.
 
 For example, the tap can choose the native URL and digest inside `on_macos` and
-`on_linux` blocks and install `codesplice` from the archive's `bin.install`
+`on_linux` blocks and install `srcmv` from the archive's `bin.install`
 equivalent. Keep the same two-row OS/architecture restrictions in the formula.
 
 The more Homebrew-native refinement is to build bottles from a source formula
@@ -151,6 +151,6 @@ adopt bottles once the formula and release cadence are stable.
 - If the stable release is public but the Homebrew notification fails, the
   release was not rolled back. Rerun only the failed notification job, or invoke
   the tap's recovery path directly with
-  `gh workflow run update-codesplice.yml --repo atacan/homebrew-tap --ref main -f version=0.2.1`.
+  `gh workflow run update-srcmv.yml --repo atacan/homebrew-tap --ref main -f version=0.2.1`.
 - If the tag or packaged content is wrong, increment the version, qualify a new
   commit, and publish a new tag.

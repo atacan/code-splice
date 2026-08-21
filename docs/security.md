@@ -1,12 +1,12 @@
 # Security boundary
 
-CodeSplice `v0.1.0` is a trusted-user pilot, not a hostile-filesystem security
+srcmv `v0.1.0` is a trusted-user pilot, not a hostile-filesystem security
 boundary. It detects ordinary concurrent edits and refuses ambiguous recovery,
 but it does not defend against a malicious process with workspace write access.
 
 Operation paths are UTF-8, normalized, workspace-relative paths. Absolute paths,
 empty components, `.`, `..`, NUL, symlink traversal, and the ASCII-case-insensitive
-reserved first component `.codesplice` are rejected. Existing inputs must be
+reserved first component `.srcmv` are rejected. Existing inputs must be
 regular files. Existing path aliases are detected by POSIX device and inode.
 
 The canonical workspace root, parents, inputs, absences, and target link counts
@@ -14,7 +14,7 @@ are revalidated before mutation. Changed existing files with multiple hard links
 are rejected. All target backup, install, and restore renames require native
 no-replace semantics.
 
-The `.codesplice` control tree and transaction directories must be real objects
+The `.srcmv` control tree and transaction directories must be real objects
 owned by the effective user and must not be group- or other-writable; transaction
 directories are mode `0700`. The lock is a real regular file and is never repaired
 silently. Mutation uses a nonblocking exclusive advisory lock, diagnostics use a
@@ -26,23 +26,23 @@ configurations. Windows, network filesystems, hostile namespace-race resistance,
 and power-loss durability are outside the `v0.1.0` claim.
 
 The trusted-user boundary means a same-user process intentionally racing path
-replacement can defeat assumptions between individual checks. CodeSplice is not
+replacement can defeat assumptions between individual checks. srcmv is not
 a sandbox, privilege boundary, malware defense, or guarantee against power-loss
 reordering. It fails closed for detected ordinary edits, identity changes,
 unsupported filesystems, cross-device layouts, and ambiguous recovery state.
 
 ## Semantic-selection boundary
 
-`codesplice select` is read-only with respect to CodeSplice's edit and
+`srcmv select` is read-only with respect to srcmv's edit and
 transaction engines, but it starts a separately installed language-server
 executable. That executable is inside the trusted-user boundary. It runs with the
 invoking user's privileges, inherits the process environment, receives canonical
 workspace and source file URIs plus the exact UTF-8 source snapshot, and may read
-other project files while indexing. CodeSplice is not a sandbox for the server
+other project files while indexing. srcmv is not a sandbox for the server
 and cannot prevent a malicious or compromised server from reading, changing, or
 exfiltrating files using its own process privileges.
 
-CodeSplice itself sends only `initialize`, `initialized`, optional
+srcmv itself sends only `initialize`, `initialized`, optional
 `workspace/didChangeConfiguration`, `textDocument/didOpen`,
 `textDocument/documentSymbol`, `textDocument/didClose`, `shutdown`, and `exit`,
 plus bounded responses to server-initiated requests needed for selection. It
@@ -65,11 +65,11 @@ The exceptions are deliberate trust decisions. An explicit
 `--server-program PROGRAM --language-id ID` may name a relative or
 workspace-local executable. A user descriptor in the trusted configuration may
 do the same only with `allow_workspace_program = true`. Review either source
-before use. `CODESPLICE_CONFIG` names the trusted configuration file exactly;
-CodeSplice never reads configuration from the workspace implicitly.
+before use. `SRCMV_CONFIG` names the trusted configuration file exactly;
+srcmv never reads configuration from the workspace implicitly.
 
 The server is placed in a dedicated process group. On failure or timeout,
-CodeSplice terminates the group, reaps the direct child, and joins its bounded
+srcmv terminates the group, reaps the direct child, and joins its bounded
 stdio workers. This covers ordinary wrapper-spawned helpers but cannot guarantee
 cleanup of a malicious process that independently daemonizes or escapes the
 group.
@@ -79,7 +79,7 @@ group.
 Selection acquires the existing shared diagnostic lock when one exists, scans
 recovery state, captures one immutable source snapshot and its digest, then
 releases the lock before starting the external server. A slow or indexing server
-therefore does not hold the CodeSplice lock and does not block an unrelated
+therefore does not hold the srcmv lock and does not block an unrelated
 commit after capture.
 
 The selected file content sent with `didOpen` is the captured snapshot, and all

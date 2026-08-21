@@ -1,20 +1,20 @@
-# CodeSplice → srcmv renaming plan
+# srcmv → srcmv renaming plan
 
 Status: proposed
 
-This document defines the complete breaking rename of the CodeSplice product to
+This document defines the complete breaking rename of the srcmv product to
 srcmv. It covers the main repository, Rust workspace, CLI, persistent state,
 protocol metadata, schemas, agent skill, release automation, and Homebrew tap.
 
 The rename intentionally removes compatibility aliases and migration support.
 The first srcmv release is a new product identity, even though it is derived
-from the current CodeSplice implementation.
+from the current srcmv implementation.
 
 srcmv has no users other than its maintainer. There are no external consumers
 of the CLI, schemas, protocol, or Homebrew formula. This is what makes a hard
 cutover acceptable, and it is why stale old-identity state can simply be
 ignored rather than detected or migrated. The README and the first srcmv
-release notes must still name CodeSplice as the former product identity,
+release notes must still name srcmv as the former product identity,
 because the historical GitHub releases under atacan/code-splice keep that name
 forever.
 
@@ -28,16 +28,16 @@ packaging:
 | Existing identity | New identity |
 | --- | --- |
 | code-splice | srcmv |
-| codesplice | srcmv |
-| CodeSplice | srcmv |
-| CODESPLICE | SRCMV |
+| srcmv | srcmv |
+| srcmv | srcmv |
+| SRCMV | SRCMV |
 | atacan/code-splice | atacan/srcmv |
-| codesplice-* package/path prefix | srcmv-* |
-| codesplice_* Rust crate prefix | srcmv_* |
-| .codesplice | .srcmv |
-| codesplice/config.toml | srcmv/config.toml |
-| codesplice executable | srcmv executable |
-| skills/codesplice | skills/srcmv |
+| srcmv-* package/path prefix | srcmv-* |
+| srcmv_* Rust crate prefix | srcmv_* |
+| .srcmv | .srcmv |
+| srcmv/config.toml | srcmv/config.toml |
+| srcmv executable | srcmv executable |
+| skills/srcmv | skills/srcmv |
 
 The public product spelling is lowercase srcmv, including prose and command
 examples. Rust package and module naming follows Cargo and Rust conventions:
@@ -47,14 +47,14 @@ srcmv-core and srcmv_core.
 
 The new implementation must not:
 
-- install or recognize a codesplice executable alias;
+- install or recognize a srcmv executable alias;
 - accept old environment variable names as fallbacks;
-- read CODESPLICE_CONFIG or codesplice/config.toml;
-- read, migrate, or write .codesplice transaction state;
+- read SRCMV_CONFIG or srcmv/config.toml;
+- read, migrate, or write .srcmv transaction state;
 - accept old journal magic, hash domains, schema identifiers, or dispatch event
   names;
 - retain old Cargo package or dependency aliases; or
-- leave a second codesplice Homebrew formula as a supported installation path.
+- leave a second srcmv Homebrew formula as a supported installation path.
 
 The old GitHub releases and their historical asset names may remain unchanged.
 They are immutable historical artifacts, not current distribution surfaces.
@@ -83,18 +83,18 @@ https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/
 
 For example, the v1 request schema ID is
 `https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/v1/request.schema.json`.
-The previous `https://codesplice.dev/schema/...` identifiers were never owned,
+The previous `https://srcmv.dev/schema/...` identifiers were never owned,
 registered, or hosted; they were inert placeholders that no consumer could ever
 resolve, so replacing them outright cannot break anyone and requires no
 redirect or compatibility handling. When rewriting identifiers, replace the
-whole `https://codesplice.dev/schema/` prefix with the base URL above so the
+whole `https://srcmv.dev/schema/` prefix with the base URL above so the
 versioned path segments are preserved exactly once. These are direct GitHub
 raw-content URLs, not a separately owned project domain; no DNS, HTTPS
 hosting, or deployment workstream is required.
 
 The schema directories are versioned contracts. Do not change the content of a
 published schema incompatibly in place: add a new versioned schema path when
-needed. Because the old `codesplice.dev` identifiers never resolved anywhere,
+needed. Because the old `srcmv.dev` identifiers never resolved anywhere,
 any URL that dereferences successfully is already using the new namespace, so
 dereferencing is itself an identity check. Add a CI check that dereferences
 every absolute `$id` and `$ref`, compares the response byte-for-byte with its
@@ -123,7 +123,7 @@ in `docs/renaming-allowlist.txt`. Before the final audit, it must contain only:
 - `docs/renaming-plan.md` for the explicit before/after mappings in this plan;
 - `docs/release-v*.md` for preserved historical release wording and for the
   0.4.0 release notes' required references to the former product name;
-- `README.md` for exactly one formerly-known-as mention of CodeSplice; and
+- `README.md` for exactly one formerly-known-as mention of srcmv; and
 - the exact source file and test fixture that implement legacy-artifact
   rejection, if Section 1.6 requires an old literal.
 
@@ -133,13 +133,13 @@ short reason; broad directory entries are forbidden.
 
 ### 1.6 Old persistent state
 
-There is no migration path from .codesplice to .srcmv. A user upgrading in the
+There is no migration path from .srcmv to .srcmv. A user upgrading in the
 middle of a transaction cannot recover that transaction with srcmv.
 
 Old user-level configuration follows the same hard-cut policy without a guard:
 srcmv resolves configuration only from `SRCMV_CONFIG` and
 `srcmv/config.toml` under the platform configuration directory. A leftover
-user-level `codesplice/config.toml` from the old tool is ignored; it is not
+user-level `srcmv/config.toml` from the old tool is ignored; it is not
 read, guarded, migrated, or deleted, because configuration carries no
 transaction-safety risk. The release notes must state the new configuration
 locations.
@@ -147,7 +147,7 @@ locations.
 The release notes and documentation must require users to complete or clean up
 all old transactions before upgrading. Before an operation opens, creates,
 recovers, or mutates workspace control state, srcmv must inspect only the
-workspace root for a first component equal to `.codesplice`, ignoring ASCII
+workspace root for a first component equal to `.srcmv`, ignoring ASCII
 case. If present, it must fail with a documented `srcmv:` error directing the
 user to finish or clean up with the old tool; it must not enumerate, parse,
 lock, migrate, or mutate that tree. This legacy-artifact rejection is a safety
@@ -166,13 +166,13 @@ The current repository contains old identities in all of these surfaces:
 - workspace members, package names, dependency keys, paths, and Rust imports;
 - the CLI binary, Clap command name, version output, errors, and test harness
   environment variables;
-- .codesplice control paths, configuration paths, environment variables, lock
+- .srcmv control paths, configuration paths, environment variables, lock
   handling, recovery, and path validation;
 - journal magic, physical-identity hash domains, plan-hash domains, and golden
   bytes;
 - JSON Schema URLs, $ref values, titles, and error-registry annotations;
 - examples, fixtures, LSP fake-server names, transcripts, and scripts;
-- the skills/codesplice directory, metadata, prompt, and references;
+- the skills/srcmv directory, metadata, prompt, and references;
 - the CI workflow as well as the GitHub release workflow, release scripts,
   archive roots, asset names, and release titles;
 - recorded artifacts such as docs/performance-baseline.json;
@@ -196,7 +196,7 @@ completed the manual action or given an explicit approval for that exact gate.
 
 | Gate | Agent stops after | User action or approval | Agent resumes with |
 | --- | --- | --- | --- |
-| A — cutover preflight | recording the baseline and checking available local state | Confirm that real workspaces have no unfinished CodeSplice transactions, choose a release window, and confirm that no old-identity release or tap automation is active. | Phase 1 local implementation. |
+| A — cutover preflight | recording the baseline and checking available local state | Confirm that real workspaces have no unfinished srcmv transactions, choose a release window, and confirm that no old-identity release or tap automation is active. | Phase 1 local implementation. |
 | B — implementation review | completing Phases 1–6 and reporting the complete diff plus verification results | Review the rename change and approve pushing the source and workflow-only tap branches; approve merging the workflow-only tap change after its external review. | Push the review branches; address review feedback. |
 | C — repository rename | source and tap workflow-only changes are reviewed and ready to merge | Manually rename the GitHub repository to `atacan/srcmv` in GitHub, then confirm completion. This action may instead be delegated only through explicit approval to perform that exact repository rename. | Update local remotes, push/merge the source branch, and verify the new raw schema URLs. |
 | D — public source release | the merged `atacan/srcmv` main branch passes release verification for `0.4.0` | Explicitly approve creating and pushing annotated tag `v0.4.0` and publishing the public GitHub release, or perform that publication manually. | Obtain and independently verify the published archives and `SHA256SUMS`. |
@@ -229,7 +229,7 @@ tag, guessing a checksum, or silently broadening the rename scope.
    publish using the old identity during the cutover.
 7. Add or update the new release notes before the release tag is created.
    State clearly that this is a breaking rename with no migration support;
-   name CodeSplice as the former product identity; list the new persistent
+   name srcmv as the former product identity; list the new persistent
    state and configuration locations (.srcmv, srcmv/config.toml,
    SRCMV_CONFIG); and give the Homebrew switch commands (uninstall the old
    formula, then install atacan/tap/srcmv).
@@ -241,15 +241,15 @@ Use git mv so Git can preserve rename history.
 In the main repository, rename:
 
 ~~~text
-crates/codesplice-cli          → crates/srcmv-cli
-crates/codesplice-core         → crates/srcmv-core
-crates/codesplice-fs           → crates/srcmv-fs
-crates/codesplice-lsp          → crates/srcmv-lsp
-crates/codesplice-protocol     → crates/srcmv-protocol
-crates/codesplice-test-support → crates/srcmv-test-support
-crates/codesplice-test-support/src/bin/codesplice-fake-lsp.rs
+crates/srcmv-cli          → crates/srcmv-cli
+crates/srcmv-core         → crates/srcmv-core
+crates/srcmv-fs           → crates/srcmv-fs
+crates/srcmv-lsp          → crates/srcmv-lsp
+crates/srcmv-protocol     → crates/srcmv-protocol
+crates/srcmv-test-support → crates/srcmv-test-support
+crates/srcmv-test-support/src/bin/srcmv-fake-lsp.rs
   → crates/srcmv-test-support/src/bin/srcmv-fake-lsp.rs
-skills/codesplice              → skills/srcmv
+skills/srcmv              → skills/srcmv
 ~~~
 
 Also rename any remaining tracked file or directory whose name contains an old
@@ -259,11 +259,11 @@ identity, including nested fuzz paths and agent-skill metadata. Do not edit
 In the Homebrew tap, rename:
 
 ~~~text
-Formula/codesplice.rb
+Formula/srcmv.rb
   → Formula/srcmv.rb
-scripts/update-codesplice-formula.rb
+scripts/update-srcmv-formula.rb
   → scripts/update-srcmv-formula.rb
-.github/workflows/update-codesplice.yml
+.github/workflows/update-srcmv.yml
   → .github/workflows/update-srcmv.yml
 ~~~
 
@@ -274,7 +274,7 @@ Update the root Cargo.toml:
 - workspace member paths to crates/srcmv-*;
 - workspace repository to https://github.com/atacan/srcmv;
 - the selected new release version; and
-- workspace-level descriptions or metadata that mention CodeSplice.
+- workspace-level descriptions or metadata that mention srcmv.
 
 Update each package manifest:
 
@@ -290,12 +290,12 @@ Update each package manifest:
 Replace all Rust imports and fully qualified paths:
 
 ~~~text
-codesplice_core         → srcmv_core
-codesplice_fs           → srcmv_fs
-codesplice_lsp          → srcmv_lsp
-codesplice_protocol     → srcmv_protocol
-codesplice_cli          → srcmv_cli
-codesplice_test_support → srcmv_test_support
+srcmv_core         → srcmv_core
+srcmv_fs           → srcmv_fs
+srcmv_lsp          → srcmv_lsp
+srcmv_protocol     → srcmv_protocol
+srcmv_cli          → srcmv_cli
+srcmv_test_support → srcmv_test_support
 ~~~
 
 Update the nested fuzz manifest and lockfile under crates/srcmv-lsp/fuzz.
@@ -315,12 +315,12 @@ In the CLI manifest and implementation:
 
 - set [[bin]].name to srcmv;
 - change the Clap command identity to srcmv;
-- rename codesplice_cli::run() to srcmv_cli::run();
-- update CARGO_BIN_EXE_codesplice to CARGO_BIN_EXE_srcmv;
+- rename srcmv_cli::run() to srcmv_cli::run();
+- update CARGO_BIN_EXE_srcmv to CARGO_BIN_EXE_srcmv;
 - update srcmv version output and all srcmv: error prefixes;
 - update help text, usage text, command dispatch, and examples; and
-- update every codesplice --version, cargo -p codesplice-*, and cargo run
-  -p codesplice-* invocation.
+- update every srcmv --version, cargo -p srcmv-*, and cargo run
+  -p srcmv-* invocation.
 
 The test-support binary must be exposed as srcmv-fake-lsp. Update its
 transcripts, server metadata, fixture documentation, and diagnostics as well
@@ -334,14 +334,14 @@ documentation.
 #### Workspace control and configuration
 
 ~~~text
-.codesplice/               → .srcmv/
-codesplice/config.toml     → srcmv/config.toml
-CODESPLICE_CONFIG          → SRCMV_CONFIG
-CODESPLICE_TEST_*          → SRCMV_TEST_*
-CODESPLICE_PILOT_*         → SRCMV_PILOT_*
-CODESPLICE_BIN             → SRCMV_BIN
-CODESPLICE_QUALIFICATION_* → SRCMV_QUALIFICATION_*
-CODESPLICE_SWIFT_LSP       → SRCMV_SWIFT_LSP
+.srcmv/               → .srcmv/
+srcmv/config.toml     → srcmv/config.toml
+SRCMV_CONFIG          → SRCMV_CONFIG
+SRCMV_TEST_*          → SRCMV_TEST_*
+SRCMV_PILOT_*         → SRCMV_PILOT_*
+SRCMV_BIN             → SRCMV_BIN
+SRCMV_QUALIFICATION_* → SRCMV_QUALIFICATION_*
+SRCMV_SWIFT_LSP       → SRCMV_SWIFT_LSP
 ~~~
 
 Update control-tree constants, default configuration resolution, environment
@@ -352,8 +352,8 @@ directory as well: the resolved default path becomes
 config_dir/srcmv/config.toml.
 
 The first path component .srcmv, case-insensitively, must be reserved in the
-same places where .codesplice was previously reserved. If the safety guard for
-an existing legacy .codesplice tree is retained, it must reject without reading
+same places where .srcmv was previously reserved. If the safety guard for
+an existing legacy .srcmv tree is retained, it must reject without reading
 or mutating that tree.
 
 #### Journal, hash, and identity domains
@@ -362,10 +362,10 @@ Change the persisted and protocol identifiers exactly as selected by the
 contract:
 
 ~~~text
-CODESPLICE-MANIFEST            → SRCMV-MANIFEST
-CODESPLICE-STATE               → SRCMV-STATE
-CODESPLICE-PLAN-V1             → SRCMV-PLAN-V1
-codesplice-physical-identity-v1 → srcmv-physical-identity-v1
+SRCMV-MANIFEST            → SRCMV-MANIFEST
+SRCMV-STATE               → SRCMV-STATE
+SRCMV-PLAN-V1             → SRCMV-PLAN-V1
+srcmv-physical-identity-v1 → srcmv-physical-identity-v1
 ~~~
 
 Update:
@@ -388,8 +388,8 @@ assume that the resulting checksum is correct.
 Update schema URLs and registry annotations:
 
 ~~~text
-https://codesplice.dev/schema/ → https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/
-x-codesplice-error-registry   → x-srcmv-error-registry
+https://srcmv.dev/schema/ → https://raw.githubusercontent.com/atacan/srcmv/main/docs/schema/
+x-srcmv-error-registry   → x-srcmv-error-registry
 ~~~
 
 Update all schema $id and absolute $ref values, schema titles, tests that
@@ -417,7 +417,7 @@ Update all current documentation and runnable material:
 - README.md, including title, badges, repository links, clone commands,
   installation commands, Homebrew commands, binary invocations, package paths,
   environment variables, and skill installation instructions. Add exactly one
-  formerly-known-as sentence naming CodeSplice so historical releases stay
+  formerly-known-as sentence naming srcmv so historical releases stay
   discoverable; that sentence is allowlisted;
 - every non-historical page under docs/, including protocol.md,
   specification.md, security.md, transaction-model.md, agent-integration.md,
@@ -475,14 +475,14 @@ Update scripts/release.sh:
 
 Update .github/workflows/release.yml:
 
-- package lookup from codesplice-cli to srcmv-cli;
+- package lookup from srcmv-cli to srcmv-cli;
 - build package and binary paths to srcmv-cli and srcmv;
 - version assertions to srcmv VERSION;
 - archive and archive-root names to srcmv-v...;
 - release title to srcmv TAG;
 - expected asset lists and checksum validation;
 - repository URLs and hard-coded tap references; and
-- dispatch event type from codesplice_release_published to
+- dispatch event type from srcmv_release_published to
   srcmv_release_published.
 
 Update release notes and release documentation for the selected new version.
@@ -705,11 +705,11 @@ Confirm that:
 - errors begin with srcmv:;
 - CARGO_BIN_EXE_srcmv integration tests execute the new binary;
 - .srcmv is created and recovered correctly;
-- a case-insensitive legacy `.codesplice` tree causes the documented failure
+- a case-insensitive legacy `.srcmv` tree causes the documented failure
   without enumeration, parsing, locking, migration, or mutation;
 - new configuration is resolved only from SRCMV_CONFIG or srcmv/config.toml
   according to the selected contract;
-- a leftover user-level codesplice/config.toml is ignored, never read, and
+- a leftover user-level srcmv/config.toml is ignored, never read, and
   never removed;
 - plan and identity hashes match regenerated golden values; and
 - schema validators resolve the final canonical $id and $ref values.

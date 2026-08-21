@@ -1,4 +1,4 @@
-# CodeSplice LSP fuzzing
+# srcmv LSP fuzzing
 
 This standalone package keeps nightly-only `cargo-fuzz` tooling outside the
 stable workspace build. Every target calls the production byte-oriented APIs;
@@ -7,7 +7,7 @@ they do not contain a second framing or JSON-RPC parser.
 The dependency is pinned to `libfuzzer-sys = 0.4.13`. That release has no
 declared MSRV and depends on `arbitrary 1` plus build dependency `cc >=1.0.83`.
 It builds LLVM libFuzzer C++ support, so it remains development-only and is not
-linked into CodeSplice binaries.
+linked into srcmv binaries.
 
 ## Targets
 
@@ -47,8 +47,8 @@ cargo +nightly fuzz run hierarchical-symbol-normalization -- -max_len=1048576
 harness package is still useful when the installed compiler supports it:
 
 ```console
-cargo check --manifest-path crates/codesplice-lsp/fuzz/Cargo.toml --locked
-cargo clippy --manifest-path crates/codesplice-lsp/fuzz/Cargo.toml --all-targets --locked -- -D warnings
+cargo check --manifest-path crates/srcmv-lsp/fuzz/Cargo.toml --locked
+cargo clippy --manifest-path crates/srcmv-lsp/fuzz/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
 After a failure, minimize it and copy the result into the checked-in corpus:

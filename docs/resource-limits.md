@@ -33,7 +33,7 @@ knows the value and uses checked arithmetic before allocation or I/O.
 ## Semantic-selection limits
 
 Selection protocol v1 is separately bounded. These defaults apply to one
-`codesplice select` invocation. Lowerable limits are used in boundary tests;
+`srcmv select` invocation. Lowerable limits are used in boundary tests;
 trusted user configuration controls only the documented lifecycle deadlines and
 cannot make the versioned response exceed its schema maxima.
 

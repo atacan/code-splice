@@ -168,7 +168,7 @@ fi
   --commit --expect-plan "$plan" --json > "$reports/commit.json"
 
 # Language servers are independently trusted programs, not sandboxed by
-# CodeSplice. These known build/index directories are server/tool artifacts;
+# srcmv. These known build/index directories are server/tool artifacts;
 # all checked-in fixture files, including the selected source and destination,
 # remain under byte-for-byte comparison.
 diff -r -x .build -x .srcmv -x .swiftpm -x target -- \

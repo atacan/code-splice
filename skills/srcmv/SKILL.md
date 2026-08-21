@@ -1,11 +1,11 @@
 ---
-name: codesplice
-description: Safely inspect, semantically select, preview, move, copy, reorder, or split exact bytes already present in workspace files with the CodeSplice CLI. Use when a coding task asks to select a function, class, or declaration through an installed language server; relocate existing code or data; preserve selected bytes exactly; construct protocol-v1 requests; commit an expected preview plan; diagnose conflicts; or inspect and recover an interrupted transaction.
+name: srcmv
+description: Safely inspect, semantically select, preview, move, copy, reorder, or split exact bytes already present in workspace files with the srcmv CLI. Use when a coding task asks to select a function, class, or declaration through an installed language server; relocate existing code or data; preserve selected bytes exactly; construct protocol-v1 requests; commit an expected preview plan; diagnose conflicts; or inspect and recover an interrupted transaction.
 ---
 
-# CodeSplice
+# srcmv
 
-Use CodeSplice for exact relocation or duplication of bytes that already exist in a workspace. Keep generated content, import changes, formatting, and semantic refactors outside the CodeSplice operation.
+Use srcmv for exact relocation or duplication of bytes that already exist in a workspace. Keep generated content, import changes, formatting, and semantic refactors outside the srcmv operation.
 
 ## Enforce the agent safety gate
 
@@ -17,17 +17,17 @@ For every mutation, follow this sequence without shortcuts:
 4. Commit the unchanged request with `--expect-plan` set to that previewed digest.
 5. Verify the commit response and resulting workspace.
 
-Never use `--accept-current-plan`. If a digest, file, or plan changed, inspect and preview again. Never reproduce the selected bytes by hand as a fallback after CodeSplice rejects an operation.
+Never use `--accept-current-plan`. If a digest, file, or plan changed, inspect and preview again. Never reproduce the selected bytes by hand as a fallback after srcmv rejects an operation.
 
-If CodeSplice returns `TRANSACTION_BUSY`, wait before retrying and never bypass or remove the lock. Retrying an inspect or preview takes a fresh observation. You may retry the unchanged commit request with the same `--expect-plan`; if it then reports a precondition or plan mismatch, return to inspect and preview. Before an unrelated mutation after contention, use `recover --list --json` as the point-in-time workspace status check.
+If srcmv returns `TRANSACTION_BUSY`, wait before retrying and never bypass or remove the lock. Retrying an inspect or preview takes a fresh observation. You may retry the unchanged commit request with the same `--expect-plan`; if it then reports a precondition or plan mismatch, return to inspect and preview. Before an unrelated mutation after contention, use `recover --list --json` as the point-in-time workspace status check.
 
 Read [references/workflow.md](references/workflow.md) before executing any mutating task. It contains the commands, review gates, and retry rules.
 
 ## Keep the operation in scope
 
-CodeSplice moves or copies line or byte ranges. Its read-only `select` command can discover a declaration's byte range through a trusted, installed language server; selection and editing remain separate invocations. CodeSplice does not bundle language servers, update imports, format code, normalize line endings, create parent directories, or provide atomic multi-file visibility. Treat follow-up semantic edits as separate work and test the final workspace.
+srcmv moves or copies line or byte ranges. Its read-only `select` command can discover a declaration's byte range through a trusted, installed language server; selection and editing remain separate invocations. srcmv does not bundle language servers, update imports, format code, normalize line endings, create parent directories, or provide atomic multi-file visibility. Treat follow-up semantic edits as separate work and test the final workspace.
 
-Before use, confirm `codesplice` is available and query `capabilities --json` when version or feature support is uncertain. See [references/cli-protocol.md](references/cli-protocol.md) for command grammar, response fields, protocol version, and error categories.
+Before use, confirm `srcmv` is available and query `capabilities --json` when version or feature support is uncertain. See [references/cli-protocol.md](references/cli-protocol.md) for command grammar, response fields, protocol version, and error categories.
 
 ## Load only the needed detail
 

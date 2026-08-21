@@ -6,8 +6,8 @@ not change the protocol-v1 inspect, preview, and guarded-commit workflow.
 First confirm the selection surface and an appropriate trusted language server:
 
 ```bash
-codesplice selection-capabilities --json
-codesplice --workspace /absolute/repo select \
+srcmv selection-capabilities --json
+srcmv --workspace /absolute/repo select \
   --path src/lib.rs --name parse_request --kind function --json \
   > selection.json
 ```
@@ -54,9 +54,9 @@ For several declarations, inspect every destination and run every `select`
 before applying anything, for example:
 
 ```bash
-codesplice --workspace "$WORKSPACE" select --path "$SOURCE" \
+srcmv --workspace "$WORKSPACE" select --path "$SOURCE" \
   --at-line 4 --at-column 1 --json > protocol.json
-codesplice --workspace "$WORKSPACE" select --path "$SOURCE" \
+srcmv --workspace "$WORKSPACE" select --path "$SOURCE" \
   --at-line 13 --at-column 1 --json > extension.json
 ```
 

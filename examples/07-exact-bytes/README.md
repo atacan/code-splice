@@ -12,12 +12,12 @@ examples/run.sh 07-exact-bytes
 ```
 
 The `.hex` fixtures are text encodings for review and Git portability. The runner
-materializes them without the suffix before invoking CodeSplice, then decodes the
+materializes them without the suffix before invoking srcmv, then decodes the
 expected tree and performs a byte-for-byte comparison. Human/JSON preview labels
 text terminators and summarizes binary differences without interpreting payloads
 as UTF-8.
 
-CodeSplice guarantees file-content bytes. It does not parse code, format output,
+srcmv guarantees file-content bytes. It does not parse code, format output,
 normalize line endings, or preserve metadata outside the released metadata
 contract.
 
