@@ -409,6 +409,19 @@ levels even though `symbol_nesting_depth` allows 256; the existing
 for exactly this reason. Outline inherits this unchanged; do not "fix" it in
 this feature.
 
+Addendum (post-implementation, with sign-off): the `SymbolCountLimitExceeded`
+fixture (~1 MiB response frame) exposed an unrelated pre-existing race in
+`Transport::next_incoming`: a chunk observed mid-frame could find no further
+queued event and fall through to a premature `DeadlineExceeded`, surfacing as
+spurious `LSP_TIMEOUT` for multi-chunk frames on both outline and select while
+most of the phase deadline remained. Fixed separately in its own commit
+(`fix(lsp): keep awaiting incomplete frames within the active deadline`) by
+looping back to the blocking wait while the frame decoder holds partial input
+and time remains; precedence and genuine deadline expiry are unchanged, and
+select benefits identically. Regression coverage lives beside the existing
+transport suites (split frame delivered under an adequate deadline, full-deadline
+wait before expiry, expiry without waiting past the deadline).
+
 Backwards compatibility checklist (point 12):
 
 - `Command::Select` variant, clap grammar, and all select code paths untouched

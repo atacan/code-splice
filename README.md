@@ -253,6 +253,40 @@ srcmv --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --complete --json
 # Or: srcmv --workspace "$DEMO_DIR/workspace" recover TRANSACTION_ID --rollback --json
 ```
 
+### Listing every symbol with `srcmv outline`
+
+`srcmv outline` runs one read-only `textDocument/documentSymbol` request against
+a trusted, installed language server and lists every symbol in one file: name,
+standardized kind, complete breadcrumb, nesting depth, one-based inclusive
+lines, one-based exclusive scalar columns, the raw zero-based LSP audit ranges,
+and the validated half-open byte selector that `select --at-byte` consumes.
+On very large files, use `outline` first to discover entries, then `select`
+second to obtain the copy-ready edit fragment:
+
+```bash
+# Human tree view; two-space indentation per nesting level.
+srcmv --workspace /path/to/repo outline --path src/huge.rs
+
+# Machine-readable listing filtered to functions and methods.
+srcmv --workspace /path/to/repo outline --path src/huge.rs \
+  --kind function --kind method --json > outline.json
+```
+
+Human output for the standard fixture looks like:
+
+```text
+source.rs: 2 document symbols
+class Outer lines 3..7 lsp=2:0..6:1 bytes 19..77
+  function alpha lines 4..6 lsp=3:4..5:5 bytes 36..75
+```
+
+The JSON response carries `outline_protocol_version: 1`; its normative schema
+is `docs/schema/outline-v1/response.schema.json`, with hand-authored examples
+under `tests/golden/outline-v1`. An empty result is a success, never an error,
+and an optional repeatable `--kind KIND` filter narrows large listings cheaply.
+See [the protocol contract](docs/protocol.md) for ordering rules, limits, and
+error exits.
+
 ## Coding-agent skill
 
 The repository includes a progressively disclosed agent skill under
