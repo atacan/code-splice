@@ -68,10 +68,11 @@ seam that keeps a future parser backend possible without wire changes.
    position regardless of server child ordering, and keeps limit enforcement
    simple. Server hierarchies are not trusted to be ordered or contiguous;
    flattening plus sorting removes that variability from the contract.
-4. **Human nesting representation?** Two-space indentation per depth level,
-   one line per symbol, terminal-escaped like existing human output
-   (`escape_terminal_text`, `render_human` in select.rs:576-612). Example in
-   §5.1.
+4. **Human nesting representation?** Two-space indentation per depth level
+   with root symbols at column zero, one line per symbol, terminal-escaped
+   like existing human output (`escape_terminal_text` is exported from
+   `srcmv-protocol`; see `render_human`, select.rs:576-612, for the bounded
+   accumulation pattern). Example in §5.2.
 5. **JSON schema?** New independent `outline_protocol_version: 1` response;
    normative schema at `docs/schema/outline-v1/response.schema.json`. Lines
    are one-based physical lines; end line is the line containing the exclusive
@@ -199,16 +200,19 @@ For the standard CLI fixture
 
 ```text
 source.rs: 2 document symbols
-  class Outer lines 3..7 lsp=2:0..6:1 bytes 19..77
-    function alpha lines 4..6 lsp=3:4..5:5 bytes 36..75
+class Outer lines 3..7 lsp=2:0..6:1 bytes 19..77
+  function alpha lines 4..6 lsp=3:4..5:5 bytes 36..75
 ```
 
-- Header line: escaped relative path and total count.
-- One line per symbol: two spaces per depth level, then kind, name,
-  one-based inclusive `lines <start>..<end>`, raw zero-based `lsp=` range, and
-  half-open byte span. Names and paths containing control/bidi characters are
-  visibly escaped (`escape_terminal_text`) as elsewhere.
-- Empty result prints `no document symbols` (no header), mirroring select's
+- Header line: escaped relative path and the total count **after** `--kind`
+  filtering is applied.
+- One line per symbol: two spaces per depth level (root symbols at column
+  zero), then kind, name, one-based inclusive `lines <start>..<end>`, raw
+  zero-based `lsp=` range, and half-open byte span. Names and paths containing
+  control/bidi characters are visibly escaped (`escape_terminal_text` from
+  `srcmv-protocol`) as elsewhere.
+- Empty result — no symbols in the file, or none surviving `--kind`
+  filtering — prints `no document symbols` (no header), mirroring select's
   empty `--all` phrasing.
 - Output size is bounded by `MAX_RESPONSE_BYTES` with checked accumulation,
   exactly like `render_human`.
@@ -283,11 +287,21 @@ Field semantics:
 | `start_line` | one-based physical line of the symbol's converted start byte |
 | `end_line` | one-based physical line containing the exclusive end byte (display-inclusive end) |
 | `start_column` | one-based Unicode-scalar column of the start byte; never null |
-| `end_column` | one-based Unicode-scalar column just past the end content; `null` when the end offset falls inside a CR/LF terminator or at EOF after a final terminator |
+| `end_column` | one-based Unicode-scalar column just past the end content (exclusive); see the nullability note below |
 | `lsp_range`, `lsp_selection_range` | raw zero-based server coordinates in the negotiated encoding, audit-only (identical to selection-v1) |
 | `selector` | authoritative validated half-open byte range of the enclosing symbol range (extent `symbol`) |
 | `depth` | `symbol_path.len() - 1`; root symbols are `0` |
 | `symbol_kind` | selection-v1 spelling; `"unknown"` for non-standard numeric kinds |
+
+Column nullability: the converter helper returns an *optional* column because
+a raw byte offset inside a line terminator, or EOF after a final terminator,
+has no scalar-column position. Such offsets cannot arise from
+`documentSymbol`-derived ranges: `lsp_range_to_byte_range`
+(position.rs:166-173) clamps both endpoints into line content before
+validation, so **every entry emitted by the frozen v1 pipeline serializes
+concrete columns and `null` never occurs in practice**. The `Option` exists
+solely as the §12 future-backend seam; consumers must not code for a `null`
+column they cannot observe. See open decision #4.
 
 ## 6. Data flow
 
@@ -311,9 +325,13 @@ the only new logic.
 7. `normalize_document_symbols(output.symbols, converter, SymbolLimits::default())`
    — unchanged validation, bounding, and range conversion.
 8. **New** `order_unique_candidates(&symbols)` (symbols.rs addition): sort by
-   the frozen candidate comparator (start/end byte, kind, path, name, detail)
-   and coalesce exact duplicates — the same treatment `resolve_name --all`
-   applies, extracted so both callers share it.
+   the full frozen candidate comparator — enclosing-range start/end bytes,
+   kind spelling then numeric value, symbol path, name
+   (`compare_candidates`, symbols.rs:881-886), followed by the reveal-range
+   start/end and `detail` tiebreakers (`prepare_candidates`,
+   symbols.rs:795-806) — and coalesce exact duplicates by
+   `(lsp_range, kind, symbol_path, name)`. This is exactly the treatment
+   `resolve_name --all` applies, extracted so both callers share it.
 9. **New** filter by requested kinds if `--kind` was supplied.
 10. **New** enforce `maximum_outline_symbols` (fail closed) and convert each
     record to an `OutlineSymbolDto`: byte→(one-based line, optional scalar
@@ -460,14 +478,22 @@ Implementation order within each file follows the phases in §13.
   flat typed failure (exit 4), `malformed-range`, `invalid-selection-range`,
   `duplicate-symbols` coalescing, `deep-symbols` bounded failure,
   `many-symbols` ordering, `symbol-count-limit-exceeded`, non-UTF-8 source,
-  source-size boundaries, timeout phase reporting, server-identity rejection,
-  human-output escaping/indentation, `--kind` filtering, workspace-read-only
-  snapshot comparison, slow server releases diagnostic lock, JSON golden
-  comparisons.
+  source-size boundaries, timeout phase reporting, human-output
+  escaping/indentation (including the column-zero root convention),
+  `--kind` filtering with post-filter header count and all-filtered-out empty
+  phrasing, workspace-read-only snapshot comparison, slow server releases
+  diagnostic lock, JSON golden comparisons.
+  Server-identity bounds are deliberately **not** re-tested end-to-end: the
+  fake server hardcodes a valid identity (`serverInfo`,
+  fake_lsp.rs:586/1071) and outline reuses `validate_server_identity`
+  unchanged, whose empty/oversized cases are already pinned by the existing
+  select.rs unit test `server_identity_must_be_nonempty_and_bounded_for_the_wire_schema`.
 - `crates/srcmv-lsp/tests/position.rs`: below/at/above boundaries for
   `byte_to_user_line_scalar`; LF, CRLF, lone CR; astral-plane scalar columns
   under UTF-8/UTF-16/UTF-32 negotiation; terminator-interior and
   EOF-after-final-terminator offsets → `(line, None)`; out-of-range → error.
+  These unit tests are also the only place the unreachable-in-practice
+  `(line, None)` branch can be exercised (see §5.3 nullability note).
 - `crates/srcmv-lsp/tests/symbols.rs`: `order_unique_candidates` ordering and
   dedup parity with `resolve_name(.., MatchMode::All, ..)` results.
 - `crates/srcmv-protocol` unit tests (in-module): bounded-serializer
@@ -478,7 +504,9 @@ Implementation order within each file follows the phases in §13.
 
 ## 10. Documentation updates
 
-- `README.md`: new subsection after "Semantic selection..." (~after line 229):
+- `README.md`: new subsection immediately before `## Coding-agent skill`
+  (~line 254), closing the "Semantic selection with an installed language
+  server" section (which spans lines 172-253):
   one-paragraph intro, human example, JSON pointer to schema, guidance to use
   outline first and `select` second on huge files.
 - `docs/protocol.md`: add `outline` to the command surface enumeration
@@ -556,9 +584,13 @@ No parser code ships now. To keep a backend swap possible:
    v1 (recommended); a future minor revision could add an opt-in nested view
    without breaking the flat contract only if fields are purely additive —
    decide before freezing the schema whether `children` will ever be wanted.
-4. **`end_column` polarity**: exclusive/past-end (recommended, matches
-   half-open selectors) versus last-content scalar; must be settled before
-   the schema freezes since it changes every consumer.
+4. **`end_column` polarity and nullability**: v1 pins exclusive/past-end
+   (matching half-open selectors). The schema keeps `end_column` nullable, but
+   the null variant is unreachable through the frozen v1 LSP pipeline (see
+   §5.3); it is retained only for the §12 backend seam. If reviewers prefer,
+   v1 may instead declare both columns non-nullable `u64` and relax them only
+   when a second backend actually arrives — either choice must be settled
+   before the schema freezes since it changes every consumer.
 5. **Capability advertisement**: leave `capabilities` /
    `selection-capabilities` untouched in v1 (recommended; both are described
    as static/frozen surfaces) versus adding an outline section later.
