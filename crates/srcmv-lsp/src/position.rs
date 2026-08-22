@@ -295,13 +295,15 @@ impl<'a> PositionConverter<'a> {
     }
 
     /// Converts a snapshot byte offset to its one-based physical line and,
-    /// when the offset lies on line content, its one-based scalar column.
+    /// when representable, its one-based Unicode-scalar column.
     ///
-    /// Unlike [`Self::byte_to_lsp_position`], offsets inside CR/LF terminators
-    /// and EOF after a final terminator still report their physical line with
-    /// a `None` column: physical lines exist independently of LSP character
-    /// positions. Column scans charge the cumulative work budget one unit per
-    /// examined scalar value.
+    /// Content offsets report the column of the offset itself; an offset at
+    /// the content end reports the column just past the final scalar, which
+    /// is the exclusive-end convention used by half-open ranges. Only offsets
+    /// strictly beyond the content end — inside a multi-byte CR/LF terminator
+    /// or at EOF after a final terminator — still report their physical line
+    /// with a `None` column. Column scans charge the cumulative work budget
+    /// one unit per examined scalar value.
     ///
     /// # Errors
     ///
@@ -355,11 +357,11 @@ impl<'a> PositionConverter<'a> {
             return Err(PositionError::ByteNotRepresentable);
         }
         let line = u64::from(zero_based) + 1;
-        if byte_offset > bounds.content_end
-            || (byte_offset == bounds.content_end && bounds.content_end < physical_end)
-        {
-            // Inside the line terminator, or EOF after a final terminator:
-            // the physical line exists but has no scalar-column position.
+        if byte_offset > bounds.content_end {
+            // Strictly inside a multi-byte terminator, or EOF after a final
+            // terminator: the physical line exists but has no scalar-column
+            // position. Offsets exactly at the content end do have one: the
+            // column just past the final scalar, matching half-open ranges.
             return Ok((line, None));
         }
         Ok((line, Some(self.scalar_column_before(bounds, byte_offset)?)))

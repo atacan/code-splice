@@ -347,27 +347,42 @@ fn byte_to_user_line_scalar_reports_lines_without_columns_inside_terminators() {
     let snapshot = Snapshot::new("ab\ncd\r\nef\rgh\n");
     let mut converter = snapshot.converter(SupportedPositionEncoding::Utf8);
 
-    for (offset, line) in [(2, 1), (5, 2), (6, 2), (9, 3)] {
+    // An offset exactly at the content end reports the exclusive past-end
+    // column, matching half-open range ends.
+    for (offset, expected) in [
+        (2, (1, Some(3))),  // LF terminating "ab"
+        (5, (2, Some(3))),  // CR opening the CRLF after "cd"
+        (9, (3, Some(3))),  // CR terminating "ef"
+        (12, (4, Some(3))), // past-end column of unterminated-content line "gh"
+    ] {
         assert_eq!(
             converter.byte_to_user_line_scalar(offset),
-            Ok((line, None)),
-            "terminator-interior offset {offset}"
+            Ok(expected),
+            "content-end offset {offset}"
         );
     }
-    // EOF after the final terminator has a physical line but no column.
+
+    // Only a byte strictly beyond the content end has no scalar column.
+    assert_eq!(converter.byte_to_user_line_scalar(6), Ok((2, None)));
+    assert_eq!(converter.byte_to_user_line_scalar(12), Ok((4, Some(3))));
     assert_eq!(converter.byte_to_user_line_scalar(13), Ok((4, None)));
 }
 
 #[test]
-fn byte_to_user_line_scalar_keeps_blank_physical_lines_columnless() {
+fn byte_to_user_line_scalar_handles_blank_lines_and_crlf_interiors() {
     let snapshot = Snapshot::new("\n\r\n\r");
     let mut converter = snapshot.converter(SupportedPositionEncoding::Utf16);
 
-    for (offset, line) in [(0, 1), (1, 2), (2, 2), (3, 3)] {
+    for (offset, expected) in [
+        (0, (1, Some(1))),
+        (1, (2, Some(1))),
+        (2, (2, None)), // strictly inside the CRLF terminator
+        (3, (3, Some(1))),
+    ] {
         assert_eq!(
             converter.byte_to_user_line_scalar(offset),
-            Ok((line, None)),
-            "blank-line offset {offset}"
+            Ok(expected),
+            "offset {offset}"
         );
     }
 }
@@ -385,7 +400,7 @@ fn byte_to_user_line_scalar_counts_astral_scalars_identically_for_every_encoding
         assert_eq!(converter.byte_to_user_line_scalar(0), Ok((1, Some(1))));
         assert_eq!(converter.byte_to_user_line_scalar(2), Ok((1, Some(2))));
         assert_eq!(converter.byte_to_user_line_scalar(6), Ok((1, Some(3))));
-        assert_eq!(converter.byte_to_user_line_scalar(7), Ok((1, None)));
+        assert_eq!(converter.byte_to_user_line_scalar(7), Ok((1, Some(4))));
         assert_eq!(converter.byte_to_user_line_scalar(8), Ok((2, Some(1))));
         assert_eq!(converter.byte_to_user_line_scalar(12), Ok((2, Some(2))));
         assert_eq!(converter.byte_to_user_line_scalar(13), Ok((2, Some(3))));
@@ -462,7 +477,7 @@ fn byte_to_user_line_scalar_charges_only_column_scans_against_the_work_budget() 
         Err(PositionError::WorkLimitExceeded)
     );
 
-    let terminated = Snapshot::new("ab\ncd");
+    let terminated = Snapshot::new("ab\r\ncd");
     let mut terminator_lookup = PositionConverter::new(
         &terminated.text,
         &terminated.index,
@@ -473,7 +488,7 @@ fn byte_to_user_line_scalar_charges_only_column_scans_against_the_work_budget() 
     )
     .expect("test index should describe its snapshot");
     // Line-only lookups never scan content and never consume the budget.
-    assert_eq!(terminator_lookup.byte_to_user_line_scalar(2), Ok((1, None)));
+    assert_eq!(terminator_lookup.byte_to_user_line_scalar(3), Ok((1, None)));
     assert_eq!(terminator_lookup.code_points_scanned(), 0);
 }
 

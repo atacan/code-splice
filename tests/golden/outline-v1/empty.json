@@ -13,5 +13,11 @@
     "position_encoding": "utf-16"
   },
   "symbols": [],
-  "warnings": []
+  "warnings": [
+    {
+      "code": "OBSERVATION_MAY_BE_STALE",
+      "context": {},
+      "message": "no existing srcmv lock coordinated this read-only observation"
+    }
+  ]
 }

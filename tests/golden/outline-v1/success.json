@@ -54,5 +54,11 @@
       "selector": {"kind": "bytes", "start": 36, "end": 75}
     }
   ],
-  "warnings": []
+  "warnings": [
+    {
+      "code": "OBSERVATION_MAY_BE_STALE",
+      "context": {},
+      "message": "no existing srcmv lock coordinated this read-only observation"
+    }
+  ]
 }

@@ -14,7 +14,10 @@ independently from the edit protocol-v1 and selection-v1 golden vectors.
   never an error.
 
 Both examples use the fake server's identity (`srcmv-fake-lsp`, version `1`,
-UTF-16 negotiation) with no configuration ID. `workspace_identity_hash` is the
+UTF-16 negotiation) with no configuration ID, and carry the only warning
+outline v1 can emit: `OBSERVATION_MAY_BE_STALE`, recorded because these
+read-only observations are not coordinated by a pre-existing shared lock.
+`workspace_identity_hash` is the
 shared non-sensitive placeholder used because the hash covers the physical
 identity of the workspace root; runtime tests substitute the observed digest
 before comparing structures. `source.sha256` is the real digest of the fixture
