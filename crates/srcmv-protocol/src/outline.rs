@@ -69,6 +69,48 @@ impl OutlineSymbolDto {
             selector,
         }
     }
+
+    /// Returns the unqualified symbol name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the normalized symbol kind.
+    #[must_use]
+    pub const fn symbol_kind(&self) -> SelectionSymbolKindDto {
+        self.symbol_kind
+    }
+
+    /// Returns the derived hierarchy depth (`symbol_path.len() - 1`).
+    #[must_use]
+    pub const fn depth(&self) -> u64 {
+        self.depth
+    }
+
+    /// Returns the one-based physical line of the symbol's start.
+    #[must_use]
+    pub const fn start_line(&self) -> u64 {
+        self.start_line
+    }
+
+    /// Returns the one-based physical line containing the symbol's end.
+    #[must_use]
+    pub const fn end_line(&self) -> u64 {
+        self.end_line
+    }
+
+    /// Returns the raw zero-based LSP enclosing range retained for audit.
+    #[must_use]
+    pub const fn lsp_range(&self) -> SelectionLspRangeDto {
+        self.lsp_range
+    }
+
+    /// Returns the validated half-open byte selector of the enclosing range.
+    #[must_use]
+    pub const fn selector(&self) -> SelectionByteSelectorDto {
+        self.selector
+    }
 }
 
 /// A successful read-only outline protocol-v1 response.

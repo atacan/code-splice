@@ -57,6 +57,18 @@ impl SelectionLspPositionDto {
     pub const fn new(line: u32, character: u32) -> Self {
         Self { line, character }
     }
+
+    /// Returns the raw zero-based line.
+    #[must_use]
+    pub const fn line(self) -> u32 {
+        self.line
+    }
+
+    /// Returns the raw zero-based character offset.
+    #[must_use]
+    pub const fn character(self) -> u32 {
+        self.character
+    }
 }
 
 /// One raw zero-based LSP range retained for audit output.
@@ -71,6 +83,18 @@ impl SelectionLspRangeDto {
     #[must_use]
     pub const fn new(start: SelectionLspPositionDto, end: SelectionLspPositionDto) -> Self {
         Self { start, end }
+    }
+
+    /// Returns the raw range start.
+    #[must_use]
+    pub const fn start(self) -> SelectionLspPositionDto {
+        self.start
+    }
+
+    /// Returns the raw range end.
+    #[must_use]
+    pub const fn end(self) -> SelectionLspPositionDto {
+        self.end
     }
 }
 
