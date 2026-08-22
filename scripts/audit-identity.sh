@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Identity audit for the srcmv rename (docs/renaming-plan.md Section 5.1).
+# Identity audit for the srcmv rename (background: atacan/srcmv issue #18).
 #
 # Usage: scripts/audit-identity.sh docs/renaming-allowlist.txt
 #

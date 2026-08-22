@@ -2,9 +2,7 @@
 # Format: PATH<TAB>EXTENDED-REGEX<TAB>REASON  (one entry per line; '#' comments).
 # The audit fails for any tracked former-identity match outside these entries
 # and for any entry that matches nothing. Directory-wide entries are forbidden.
-# See docs/renaming-plan.md Sections 1.5 and 5.1.
-# Before the first srcmv release this table must contain only the entries below.
-docs/renaming-plan.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	the plan's own explicit before/after identity mappings
+# Background: atacan/srcmv issue #18 (the completed former-identity rename).
 docs/release-v0.1.0.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	preserved historical release wording for published assets and names
 docs/release-v0.1.1.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	preserved historical release wording for published assets and names
 docs/release-v0.2.0.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	preserved historical release wording for published assets and names
@@ -12,7 +10,7 @@ docs/release-v0.2.1.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	preserved h
 docs/release-v0.3.0.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	preserved historical release wording for published assets and names
 docs/release-v0.4.0.md	[cC][oO][dD][eE][-_]?[sS][pP][lL][iI][cC][eE]	required references to the former product identity in the first srcmv release notes
 README.md	srcmv was formerly known as CodeSplice.*atacan/code-splice	exactly one formerly-known-as sentence required by the renaming plan
-crates/srcmv-fs/src/control.rs	\.codesplice	legacy-artifact rejection literal (renaming plan Section 1.6)
-crates/srcmv-fs/tests/legacy_control_state.rs	codesplice|CODESPLICE	legacy-artifact rejection test fixture (renaming plan Section 1.6)
+crates/srcmv-fs/src/control.rs	\.codesplice	legacy-artifact rejection literal (issue #18, legacy-state policy)
+crates/srcmv-fs/tests/legacy_control_state.rs	codesplice|CODESPLICE	legacy-artifact rejection test fixture (issue #18, legacy-state policy)
 scripts/audit-identity.sh	code[-_]?splice	the auditor's own detection patterns
 docs/renaming-allowlist.txt	code[-_]?splice	this table's own pattern column

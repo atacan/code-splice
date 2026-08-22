@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dereferences every absolute schema $id/$ref committed under docs/schema and
 # compares each response byte-for-byte with its tracked file
-# (docs/renaming-plan.md Section 1.4). Run after the repository rename; any
+# (background: atacan/srcmv issue #18). Run after the repository rename; any
 # drift between the published namespace and this tree fails the check.
 set -euo pipefail
 
