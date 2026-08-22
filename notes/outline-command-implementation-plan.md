@@ -126,7 +126,8 @@ seam that keeps a future parser backend possible without wire changes.
     `NormalizedSymbol`, and keep the outline surface free of any "LSP" wording
     in its own schema fields (server metadata stays generic). No parser code,
     grammars, dependencies, or fallback flags in this release.
-11. **Exact files/tests/docs:** §10 (tests), §11 (docs), §9 (file-by-file).
+11. **Exact files/tests/docs:** §9 (file-by-file changes + tests), §10
+    (documentation updates), §11 (verification gates).
 12. **Backwards compatibility?** Purely additive. No change to `select`
     grammar, behavior, schemas, goldens, error registry, exit codes,
     capability responses, protocol v1, or configuration format. See §8.
@@ -212,8 +213,9 @@ class Outer lines 3..7 lsp=2:0..6:1 bytes 19..77
   control/bidi characters are visibly escaped (`escape_terminal_text` from
   `srcmv-protocol`) as elsewhere.
 - Empty result — no symbols in the file, or none surviving `--kind`
-  filtering — prints `no document symbols` (no header), mirroring select's
-  empty `--all` phrasing.
+  filtering — prints `no document symbols` (no header), analogous to select's
+  empty-result convention (whose exact string is
+  `no matching document symbols`, select.rs:608-610).
 - Output size is bounded by `MAX_RESPONSE_BYTES` with checked accumulation,
   exactly like `render_human`.
 
